@@ -1,5 +1,22 @@
 import { SESClient, SendEmailCommand, SendBulkTemplatedEmailCommand } from '@aws-sdk/client-ses';
 
+// Function to add click tracking to HTML content
+function addClickTracking(html: string, campaignId: string, messageId?: string): string {
+  // Replace all href attributes with tracking URLs
+  return html.replace(
+    /href\s*=\s*["']([^"']+)["']/gi,
+    (match, url) => {
+      // Skip if it's already a tracking URL or if it's a mailto/tel link
+      if (url.includes('/api/track/click') || url.startsWith('mailto:') || url.startsWith('tel:')) {
+        return match;
+      }
+      
+      const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/track/click?cid=${campaignId}&url=${encodeURIComponent(url)}&email={{email}}&mid=${messageId || Date.now()}`;
+      return `href="${trackingUrl}"`;
+    }
+  );
+}
+
 const sesClient = new SESClient({
   region: process.env.AWS_REGION!,
   credentials: {
@@ -16,6 +33,8 @@ export interface SendEmailParams {
   from?: string;
   replyTo?: string;
   configurationSetName?: string;
+  campaignId?: string;
+  messageId?: string;
 }
 
 export async function sendEmail({
@@ -26,7 +45,19 @@ export async function sendEmail({
   from = process.env.FROM_EMAIL!,
   replyTo = process.env.REPLY_TO_EMAIL!,
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
+  campaignId,
+  messageId,
 }: SendEmailParams) {
+  // Add tracking pixel for open tracking
+  const trackingPixel = campaignId ? 
+    `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?cid=${campaignId}&email={{email}}&mid=${messageId || Date.now()}" width="1" height="1" style="display:none;" />` : '';
+  
+  // Process HTML to add click tracking
+  const processedHtml = campaignId ? addClickTracking(html, campaignId, messageId) : html;
+  
+  // Add campaign metadata to subject if provided
+  const trackedSubject = campaignId ? `${subject} [campaign:${campaignId}]` : subject;
+
   const command = new SendEmailCommand({
     Source: from,
     Destination: {
@@ -34,12 +65,12 @@ export async function sendEmail({
     },
     Message: {
       Subject: {
-        Data: subject,
+        Data: trackedSubject,
         Charset: 'UTF-8',
       },
       Body: {
         Html: {
-          Data: html,
+          Data: processedHtml + trackingPixel,
           Charset: 'UTF-8',
         },
         Text: text
@@ -50,9 +81,18 @@ export async function sendEmail({
           : undefined,
       },
     },
-    ReplyToAddresses: replyTo ? [replyTo] : undefined, // If the recipient replies to the message, 
-    // each reply-to address receives the reply.
+    ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,
+    Tags: campaignId ? [
+      {
+        Name: 'campaignId',
+        Value: campaignId,
+      },
+      ...(messageId ? [{
+        Name: 'messageId',
+        Value: messageId,
+      }] : []),
+    ] : undefined,
   });
 
   return await sesClient.send(command);
@@ -70,6 +110,7 @@ export interface SendBulkEmailParams {
   from?: string;
   replyTo?: string;
   configurationSetName?: string;
+  campaignId?: string;
 }
 
 export async function sendBulkEmail({
@@ -79,16 +120,24 @@ export async function sendBulkEmail({
   from = process.env.FROM_EMAIL!,
   replyTo,
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
+  campaignId,
 }: SendBulkEmailParams) {
   const command = new SendBulkTemplatedEmailCommand({
     Source: from,
     Template: template,
-    DefaultTemplateData: JSON.stringify(defaultReplacementData),
+    DefaultTemplateData: JSON.stringify({
+      ...defaultReplacementData,
+      campaignId: campaignId || '',
+      trackingDomain: process.env.NEXT_PUBLIC_APP_URL || '',
+    }),
     Destinations: destinations.map((dest) => ({
       Destination: {
         ToAddresses: [dest.email],
       },
-      ReplacementTemplateData: JSON.stringify(dest.replacementData),
+      ReplacementTemplateData: JSON.stringify({
+        ...dest.replacementData,
+        email: dest.email, // Ensure email is available for tracking
+      }),
     })),
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,

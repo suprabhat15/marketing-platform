@@ -11,15 +11,41 @@ import { CampaignList } from './campaign-list';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 
+const eventSchema = z.object({
+  id: z.string(),
+  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
+  data: z.any().nullable(),
+  createdAt: z.string().datetime(),
+  subscriber: z.object({
+    id: z.string(),
+    email: z.string(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+  }).nullable(),
+});
+
 const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
   status: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
-  // recipientCount: z.number().nullable(),
+  latestStatus: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
   scheduledAt: z.string().datetime().nullable(),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+  latestCreatedAt: z.string().datetime(),
+  list: z.object({
+    id: z.string(),
+    name: z.string(),
+  }),
+  template: z.object({
+    id: z.string(),
+    name: z.string(),
+  }).nullable(),
+  events: z.array(eventSchema),
+  totalEvents: z.number(),
+  campaignIds: z.array(z.string()),
+  eventsByType: z.record(z.number()),
 });
 
 const statsSchema = z.object({
@@ -27,6 +53,7 @@ const statsSchema = z.object({
   sent: z.number(),
   scheduled: z.number(),
   draft: z.number(),
+  totalEvents: z.number(),
 });
 
 type Campaign = z.infer<typeof campaignSchema>;
@@ -39,6 +66,7 @@ export function CampaignDashboard() {
     sent: 0,
     scheduled: 0,
     draft: 0,
+    totalEvents: 0,
   });
   const [loading, setLoading] = useState(true);
   const router = useRouter();

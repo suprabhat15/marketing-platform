@@ -14,13 +14,17 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Calendar,
   Mail,
   Send,
   Clock,
   Edit,
   Trash2,
   MoreHorizontal,
+  ChevronDown,
+  ChevronRight,
+  Activity,
+  Filter,
+  Search,
 } from 'lucide-react';
 import { format } from 'date-fns';
 import {
@@ -29,20 +33,54 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { z } from 'zod';
+
+const eventSchema = z.object({
+  id: z.string(),
+  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
+  data: z.any().nullable(),
+  createdAt: z.string().datetime(),
+  subscriber: z.object({
+    id: z.string(),
+    email: z.string(),
+    firstName: z.string().nullable(),
+    lastName: z.string().nullable(),
+  }).nullable(),
+});
 
 const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
   status: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
-  recipientCount: z.number().nullable(),
+  latestStatus: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
   scheduledAt: z.string().datetime().nullable(),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
+  latestCreatedAt: z.string().datetime(),
+  list: z.object({
+    id: z.string(),
+    name: z.string(),
+  }),
+  template: z.object({
+    id: z.string(),
+    name: z.string(),
+  }).nullable(),
+  events: z.array(eventSchema),
+  totalEvents: z.number(),
+  campaignIds: z.array(z.string()),
+  eventsByType: z.record(z.number()),
 });
 
 type Campaign = z.infer<typeof campaignSchema>;
+type Event = z.infer<typeof eventSchema>;
 
 interface CampaignListProps {
   campaigns: Campaign[];
@@ -59,6 +97,44 @@ export function CampaignList({
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
+  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
+  const [eventFilters, setEventFilters] = useState<Record<string, string>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+
+  const toggleCampaignExpansion = (campaignId: string) => {
+    const newExpanded = new Set(expandedCampaigns);
+    if (newExpanded.has(campaignId)) {
+      newExpanded.delete(campaignId);
+    } else {
+      newExpanded.add(campaignId);
+    }
+    setExpandedCampaigns(newExpanded);
+  };
+
+  const updateEventFilter = (campaignId: string, filter: string) => {
+    setEventFilters(prev => ({
+      ...prev,
+      [campaignId]: filter === 'all' ? '' : filter,
+    }));
+  };
+
+  const getFilteredEvents = (campaign: Campaign) => {
+    const filter = eventFilters[campaign.id];
+    if (!filter) return campaign.events;
+    return campaign.events.filter(event => event.type === filter);
+  };
+
+  // Filter campaigns based on search query and status
+  const filteredCampaigns = campaigns.filter(campaign => {
+    const matchesSearch = searchQuery === '' || 
+      campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      campaign.subject.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || campaign.latestStatus === statusFilter;
+    
+    return matchesSearch && matchesStatus;
+  });
 
   const getStatusColor = (status: Campaign['status']) => {
     switch (status) {
@@ -72,6 +148,27 @@ export function CampaignList({
         return 'bg-red-100 text-red-800 border-red-200';
       default:
         return 'bg-gray-100 text-gray-800 border-gray-200';
+    }
+  };
+
+  const getEventTypeColor = (type: Event['type']) => {
+    switch (type) {
+      case 'SENT':
+        return 'bg-blue-100 text-blue-800';
+      case 'DELIVERED':
+        return 'bg-green-100 text-green-800';
+      case 'OPENED':
+        return 'bg-purple-100 text-purple-800';
+      case 'CLICKED':
+        return 'bg-orange-100 text-orange-800';
+      case 'BOUNCED':
+        return 'bg-red-100 text-red-800';
+      case 'COMPLAINED':
+        return 'bg-red-100 text-red-800';
+      case 'UNSUBSCRIBED':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
     }
   };
 
@@ -111,10 +208,41 @@ export function CampaignList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Mail className="h-5 w-5" />
-          All Campaigns
-        </CardTitle>
+        <div className="flex items-center justify-between">
+          <CardTitle className="flex items-center gap-2">
+            <Mail className="h-5 w-5" />
+            All Campaigns ({filteredCampaigns.length})
+          </CardTitle>
+          
+          <div className="flex items-center gap-3">
+            {/* Status Filter */}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-32">
+                <Filter className="h-3 w-3 mr-2" />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="DRAFT">Draft</SelectItem>
+                <SelectItem value="SCHEDULED">Scheduled</SelectItem>
+                <SelectItem value="SENDING">Sending</SelectItem>
+                <SelectItem value="SENT">Sent</SelectItem>
+                <SelectItem value="FAILED">Failed</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search campaigns..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="pl-8 w-64"
+              />
+            </div>
+          </div>
+        </div>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
@@ -128,8 +256,28 @@ export function CampaignList({
                 Get started by creating your first email campaign.
               </p>
             </div>
+          ) : filteredCampaigns.length === 0 ? (
+            <div className="text-center py-12">
+              <Search className="mx-auto h-12 w-12 text-gray-400" />
+              <h3 className="mt-2 text-sm font-medium text-gray-900">
+                No campaigns found
+              </h3>
+              <p className="mt-1 text-sm text-gray-500">
+                Try adjusting your search or filter criteria.
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setSearchQuery('');
+                  setStatusFilter('all');
+                }}
+                className="mt-3"
+              >
+                Clear filters
+              </Button>
+            </div>
           ) : (
-            campaigns.map((campaign) => (
+            filteredCampaigns.map((campaign) => (
               <div
                 key={campaign.id}
                 className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
@@ -137,9 +285,25 @@ export function CampaignList({
                 <div className="flex items-start justify-between">
                   <div className="space-y-2 flex-1">
                     <div className="flex items-center gap-3">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => toggleCampaignExpansion(campaign.id)}
+                        className="p-0 h-auto"
+                      >
+                        {expandedCampaigns.has(campaign.id) ? (
+                          <ChevronDown className="h-4 w-4" />
+                        ) : (
+                          <ChevronRight className="h-4 w-4" />
+                        )}
+                      </Button>
                       <h3 className="font-semibold text-lg">{campaign.name}</h3>
-                      <Badge className={getStatusColor(campaign.status)}>
-                        {getStatusLabel(campaign.status)}
+                      <Badge className={getStatusColor(campaign.latestStatus)}>
+                        {getStatusLabel(campaign.latestStatus)}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs">
+                        <Activity className="h-3 w-3 mr-1" />
+                        {campaign.totalEvents} events
                       </Badge>
                     </div>
                     
@@ -149,7 +313,7 @@ export function CampaignList({
                     
                     <div className="flex items-center gap-6 text-sm text-muted-foreground">
                       <span>
-                        Recipients: {campaign.recipientCount ?? 0}
+                        List: {campaign.list.name}
                       </span>
                       <span>
                         Created: {format(new Date(campaign.createdAt), 'MMM d, yyyy')}
@@ -165,10 +329,23 @@ export function CampaignList({
                         </span>
                       )}
                     </div>
+
+                    {/* Event Statistics */}
+                    <div className="flex flex-wrap gap-2">
+                      {Object.entries(campaign.eventsByType).map(([type, count]) => (
+                        <Badge 
+                          key={type} 
+                          variant="outline" 
+                          className={`text-xs ${getEventTypeColor(type as Event['type'])}`}
+                        >
+                          {type}: {count}
+                        </Badge>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-2">
-                    {campaign.status === 'DRAFT' && (
+                    {campaign.latestStatus === 'DRAFT' && (
                       <>
                         <Button
                           size="sm"
@@ -209,6 +386,66 @@ export function CampaignList({
                     </DropdownMenu>
                   </div>
                 </div>
+
+                {/* Expanded Events Section */}
+                {expandedCampaigns.has(campaign.id) && (
+                  <div className="mt-4 pt-4 border-t">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-medium flex items-center gap-2">
+                        <Activity className="h-4 w-4" />
+                        Campaign Events ({getFilteredEvents(campaign).length})
+                      </h4>
+                      <Select
+                        value={eventFilters[campaign.id] || 'all'}
+                        onValueChange={(value) => updateEventFilter(campaign.id, value)}
+                      >
+                        <SelectTrigger className="w-40">
+                          <Filter className="h-3 w-3 mr-2" />
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Events</SelectItem>
+                          <SelectItem value="SENT">Sent</SelectItem>
+                          <SelectItem value="DELIVERED">Delivered</SelectItem>
+                          <SelectItem value="OPENED">Opened</SelectItem>
+                          <SelectItem value="CLICKED">Clicked</SelectItem>
+                          <SelectItem value="BOUNCED">Bounced</SelectItem>
+                          <SelectItem value="COMPLAINED">Complained</SelectItem>
+                          <SelectItem value="UNSUBSCRIBED">Unsubscribed</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                      {getFilteredEvents(campaign).length === 0 ? (
+                        <p className="text-sm text-muted-foreground py-4 text-center">
+                          No events found for the selected filter.
+                        </p>
+                      ) : (
+                        getFilteredEvents(campaign).map((event) => (
+                          <div key={event.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                            <div className="flex items-center gap-3">
+                              <Badge className={getEventTypeColor(event.type)}>
+                                {event.type}
+                              </Badge>
+                              <span className="text-muted-foreground">
+                                {event.subscriber?.email || 'Unknown recipient'}
+                              </span>
+                              {event.subscriber?.firstName && (
+                                <span className="text-muted-foreground">
+                                  ({event.subscriber.firstName} {event.subscriber.lastName})
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {format(new Date(event.createdAt), 'MMM d, HH:mm')}
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             ))
           )}
