@@ -55,8 +55,8 @@ export async function sendEmail({
   // Process HTML to add click tracking
   const processedHtml = campaignId ? addClickTracking(html, campaignId, messageId) : html;
   
-  // Add campaign metadata to subject if provided
-  const trackedSubject = campaignId ? `${subject} [campaign:${campaignId}]` : subject;
+  // Use the original subject without campaign metadata (tracking is done via SES tags)
+  const trackedSubject = subject;
 
   const command = new SendEmailCommand({
     Source: from,

@@ -10,7 +10,7 @@ const createCampaignSchema = z.object({
   listId: z.string(),
   templateId: z.string().optional(),
   scheduledAt: z.string().datetime().optional(),
-  // subscriberIds: z.array(z.string()).optional(),
+  subscriberIds: z.array(z.string()).min(1, 'At least one subscriber must be selected'),
 });
 
 export async function GET(request: NextRequest) {
@@ -153,7 +153,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
     // }
 
     const body = await request.json();
-    const { name, subject, content, listId, templateId, scheduledAt } =
+    const { name, subject, content, listId, templateId, scheduledAt, subscriberIds } =
       createCampaignSchema.parse(body);
 
     // Verify list ownership
@@ -176,13 +176,10 @@ export async function POST(request: NextRequest) { // Created first campaign via
         listId,
         templateId,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
+        subscriberIds: subscriberIds,
         userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
       },
     });
-
-    // If specific subscribers are selected, store this information
-    // For now, we'll use the existing list relationship
-    // In a production app, you might want a separate table for campaign recipients
 
     return NextResponse.json({ campaign }, { status: 201 });
   } catch (error) {
@@ -190,7 +187,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') },
       { status: 500 }
     );
   }
