@@ -190,15 +190,8 @@ function extractCampaignId(sesEvent: SESEventRecord): string | null {
     }
   }
 
-  // Try to extract from subject or other metadata
-  // This is a fallback - you might need to implement your own logic
-  const subject = sesEvent.mail.commonHeaders?.subject;
-  if (subject) {
-    const match = subject.match(/\[campaign:([^\]]+)\]/);
-    if (match) {
-      return match[1];
-    }
-  }
+  // Campaign ID should be available via tags or headers
+  // No longer parsing from subject line to keep subjects clean
 
   return null;
 }

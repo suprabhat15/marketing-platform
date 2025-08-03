@@ -36,7 +36,24 @@ export async function sendCampaign(campaignId: string) {
   });
   console.log("Campaign status updated to SENDING");
   try {
-    const subscribers = campaign.list.subscribers;
+    // Filter subscribers based on selected subscriber IDs from campaign
+    const selectedIds = Array.isArray(campaign.subscriberIds) ? campaign.subscriberIds : [];
+    
+    // Validate that subscribers are selected
+    if (selectedIds.length === 0) {
+      throw new Error('No subscribers selected for this campaign. Please select at least one subscriber.');
+    }
+    
+    const allSubscribers = campaign.list.subscribers;
+    const subscribers = allSubscribers.filter(subscriber => selectedIds.includes(subscriber.id));
+    
+    // Validate that selected subscribers actually exist and are active
+    if (subscribers.length === 0) {
+      throw new Error('None of the selected subscribers are active or found in the list.');
+    }
+    
+    console.log(`Sending campaign to ${subscribers.length} selected subscribers out of ${allSubscribers.length} total subscribers`);
+    
     const batchSize = 50; // SES limit
     const tracker = createEmailTracker();
 
