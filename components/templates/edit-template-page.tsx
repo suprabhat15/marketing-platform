@@ -422,12 +422,8 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.back()}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
         <div>
@@ -438,8 +434,8 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        <div className="lg:col-span-3 space-y-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
+        <div className="space-y-6 lg:col-span-3">
           <Card>
             <CardHeader>
               <CardTitle>Template Details</CardTitle>
@@ -455,7 +451,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                   className={errors.name ? 'border-red-500' : ''}
                 />
                 {errors.name && (
-                  <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.name}</p>
                 )}
               </div>
 
@@ -469,7 +465,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                   className={errors.subject ? 'border-red-500' : ''}
                 />
                 {errors.subject && (
-                  <p className="text-sm text-red-500 mt-1">{errors.subject}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.subject}</p>
                 )}
               </div>
             </CardContent>
@@ -494,11 +490,17 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
             <CardContent>
               <Tabs value={activeTab} onValueChange={setActiveTab}>
                 <TabsList>
-                  <TabsTrigger value="wysiwyg" className="flex items-center gap-2">
+                  <TabsTrigger
+                    value="wysiwyg"
+                    className="flex items-center gap-2"
+                  >
                     <Type className="h-4 w-4" />
                     {isWysiwygMode ? 'Visual Editor' : 'HTML Editor'}
                   </TabsTrigger>
-                  <TabsTrigger value="preview" className="flex items-center gap-2">
+                  <TabsTrigger
+                    value="preview"
+                    className="flex items-center gap-2"
+                  >
                     <Eye className="h-4 w-4" />
                     Preview
                   </TabsTrigger>
@@ -524,18 +526,22 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                     </div>
                   )}
                   {errors.content && (
-                    <p className="text-sm text-red-500 mt-1">{errors.content}</p>
+                    <p className="mt-1 text-sm text-red-500">
+                      {errors.content}
+                    </p>
                   )}
                 </TabsContent>
 
                 <TabsContent value="preview" className="mt-4">
-                  <div className="border rounded-lg p-4 min-h-[300px] bg-gray-50">
-                    <div className="bg-white p-4 rounded shadow-sm">
-                      <div className="border-b pb-2 mb-4">
+                  <div className="min-h-[300px] rounded-lg border bg-gray-50 p-4">
+                    <div className="rounded bg-white p-4 shadow-sm">
+                      <div className="mb-4 border-b pb-2">
                         <strong>Subject:</strong> {subject || 'No subject'}
                       </div>
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: content || textContent || '<p>No content</p>' }}
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: content || textContent || '<p>No content</p>',
+                        }}
                       />
                     </div>
                   </div>
@@ -551,12 +557,12 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                       placeholder="Enter plain text content"
                       className={`min-h-[300px] ${errors.content && activeTab === 'text' ? 'border-red-500' : ''}`}
                     />
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Plain text version for email clients that don&apos;t support HTML
+                    <p className="text-muted-foreground mt-1 text-sm">
+                      Plain text version for email clients that don&apos;t
+                      support HTML
                     </p>
                   </div>
                 </TabsContent>
-
               </Tabs>
             </CardContent>
           </Card>
@@ -570,8 +576,8 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <div className="rounded-lg border-2 border-dashed border-gray-300 p-6 text-center">
+                  <Upload className="mx-auto mb-4 h-12 w-12 text-gray-400" />
                   <div className="space-y-2">
                     <p className="text-sm text-gray-600">
                       Drag and drop files here, or click to select files
@@ -579,14 +585,18 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                     <Input
                       type="file"
                       multiple
-                      onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+                      onChange={(e) =>
+                        e.target.files && handleFileUpload(e.target.files)
+                      }
                       className="hidden"
                       id="file-upload"
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => document.getElementById('file-upload')?.click()}
+                      onClick={() =>
+                        document.getElementById('file-upload')?.click()
+                      }
                     >
                       Select Files
                     </Button>
@@ -602,13 +612,16 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                     {attachments.map((attachment, index) => (
                       <div
                         key={index}
-                        className="flex items-center gap-3 p-3 border rounded-lg"
+                        className="flex items-center gap-3 rounded-lg border p-3"
                       >
                         {getFileIcon(attachment.type)}
                         <div className="flex-1">
-                          <p className="text-sm font-medium">{attachment.name}</p>
+                          <p className="text-sm font-medium">
+                            {attachment.name}
+                          </p>
                           <p className="text-xs text-gray-500">
-                            {formatFileSize(attachment.size)} • {attachment.type}
+                            {formatFileSize(attachment.size)} •{' '}
+                            {attachment.type}
                           </p>
                         </div>
                         <Button
@@ -633,37 +646,37 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
               <CardTitle>Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full"
-              >
-                <Save className="h-4 w-4 mr-2" />
+              <Button onClick={handleSave} disabled={saving} className="w-full">
+                <Save className="mr-2 h-4 w-4" />
                 {saving ? 'Updating...' : 'Update Template'}
               </Button>
-              
+
               <Dialog>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="w-full">
-                    <Eye className="h-4 w-4 mr-2" />
+                    <Eye className="mr-2 h-4 w-4" />
                     Preview Email
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Email Preview</DialogTitle>
                   </DialogHeader>
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <div className="bg-white p-4 rounded shadow-sm">
-                      <div className="border-b pb-2 mb-4">
+                  <div className="rounded-lg border bg-gray-50 p-4">
+                    <div className="rounded bg-white p-4 shadow-sm">
+                      <div className="mb-4 border-b pb-2">
                         <strong>Subject:</strong> {subject || 'No subject'}
                       </div>
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: content || textContent || '<p>No content</p>' }}
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: content || textContent || '<p>No content</p>',
+                        }}
                       />
                       {attachments.length > 0 && (
-                        <div className="mt-4 pt-4 border-t">
-                          <p className="text-sm font-medium mb-2">Attachments:</p>
+                        <div className="mt-4 border-t pt-4">
+                          <p className="mb-2 text-sm font-medium">
+                            Attachments:
+                          </p>
                           {attachments.map((attachment, index) => (
                             <div key={index} className="text-sm text-gray-600">
                               📎 {attachment.name}
@@ -684,14 +697,14 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <p className="text-sm text-gray-600 mb-3">
+                <p className="mb-3 text-sm text-gray-600">
                   Click to insert variables into your template:
                 </p>
                 {availableVariables.map((variable) => (
                   <Badge
                     key={variable}
                     variant="outline"
-                    className="cursor-pointer hover:bg-gray-100 mr-1 mb-1"
+                    className="hover:bg-background mr-1 mb-1 cursor-pointer"
                     onClick={() => insertVariable(variable)}
                   >
                     {variable}

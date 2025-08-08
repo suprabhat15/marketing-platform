@@ -109,8 +109,8 @@ export default function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full space-y-8">
+    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12 sm:px-6 lg:px-8">
+      <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">MailPackr</h1>
           <p className="mt-2 text-gray-600">Your email marketing platform</p>
@@ -148,7 +148,7 @@ export default function AuthPage() {
                     <div className="relative">
                       <Input
                         id="login-password"
-                        type={showPassword ? "text" : "password"}
+                        type={showPassword ? 'text' : 'password'}
                         placeholder="Enter your password"
                         value={loginPassword}
                         onChange={(e) => setLoginPassword(e.target.value)}
@@ -158,7 +158,7 @@ export default function AuthPage() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        className="hover:bg-background absolute top-0 right-0 h-full px-3 py-2"
                         onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
@@ -170,7 +170,7 @@ export default function AuthPage() {
                     </div>
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Signing in..." : "Sign In"}
+                    {isLoading ? 'Signing in...' : 'Sign In'}
                   </Button>
                 </form>
               </TabsContent>
@@ -204,7 +204,7 @@ export default function AuthPage() {
                     <div className="relative">
                       <Input
                         id="signup-password"
-                        type={showPassword ? "text" : "password"}
+                        type={showPassword ? 'text' : 'password'}
                         placeholder="Create a password"
                         value={signupPassword}
                         onChange={(e) => setSignupPassword(e.target.value)}
@@ -214,7 +214,7 @@ export default function AuthPage() {
                         type="button"
                         variant="ghost"
                         size="sm"
-                        className="absolute right-0 top-0 h-full px-3 py-2 hover:bg-transparent"
+                        className="hover:bg-background absolute top-0 right-0 h-full px-3 py-2"
                         onClick={() => setShowPassword(!showPassword)}
                       >
                         {showPassword ? (
@@ -229,7 +229,7 @@ export default function AuthPage() {
                     <Label htmlFor="confirm-password">Confirm Password</Label>
                     <Input
                       id="confirm-password"
-                      type={showPassword ? "text" : "password"}
+                      type={showPassword ? 'text' : 'password'}
                       placeholder="Confirm your password"
                       value={confirmPassword}
                       onChange={(e) => setConfirmPassword(e.target.value)}
@@ -237,7 +237,7 @@ export default function AuthPage() {
                     />
                   </div>
                   <Button type="submit" className="w-full" disabled={isLoading}>
-                    {isLoading ? "Creating account..." : "Create Account"}
+                    {isLoading ? 'Creating account...' : 'Create Account'}
                   </Button>
                 </form>
               </TabsContent>
@@ -249,24 +249,26 @@ export default function AuthPage() {
                   <div className="w-full border-t border-gray-300" />
                 </div>
                 <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">Or continue with</span>
+                  <span className="bg-white px-2 text-gray-500">
+                    Or continue with
+                  </span>
                 </div>
               </div>
 
               <Button
                 type="button"
                 variant="outline"
-                className="w-full mt-4"
+                className="mt-4 w-full"
                 onClick={handleGoogleAuth}
                 disabled={isLoading}
               >
-                <Mail className="h-4 w-4 mr-2" />
+                <Mail className="mr-2 h-4 w-4" />
                 Google
               </Button>
             </div>
 
             {error && (
-              <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+              <div className="mt-4 rounded-md border border-red-200 bg-red-50 p-3">
                 <p className="text-sm text-red-600">{error}</p>
               </div>
             )}
