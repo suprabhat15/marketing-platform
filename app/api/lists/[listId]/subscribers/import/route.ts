@@ -33,17 +33,41 @@ export async function POST(
       );
     }
 
-    // Get existing subscribers to handle duplicates
+    // Normalize and deduplicate emails from CSV first
+    const emailMap = new Map<string, any>();
+    let csvDuplicates = 0;
+    
+    // Remove duplicates within the CSV file itself (case-insensitive)
+    subscribers.forEach(subscriber => {
+      const normalizedEmail = subscriber.email.toLowerCase().trim();
+      if (emailMap.has(normalizedEmail)) {
+        csvDuplicates++;
+      } else {
+        emailMap.set(normalizedEmail, {
+          ...subscriber,
+          email: normalizedEmail // Store normalized email
+        });
+      }
+    });
+
+    const uniqueSubscribers = Array.from(emailMap.values());
+
+    // Get existing subscribers to handle duplicates with database
     const existingSubscribers = await prisma.subscriber.findMany({
-      where: { listId },
+      where: { 
+        listId,
+        email: {
+          in: uniqueSubscribers.map(s => s.email)
+        }
+      },
       select: { email: true },
     });
 
-    const existingEmails = new Set(existingSubscribers.map(s => s.email));
+    const existingEmails = new Set(existingSubscribers.map(s => s.email.toLowerCase()));
     
     // Separate new and existing subscribers
-    const newSubscribers = subscribers.filter(s => !existingEmails.has(s.email));
-    const duplicateCount = subscribers.length - newSubscribers.length;
+    const newSubscribers = uniqueSubscribers.filter(s => !existingEmails.has(s.email));
+    const dbDuplicateCount = uniqueSubscribers.length - newSubscribers.length;
 
     let importedCount = 0;
 
@@ -67,7 +91,9 @@ export async function POST(
       stats: {
         total: subscribers.length,
         imported: importedCount,
-        duplicates: duplicateCount,
+        duplicates: dbDuplicateCount + csvDuplicates,
+        csvDuplicates,
+        dbDuplicates: dbDuplicateCount,
       },
     });
   } catch (error) {
