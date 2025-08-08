@@ -1,5 +1,9 @@
 import { CampaignDashboard } from "@/components/campaigns/campaign-dashboard";
 
 export default function CampaignsPage() {
-  return <CampaignDashboard />;
+  return (
+    <div className="bg-background">
+        <CampaignDashboard />
+    </div>
+  );
 }

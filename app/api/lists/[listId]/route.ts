@@ -1,0 +1,183 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
+import { z } from 'zod';
+
+const updateListSchema = z.object({
+  name: z.string().min(1, 'List name is required'),
+  description: z.string().optional(),
+  subscribers: z.array(z.object({
+    id: z.string().optional(),
+    email: z.string().email('Invalid email address'),
+    firstName: z.string().optional(),
+    lastName: z.string().optional(),
+    status: z.enum(['ACTIVE', 'UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED']),
+  })).optional(),
+});
+
+// GET /api/lists/[listId] - Get specific list details
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ listId: string }> }
+) {
+  try {
+    const { listId } = await params;
+
+    const list = await prisma.list.findUnique({
+      where: { id: listId },
+      include: {
+        subscribers: true,
+        _count: {
+          select: { subscribers: true },
+        },
+      },
+    });
+
+    if (!list) {
+      return NextResponse.json(
+        { error: 'List not found' },
+        { status: 404 }
+      );
+    }
+
+    return NextResponse.json({ list });
+  } catch (error) {
+    console.error('Error fetching list:', error);
+    return NextResponse.json(
+      { error: 'Failed to fetch list' },
+      { status: 500 }
+    );
+  }
+}
+
+// PUT /api/lists/[listId] - Update list
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ listId: string }> }
+) {
+  try {
+    const { listId } = await params;
+    const body = await request.json();
+    const { name, description, subscribers } = updateListSchema.parse(body);
+
+    // Check if list exists
+    const existingList = await prisma.list.findUnique({
+      where: { id: listId },
+      include: { subscribers: true },
+    });
+
+    if (!existingList) {
+      return NextResponse.json(
+        { error: 'List not found' },
+        { status: 404 }
+      );
+    }
+
+    // Update list in transaction
+    const updatedList = await prisma.$transaction(async (tx) => {
+      // Update list basic info
+      const list = await tx.list.update({
+        where: { id: listId },
+        data: {
+          name,
+          description: description || '',
+        },
+      });
+
+      if (subscribers) {
+        // Handle subscribers updates
+        const existingSubscriberIds = existingList.subscribers.map(s => s.id);
+        const updatedSubscriberIds = subscribers.filter(s => s.id).map(s => s.id!);
+        
+        // Delete removed subscribers
+        const subscribersToDelete = existingSubscriberIds.filter(
+          id => !updatedSubscriberIds.includes(id)
+        );
+        
+        if (subscribersToDelete.length > 0) {
+          await tx.subscriber.deleteMany({
+            where: { id: { in: subscribersToDelete } },
+          });
+        }
+
+        // Update or create subscribers
+        for (const subscriber of subscribers) {
+          if (subscriber.id) {
+            // Update existing subscriber
+            await tx.subscriber.update({
+              where: { id: subscriber.id },
+              data: {
+                email: subscriber.email,
+                firstName: subscriber.firstName || '',
+                lastName: subscriber.lastName || '',
+                status: subscriber.status,
+              },
+            });
+          } else {
+            // Create new subscriber
+            await tx.subscriber.create({
+              data: {
+                email: subscriber.email,
+                firstName: subscriber.firstName || '',
+                lastName: subscriber.lastName || '',
+                status: subscriber.status,
+                listId,
+              },
+            });
+          }
+        }
+      }
+
+      return list;
+    });
+
+    return NextResponse.json({ list: updatedList });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json(
+        { error: 'Validation failed', details: error.errors },
+        { status: 400 }
+      );
+    }
+
+    console.error('Error updating list:', error);
+    return NextResponse.json(
+      { error: 'Failed to update list' },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE /api/lists/[listId] - Delete list
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ listId: string }> }
+) {
+  try {
+    const { listId } = await params;
+
+    // Check if list exists
+    const existingList = await prisma.list.findUnique({
+      where: { id: listId },
+    });
+
+    if (!existingList) {
+      return NextResponse.json(
+        { error: 'List not found' },
+        { status: 404 }
+      );
+    }
+
+    // Delete list (subscribers will be deleted due to cascade)
+    await prisma.list.delete({
+      where: { id: listId },
+    });
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting list:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete list' },
+      { status: 500 }
+    );
+  }
+}

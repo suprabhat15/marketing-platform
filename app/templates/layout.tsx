@@ -8,11 +8,7 @@ export default function TemplatesLayout({
   return (
     <div className="flex h-screen">
       <Sidebar />
-      <main className="flex-1 overflow-y-auto">
-        <div className="p-8">
-          {children}
-        </div>
-      </main>
+      <main className="bg-background flex-1 overflow-auto p-6">{children}</main>
     </div>
   );
 }

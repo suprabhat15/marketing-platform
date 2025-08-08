@@ -122,17 +122,19 @@ export function TemplatesDashboard() {
           </p>
         </div>
         <Button onClick={() => router.push('/templates/new')}>
-          <Plus className="h-4 w-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           New Template
         </Button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Templates</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">
+              Total Templates
+            </CardTitle>
+            <FileText className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{templates.length}</div>
@@ -148,14 +150,14 @@ export function TemplatesDashboard() {
               <FileText className="h-5 w-5" />
               All Templates ({filteredTemplates.length})
             </CardTitle>
-            
+
             <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
               <Input
                 placeholder="Search templates..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 w-64"
+                className="w-64 pl-8"
               />
             </div>
           </div>
@@ -163,7 +165,7 @@ export function TemplatesDashboard() {
         <CardContent>
           <div className="space-y-4">
             {templates.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="py-12 text-center">
                 <FileText className="mx-auto h-12 w-12 text-gray-400" />
                 <h3 className="mt-2 text-sm font-medium text-gray-900">
                   No templates
@@ -175,12 +177,12 @@ export function TemplatesDashboard() {
                   onClick={() => router.push('/templates/new')}
                   className="mt-4"
                 >
-                  <Plus className="h-4 w-4 mr-2" />
+                  <Plus className="mr-2 h-4 w-4" />
                   Create Template
                 </Button>
               </div>
             ) : filteredTemplates.length === 0 ? (
-              <div className="text-center py-12">
+              <div className="py-12 text-center">
                 <Search className="mx-auto h-12 w-12 text-gray-400" />
                 <h3 className="mt-2 text-sm font-medium text-gray-900">
                   No templates found
@@ -200,27 +202,31 @@ export function TemplatesDashboard() {
               filteredTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                  className="hover:bg-background rounded-lg border p-4 transition-colors"
                 >
                   <div className="flex items-start justify-between">
-                    <div className="space-y-2 flex-1">
+                    <div className="flex-1 space-y-2">
                       <div className="flex items-center gap-3">
-                        <h3 className="font-semibold text-lg">{template.name}</h3>
+                        <h3 className="text-lg font-semibold">
+                          {template.name}
+                        </h3>
                         <Badge variant="outline" className="text-xs">
                           Template
                         </Badge>
                       </div>
-                      
-                      <p className="text-sm text-muted-foreground">
+
+                      <p className="text-muted-foreground text-sm">
                         Subject: {template.subject}
                       </p>
-                      
-                      <div className="flex items-center gap-6 text-sm text-muted-foreground">
+
+                      <div className="text-muted-foreground flex items-center gap-6 text-sm">
                         <span>
-                          Created: {format(new Date(template.createdAt), 'MMM d, yyyy')}
+                          Created:{' '}
+                          {format(new Date(template.createdAt), 'MMM d, yyyy')}
                         </span>
                         <span>
-                          Updated: {format(new Date(template.updatedAt), 'MMM d, yyyy')}
+                          Updated:{' '}
+                          {format(new Date(template.updatedAt), 'MMM d, yyyy')}
                         </span>
                       </div>
                     </div>
@@ -243,19 +249,23 @@ export function TemplatesDashboard() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem onClick={() => handleEdit(template.id)}>
-                            <Edit className="h-4 w-4 mr-2" />
+                          <DropdownMenuItem
+                            onClick={() => handleEdit(template.id)}
+                          >
+                            <Edit className="mr-2 h-4 w-4" />
                             Edit
                           </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => handleDuplicate(template)}>
-                            <Copy className="h-4 w-4 mr-2" />
+                          <DropdownMenuItem
+                            onClick={() => handleDuplicate(template)}
+                          >
+                            <Copy className="mr-2 h-4 w-4" />
                             Duplicate
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             onClick={() => handleDelete(template.id)}
                             className="text-red-600"
                           >
-                            <Trash2 className="h-4 w-4 mr-2" />
+                            <Trash2 className="mr-2 h-4 w-4" />
                             Delete
                           </DropdownMenuItem>
                         </DropdownMenuContent>

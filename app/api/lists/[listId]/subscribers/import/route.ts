@@ -11,30 +11,7 @@ const importSubscribersSchema = z.object({
   })),
 });
 
-// GET /api/lists/[listId]/subscribers - Get all subscribers for a list
-export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ listId: string }> }
-) {
-  try {
-    const { listId } = await params;
-    
-    const subscribers = await prisma.subscriber.findMany({
-      where: { listId },
-      orderBy: { createdAt: 'desc' },
-    });
-
-    return NextResponse.json({ subscribers });
-  } catch (error) {
-    console.error('Error fetching subscribers:', error);
-    return NextResponse.json(
-      { error: 'Failed to fetch subscribers' },
-      { status: 500 }
-    );
-  }
-}
-
-// POST /api/lists/[listId]/subscribers - Add new subscribers to a list
+// POST /api/lists/[listId]/subscribers/import - Import subscribers from CSV
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ listId: string }> }
@@ -56,38 +33,42 @@ export async function POST(
       );
     }
 
-    // Get existing subscribers to avoid duplicates
+    // Get existing subscribers to handle duplicates
     const existingSubscribers = await prisma.subscriber.findMany({
       where: { listId },
       select: { email: true },
     });
 
     const existingEmails = new Set(existingSubscribers.map(s => s.email));
+    
+    // Separate new and existing subscribers
     const newSubscribers = subscribers.filter(s => !existingEmails.has(s.email));
+    const duplicateCount = subscribers.length - newSubscribers.length;
 
-    if (newSubscribers.length === 0) {
-      return NextResponse.json({
-        message: 'No new subscribers to import',
-        imported: 0,
-        duplicates: subscribers.length,
+    let importedCount = 0;
+
+    if (newSubscribers.length > 0) {
+      // Create new subscribers
+      const result = await prisma.subscriber.createMany({
+        data: newSubscribers.map(subscriber => ({
+          email: subscriber.email,
+          firstName: subscriber.firstName || '',
+          lastName: subscriber.lastName || '',
+          status: subscriber.status === 'UNSUBSCRIBED' ? 'UNSUBSCRIBED' : 'ACTIVE',
+          listId,
+        })),
       });
+      importedCount = result.count;
     }
 
-    // Create new subscribers
-    const createdSubscribers = await prisma.subscriber.createMany({
-      data: newSubscribers.map(subscriber => ({
-        email: subscriber.email,
-        firstName: subscriber.firstName || '',
-        lastName: subscriber.lastName || '',
-        status: subscriber.status === 'UNSUBSCRIBED' ? 'UNSUBSCRIBED' : 'ACTIVE',
-        listId,
-      })),
-    });
-
     return NextResponse.json({
-      message: 'Subscribers imported successfully',
-      imported: createdSubscribers.count,
-      duplicates: subscribers.length - newSubscribers.length,
+      success: true,
+      message: 'Import completed successfully',
+      stats: {
+        total: subscribers.length,
+        imported: importedCount,
+        duplicates: duplicateCount,
+      },
     });
   } catch (error) {
     if (error instanceof z.ZodError) {

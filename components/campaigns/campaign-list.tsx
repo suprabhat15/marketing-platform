@@ -213,12 +213,12 @@ export function CampaignList({
             <Mail className="h-5 w-5" />
             All Campaigns ({filteredCampaigns.length})
           </CardTitle>
-          
+
           <div className="flex items-center gap-3">
             {/* Status Filter */}
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="w-32">
-                <Filter className="h-3 w-3 mr-2" />
+                <Filter className="mr-2 h-3 w-3" />
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -233,12 +233,12 @@ export function CampaignList({
 
             {/* Search Input */}
             <div className="relative">
-              <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
               <Input
                 placeholder="Search campaigns..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-8 w-64"
+                className="w-64 pl-8"
               />
             </div>
           </div>
@@ -247,7 +247,7 @@ export function CampaignList({
       <CardContent>
         <div className="space-y-4">
           {campaigns.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="py-12 text-center">
               <Mail className="mx-auto h-12 w-12 text-gray-400" />
               <h3 className="mt-2 text-sm font-medium text-gray-900">
                 No campaigns
@@ -257,7 +257,7 @@ export function CampaignList({
               </p>
             </div>
           ) : filteredCampaigns.length === 0 ? (
-            <div className="text-center py-12">
+            <div className="py-12 text-center">
               <Search className="mx-auto h-12 w-12 text-gray-400" />
               <h3 className="mt-2 text-sm font-medium text-gray-900">
                 No campaigns found
@@ -280,16 +280,16 @@ export function CampaignList({
             filteredCampaigns.map((campaign) => (
               <div
                 key={campaign.id}
-                className="border rounded-lg p-4 hover:bg-gray-50 transition-colors"
+                className="hover:bg-background rounded-lg border p-4 transition-colors"
               >
                 <div className="flex items-start justify-between">
-                  <div className="space-y-2 flex-1">
+                  <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-3">
                       <Button
                         variant="ghost"
                         size="sm"
                         onClick={() => toggleCampaignExpansion(campaign.id)}
-                        className="p-0 h-auto"
+                        className="h-auto p-0"
                       >
                         {expandedCampaigns.has(campaign.id) ? (
                           <ChevronDown className="h-4 w-4" />
@@ -297,50 +297,59 @@ export function CampaignList({
                           <ChevronRight className="h-4 w-4" />
                         )}
                       </Button>
-                      <h3 className="font-semibold text-lg">{campaign.name}</h3>
+                      <h3 className="text-lg font-semibold">{campaign.name}</h3>
                       <Badge className={getStatusColor(campaign.latestStatus)}>
                         {getStatusLabel(campaign.latestStatus)}
                       </Badge>
                       <Badge variant="outline" className="text-xs">
-                        <Activity className="h-3 w-3 mr-1" />
+                        <Activity className="mr-1 h-3 w-3" />
                         {campaign.totalEvents} events
                       </Badge>
                     </div>
-                    
-                    <p className="text-sm text-muted-foreground">
+
+                    <p className="text-muted-foreground text-sm">
                       {campaign.subject}
                     </p>
-                    
-                    <div className="flex items-center gap-6 text-sm text-muted-foreground">
+
+                    <div className="text-muted-foreground flex items-center gap-6 text-sm">
+                      <span>List: {campaign.list.name}</span>
                       <span>
-                        List: {campaign.list.name}
-                      </span>
-                      <span>
-                        Created: {format(new Date(campaign.createdAt), 'MMM d, yyyy')}
+                        Created:{' '}
+                        {format(new Date(campaign.createdAt), 'MMM d, yyyy')}
                       </span>
                       {campaign.scheduledAt && (
                         <span>
-                          Scheduled: {format(new Date(campaign.scheduledAt), 'MMM d, yyyy HH:mm')}
+                          Scheduled:{' '}
+                          {format(
+                            new Date(campaign.scheduledAt),
+                            'MMM d, yyyy HH:mm'
+                          )}
                         </span>
                       )}
                       {campaign.sentAt && (
                         <span>
-                          Sent: {format(new Date(campaign.sentAt), 'MMM d, yyyy HH:mm')}
+                          Sent:{' '}
+                          {format(
+                            new Date(campaign.sentAt),
+                            'MMM d, yyyy HH:mm'
+                          )}
                         </span>
                       )}
                     </div>
 
                     {/* Event Statistics */}
                     <div className="flex flex-wrap gap-2">
-                      {Object.entries(campaign.eventsByType).map(([type, count]) => (
-                        <Badge 
-                          key={type} 
-                          variant="outline" 
-                          className={`text-xs ${getEventTypeColor(type as Event['type'])}`}
-                        >
-                          {type}: {count}
-                        </Badge>
-                      ))}
+                      {Object.entries(campaign.eventsByType).map(
+                        ([type, count]) => (
+                          <Badge
+                            key={type}
+                            variant="outline"
+                            className={`text-xs ${getEventTypeColor(type as Event['type'])}`}
+                          >
+                            {type}: {count}
+                          </Badge>
+                        )
+                      )}
                     </div>
                   </div>
 
@@ -375,11 +384,11 @@ export function CampaignList({
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
                         <DropdownMenuItem>
-                          <Edit className="h-4 w-4 mr-2" />
+                          <Edit className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-red-600">
-                          <Trash2 className="h-4 w-4 mr-2" />
+                          <Trash2 className="mr-2 h-4 w-4" />
                           Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -389,18 +398,20 @@ export function CampaignList({
 
                 {/* Expanded Events Section */}
                 {expandedCampaigns.has(campaign.id) && (
-                  <div className="mt-4 pt-4 border-t">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-medium flex items-center gap-2">
+                  <div className="mt-4 border-t pt-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <h4 className="flex items-center gap-2 font-medium">
                         <Activity className="h-4 w-4" />
                         Campaign Events ({getFilteredEvents(campaign).length})
                       </h4>
                       <Select
                         value={eventFilters[campaign.id] || 'all'}
-                        onValueChange={(value) => updateEventFilter(campaign.id, value)}
+                        onValueChange={(value) =>
+                          updateEventFilter(campaign.id, value)
+                        }
                       >
                         <SelectTrigger className="w-40">
-                          <Filter className="h-3 w-3 mr-2" />
+                          <Filter className="mr-2 h-3 w-3" />
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -411,19 +422,24 @@ export function CampaignList({
                           <SelectItem value="CLICKED">Clicked</SelectItem>
                           <SelectItem value="BOUNCED">Bounced</SelectItem>
                           <SelectItem value="COMPLAINED">Complained</SelectItem>
-                          <SelectItem value="UNSUBSCRIBED">Unsubscribed</SelectItem>
+                          <SelectItem value="UNSUBSCRIBED">
+                            Unsubscribed
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
 
-                    <div className="space-y-2 max-h-60 overflow-y-auto">
+                    <div className="max-h-60 space-y-2 overflow-y-auto">
                       {getFilteredEvents(campaign).length === 0 ? (
-                        <p className="text-sm text-muted-foreground py-4 text-center">
+                        <p className="text-muted-foreground py-4 text-center text-sm">
                           No events found for the selected filter.
                         </p>
                       ) : (
                         getFilteredEvents(campaign).map((event) => (
-                          <div key={event.id} className="flex items-center justify-between p-2 bg-gray-50 rounded text-sm">
+                          <div
+                            key={event.id}
+                            className="flex items-center justify-between rounded bg-gray-50 p-2 text-sm"
+                          >
                             <div className="flex items-center gap-3">
                               <Badge className={getEventTypeColor(event.type)}>
                                 {event.type}
@@ -433,12 +449,16 @@ export function CampaignList({
                               </span>
                               {event.subscriber?.firstName && (
                                 <span className="text-muted-foreground">
-                                  ({event.subscriber.firstName} {event.subscriber.lastName})
+                                  ({event.subscriber.firstName}{' '}
+                                  {event.subscriber.lastName})
                                 </span>
                               )}
                             </div>
-                            <span className="text-xs text-muted-foreground">
-                              {format(new Date(event.createdAt), 'MMM d, HH:mm')}
+                            <span className="text-muted-foreground text-xs">
+                              {format(
+                                new Date(event.createdAt),
+                                'MMM d, HH:mm'
+                              )}
                             </span>
                           </div>
                         ))
