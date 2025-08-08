@@ -11,20 +11,64 @@ const importSubscribersSchema = z.object({
   })),
 });
 
-// GET /api/lists/[listId]/subscribers - Get all subscribers for a list
+// GET /api/lists/[listId]/subscribers - Get subscribers for a list with pagination
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
     const { listId } = await params;
+    const { searchParams } = new URL(request.url);
     
+    // Parse pagination parameters
+    const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
+    const limit = Math.min(100, Math.max(1, parseInt(searchParams.get('limit') || '25')));
+    const skip = (page - 1) * limit;
+    
+    // Parse filters
+    const search = searchParams.get('search')?.trim() || '';
+    const status = searchParams.get('status') || '';
+    
+    // Build where clause
+    const where: any = { listId };
+    
+    if (search) {
+      where.OR = [
+        { email: { contains: search, mode: 'insensitive' } },
+        { firstName: { contains: search, mode: 'insensitive' } },
+        { lastName: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    
+    if (status && status !== 'all') {
+      where.status = status;
+    }
+
+    // Get total count for pagination metadata
+    const totalCount = await prisma.subscriber.count({ where });
+    
+    // Fetch subscribers with pagination
     const subscribers = await prisma.subscriber.findMany({
-      where: { listId },
+      where,
       orderBy: { createdAt: 'desc' },
+      skip,
+      take: limit,
     });
 
-    return NextResponse.json({ subscribers });
+    const totalPages = Math.ceil(totalCount / limit);
+    const hasMore = page < totalPages;
+
+    return NextResponse.json({ 
+      subscribers,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasMore,
+        hasPrevious: page > 1,
+      }
+    });
   } catch (error) {
     console.error('Error fetching subscribers:', error);
     return NextResponse.json(
