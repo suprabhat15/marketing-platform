@@ -30,7 +30,6 @@ export async function GET(
     const list = await prisma.list.findUnique({
       where: { id: listId },
       include: {
-        subscribers: true,
         _count: {
           select: { subscribers: true },
         },

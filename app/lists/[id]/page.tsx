@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -90,12 +90,17 @@ export default function ListDetailPage() {
   const [saving, setSaving] = useState(false);
   const [editListData, setEditListData] = useState({ name: '', description: '' });
   const [originalListData, setOriginalListData] = useState({ name: '', description: '' });
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [searchPending, setSearchPending] = useState(false);
   const [newSubscriber, setNewSubscriber] = useState({
     email: '',
     firstName: '',
     lastName: '',
     status: 'ACTIVE' as const,
   });
+  
+  // Ref for batching/debouncing
+  const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const fetchList = useCallback(async () => {
     try {
@@ -112,7 +117,8 @@ export default function ListDetailPage() {
     }
   }, [listId]);
 
-  const fetchSubscribers = useCallback(async (page: number = 1, search: string = '', status: string = 'all', limit: number = pageSize) => {
+  // Core fetch function without debouncing
+  const fetchSubscribersCore = useCallback(async (page: number = 1, search: string = '', status: string = 'all', limit: number = pageSize) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
@@ -141,19 +147,66 @@ export default function ListDetailPage() {
     }
   }, [listId, pageSize]);
 
+  // Debounced fetch function with 5-second delay
+  const fetchSubscribers = useCallback((page: number = 1, search: string = '', status: string = 'all', limit: number = pageSize, immediate: boolean = false) => {
+    // Clear existing timeout
+    if (fetchTimeoutRef.current) {
+      clearTimeout(fetchTimeoutRef.current);
+    }
+
+    if (immediate) {
+      // Fetch immediately for certain operations
+      setSearchPending(false);
+      fetchSubscribersCore(page, search, status, limit);
+    } else {
+      // Show pending indicator and batch with 5-second delay for search/filter changes
+      setSearchPending(true);
+      fetchTimeoutRef.current = setTimeout(() => {
+        setSearchPending(false);
+        fetchSubscribersCore(page, search, status, limit);
+      }, 5000);
+    }
+  }, [fetchSubscribersCore, pageSize]);
+
+  // Initial load effect
   useEffect(() => {
     fetchList();
-    fetchSubscribers(1, searchTerm, statusFilter, pageSize);
-  }, [fetchList, fetchSubscribers, searchTerm, statusFilter, pageSize]);
+    fetchSubscribers(1, searchTerm, statusFilter, pageSize, true);
+  }, [fetchList]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Effect for search/filter changes with debouncing
+  useEffect(() => {
+    if (searchTerm || statusFilter !== 'all') {
+      // Use debounced fetch for search/filter changes
+      fetchSubscribers(1, searchTerm, statusFilter, pageSize, false);
+    }
+  }, [searchTerm, statusFilter, fetchSubscribers, pageSize]);
+
+  // Effect for page size changes (immediate)
+  useEffect(() => {
+    if (pageSize !== 25) { // Only if pageSize changed from default
+      fetchSubscribers(1, searchTerm, statusFilter, pageSize, true);
+    }
+  }, [pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handlePageChange = (page: number) => {
-    fetchSubscribers(page, searchTerm, statusFilter, pageSize);
+    // Pagination should be immediate
+    fetchSubscribers(page, searchTerm, statusFilter, pageSize, true);
   };
 
   const handlePageSizeChange = (newPageSize: number) => {
     setPageSize(newPageSize);
-    // Reset to page 1 when changing page size
-    fetchSubscribers(1, searchTerm, statusFilter, newPageSize);
+    // Reset to page 1 when changing page size - immediate
+    fetchSubscribers(1, searchTerm, statusFilter, newPageSize, true);
   };
 
   const handleSearchChange = useCallback((value: string) => {
@@ -191,8 +244,9 @@ export default function ListDetailPage() {
         if (response.ok) {
           setNewSubscriber({ email: '', firstName: '', lastName: '', status: 'ACTIVE' });
           setShowAddDialog(false);
-          fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize);
+          fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize, true); // Immediate
           fetchList(); // Refresh list count
+          setHasUnsavedChanges(true); // Mark as having unsaved changes
         }
       } catch (error) {
         console.error('Error adding subscriber:', error);
@@ -209,7 +263,8 @@ export default function ListDetailPage() {
       });
       
       if (response.ok) {
-        fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize);
+        fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize, true); // Immediate
+        setHasUnsavedChanges(true); // Mark as having unsaved changes
       }
     } catch (error) {
       console.error('Error updating subscriber:', error);
@@ -223,8 +278,9 @@ export default function ListDetailPage() {
       });
       
       if (response.ok) {
-        fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize);
+        fetchSubscribers(pagination.page, searchTerm, statusFilter, pageSize, true); // Immediate
         fetchList(); // Refresh list count
+        setHasUnsavedChanges(true); // Mark as having unsaved changes
       }
     } catch (error) {
       console.error('Error deleting subscriber:', error);
@@ -250,48 +306,60 @@ export default function ListDetailPage() {
 
   const handleSubscribersImported = () => {
     setShowImportDialog(false);
-    fetchSubscribers(1, searchTerm, statusFilter, pageSize);
+    fetchSubscribers(1, searchTerm, statusFilter, pageSize, true); // Immediate
     fetchList(); // Refresh list count
+    setHasUnsavedChanges(true); // Mark as having unsaved changes
   };
 
   // Check if there are any changes to enable/disable the update button
   const hasChanges = () => {
-    return (
+    const listDataChanged = 
       editListData.name !== originalListData.name ||
-      editListData.description !== originalListData.description
-    );
+      editListData.description !== originalListData.description;
+    
+    // Always show button if there are any changes or recent subscriber operations
+    return listDataChanged || hasUnsavedChanges;
   };
 
   const handleUpdateList = async () => {
-    if (!editListData.name.trim() || !hasChanges()) return;
+    if (!editListData.name.trim()) return;
 
     setSaving(true);
     try {
-      const response = await fetch(`/api/lists/${listId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: editListData.name.trim(),
-          description: editListData.description.trim(),
-        }),
-      });
+      const listDataChanged = 
+        editListData.name !== originalListData.name ||
+        editListData.description !== originalListData.description;
 
-      if (response.ok) {
-        const updatedList = await response.json();
-        
-        // Update the list state with the response from the API
-        setList(updatedList);
-        
-        // Update both edit and original data to reflect saved state
-        const newListData = { 
-          name: updatedList.name, 
-          description: updatedList.description || '' 
-        };
-        setEditListData(newListData);
-        setOriginalListData(newListData);
-      } else {
-        console.error('Failed to update list');
+      if (listDataChanged) {
+        // Save list changes if there are any
+        const response = await fetch(`/api/lists/${listId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: editListData.name.trim(),
+            description: editListData.description.trim(),
+          }),
+        });
+
+        if (response.ok) {
+          const updatedList = await response.json();
+          setList(updatedList);
+          
+          const newListData = { 
+            name: updatedList.name, 
+            description: updatedList.description || '' 
+          };
+          setEditListData(newListData);
+          setOriginalListData(newListData);
+        } else {
+          console.error('Failed to update list');
+        }
       }
+
+      // Always refresh the list data and reset unsaved changes state
+      await fetchList();
+      setHasUnsavedChanges(false);
+      
     } catch (error) {
       console.error('Error updating list:', error);
     } finally {
@@ -339,7 +407,7 @@ export default function ListDetailPage() {
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                {saving ? 'Updating...' : 'Update List'}
+                {saving ? 'Saving...' : (editListData.name !== originalListData.name || editListData.description !== originalListData.description) ? 'Save Changes' : 'Refresh List'}
               </Button>
             )}
           </div>
@@ -512,14 +580,23 @@ export default function ListDetailPage() {
                   <CardTitle>Subscriber List</CardTitle>
                   <div className="flex gap-2">
                     <div className="relative">
-                      <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                      {searchPending ? (
+                        <Loader2 className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground animate-spin" />
+                      ) : (
+                        <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                      )}
                       <Input
-                        placeholder="Search subscribers..."
+                        placeholder={searchPending ? "Search will execute in 5s..." : "Search subscribers..."}
                         value={searchTerm}
                         onChange={(e) => handleSearchChange(e.target.value)}
                         className="pl-8"
                         disabled={loading}
                       />
+                      {searchPending && (
+                        <div className="absolute right-2 top-2 text-xs text-muted-foreground bg-background px-1 rounded">
+                          Pending...
+                        </div>
+                      )}
                     </div>
                     <Select value={statusFilter} onValueChange={handleStatusFilterChange} disabled={loading}>
                       <SelectTrigger className="w-32">
