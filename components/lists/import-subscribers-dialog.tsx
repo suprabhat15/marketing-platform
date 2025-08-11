@@ -73,12 +73,13 @@ export function ImportSubscribersDialog({
   };
 
   const parseCSV = (csvText: string): ParsedSubscriber[] => {
-    const lines = csvText.trim().split('\\n');
+    const lines = csvText.trim().split('\n').filter(line => line.trim());
     if (lines.length < 2) {
       throw new Error('CSV file must contain at least a header row and one data row');
     }
 
-    const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+    // Parse header row
+    const headers = parseCsvRow(lines[0]).map(h => h.trim().toLowerCase());
     const emailIndex = headers.findIndex(h => h.includes('email'));
     const nameIndex = headers.findIndex(h => h.includes('name') && !h.includes('email'));
 
@@ -89,14 +90,17 @@ export function ImportSubscribersDialog({
     const subscribers: ParsedSubscriber[] = [];
     
     for (let i = 1; i < lines.length; i++) {
-      const row = lines[i].split(',').map(cell => cell.trim());
+      const line = lines[i].trim();
+      if (!line) continue; // Skip empty lines
       
-      if (row.length < Math.max(emailIndex + 1, nameIndex + 1)) {
+      const row = parseCsvRow(line);
+      
+      if (row.length <= emailIndex || (nameIndex >= 0 && row.length <= nameIndex)) {
         continue; // Skip incomplete rows
       }
 
-      const email = row[emailIndex]?.replace(/'/g, '').replace(/"/g, '');
-      const name = nameIndex >= 0 ? row[nameIndex]?.replace(/'/g, '').replace(/"/g, '') : '';
+      const email = (row[emailIndex] || '').trim().toLowerCase();
+      const name = nameIndex >= 0 ? (row[nameIndex] || '').trim() : '';
 
       const subscriber: ParsedSubscriber = {
         email,
@@ -108,8 +112,8 @@ export function ImportSubscribersDialog({
       // Split name into first and last name
       if (name) {
         const nameParts = name.trim().split(' ');
-        subscriber.firstName = nameParts[0];
-        subscriber.lastName = nameParts.slice(1).join(' ');
+        subscriber.firstName = nameParts[0] || '';
+        subscriber.lastName = nameParts.slice(1).join(' ') || '';
       }
 
       // Validate email
@@ -125,11 +129,58 @@ export function ImportSubscribersDialog({
       throw new Error('No valid subscribers found in CSV file');
     }
 
+    // Check for duplicates within the CSV
+    const emailCounts = new Map<string, number>();
+    subscribers.forEach(subscriber => {
+      const email = subscriber.email.toLowerCase();
+      emailCounts.set(email, (emailCounts.get(email) || 0) + 1);
+    });
+
+    // Mark duplicates
+    subscribers.forEach(subscriber => {
+      const email = subscriber.email.toLowerCase();
+      if (emailCounts.get(email)! > 1) {
+        subscriber.isValid = false;
+        subscriber.error = 'Duplicate email in CSV';
+      }
+    });
+
     return subscribers;
   };
 
+  // Helper function to parse a CSV row handling quoted values
+  const parseCsvRow = (row: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    let i = 0;
+
+    while (i < row.length) {
+      const char = row[i];
+      
+      if (char === '"') {
+        if (inQuotes && row[i + 1] === '"') {
+          // Handle escaped quotes
+          current += '"';
+          i += 2;
+          continue;
+        }
+        inQuotes = !inQuotes;
+      } else if (char === ',' && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += char;
+      }
+      i++;
+    }
+    
+    result.push(current.trim());
+    return result;
+  };
+
   const isValidEmail = (email: string): boolean => {
-    const emailRegex = /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/;
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     return emailRegex.test(email);
   };
 
@@ -246,10 +297,10 @@ alex.johnson@example.com,Alex Johnson`;
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <FileText className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <div className="border-2 border-dashed border-border rounded-lg p-6 text-center">
+                  <FileText className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
                   <div className="space-y-2">
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm text-muted-foreground">
                       Select a CSV file to upload
                     </p>
                     <Input
@@ -272,7 +323,7 @@ alex.johnson@example.com,Alex Johnson`;
                 </div>
 
                 {csvFile && (
-                  <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <FileText className="h-4 w-4" />
                     <span>{csvFile.name} ({(csvFile.size / 1024).toFixed(1)} KB)</span>
                   </div>
@@ -294,7 +345,7 @@ alex.johnson@example.com,Alex Johnson`;
             <Card>
               <CardContent className="py-6">
                 <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-foreground"></div>
                   <span>Parsing CSV file...</span>
                 </div>
               </CardContent>
@@ -337,7 +388,7 @@ alex.johnson@example.com,Alex Johnson`;
                         <div>
                           <div className="font-medium">{subscriber.email}</div>
                           {subscriber.name && (
-                            <div className="text-sm text-gray-500">
+                            <div className="text-sm text-muted-foreground">
                               {subscriber.firstName} {subscriber.lastName}
                             </div>
                           )}
@@ -361,7 +412,7 @@ alex.johnson@example.com,Alex Johnson`;
             <Card>
               <CardContent className="py-6">
                 <div className="flex items-center justify-center gap-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-900"></div>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-foreground"></div>
                   <span>Importing subscribers...</span>
                 </div>
               </CardContent>

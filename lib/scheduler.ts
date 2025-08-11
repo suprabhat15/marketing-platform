@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { SESEmailSender } from '@/lib/ses';
+import { sendEmail } from '@/lib/ses';
 import { EmailTracker } from '@/lib/tracking';
 
 export interface ScheduledCampaign {
@@ -22,7 +22,6 @@ export interface AutomationRule {
 }
 
 export class EmailScheduler {
-  private static sesClient = new SESEmailSender();
 
   // Process scheduled campaigns
   static async processScheduledCampaigns() {
@@ -104,11 +103,11 @@ export class EmailScheduler {
               );
 
               // Send email
-              await this.sesClient.sendEmail({
-                to: recipient.email,
+              await sendEmail({
+                to: [recipient.email],
                 subject: personalizedSubject,
-                htmlContent: personalizedContent,
-                textContent: campaign.template.textContent || undefined,
+                html: personalizedContent,
+                text: campaign.template.content || undefined,
               });
 
               successCount++;
@@ -324,11 +323,11 @@ export class EmailScheduler {
       recipient
     );
 
-    await this.sesClient.sendEmail({
-      to: recipient.email,
+    await sendEmail({
+      to: [recipient.email],
       subject: personalizedSubject,
-      htmlContent: processedContent,
-      textContent: template.textContent || undefined,
+      html: processedContent,
+      text: template.content || undefined,
     });
   }
 

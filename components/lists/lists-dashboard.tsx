@@ -1,15 +1,9 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -23,20 +17,17 @@ import {
 } from '@/components/ui/alert-dialog';
 import {
   Plus,
-  Edit,
   Trash2,
-  Upload,
   Users,
   UserPlus,
   UserMinus,
   UserX,
   Calendar,
+  ChevronRight,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { formatDistanceToNow } from 'date-fns';
 import { CreateListDialog } from './create-list-dialog';
-import { EditListDialog } from './edit-list-dialog';
-import { ImportSubscribersDialog } from './import-subscribers-dialog';
 
 interface List {
   id: string;
@@ -60,12 +51,10 @@ interface ListStats {
 }
 
 export function ListsDashboard() {
+  const router = useRouter();
   const [lists, setLists] = useState<List[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
-  const [editDialogOpen, setEditDialogOpen] = useState(false);
-  const [importDialogOpen, setImportDialogOpen] = useState(false);
-  const [selectedList, setSelectedList] = useState<List | null>(null);
 
   useEffect(() => {
     fetchLists();
@@ -132,26 +121,8 @@ export function ListsDashboard() {
     setCreateDialogOpen(false);
   };
 
-  const handleListUpdated = () => {
-    fetchLists();
-    setEditDialogOpen(false);
-    setSelectedList(null);
-  };
-
-  const handleSubscribersImported = () => {
-    fetchLists();
-    setImportDialogOpen(false);
-    setSelectedList(null);
-  };
-
-  const handleEditList = (list: List) => {
-    setSelectedList(list);
-    setEditDialogOpen(true);
-  };
-
-  const handleImportSubscribers = (list: List) => {
-    setSelectedList(list);
-    setImportDialogOpen(true);
+  const handleViewList = (listId: string) => {
+    router.push(`/lists/${listId}`);
   };
 
   if (loading) {
@@ -263,7 +234,8 @@ export function ListsDashboard() {
                 return (
                   <div
                     key={list.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-background"
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors cursor-pointer"
+                    onClick={() => handleViewList(list.id)}
                   >
                     <div className="flex-1">
                       <div className="flex items-start justify-between">
@@ -275,13 +247,10 @@ export function ListsDashboard() {
                           <div className="flex items-center gap-4 mt-2">
                             <div className="flex items-center gap-2">
                               <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
-                                {stats.subscribed} Subscribed
+                                {list._count?.subscribers || 0} Total
                               </Badge>
-                              <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 text-xs">
-                                {stats.unsubscribed} Unsubscribed
-                              </Badge>
-                              <Badge variant="secondary" className="bg-red-100 text-red-800 text-xs">
-                                {stats.bounced} Bounced
+                              <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs">
+                                {stats.subscribed} Active
                               </Badge>
                             </div>
                           </div>
@@ -300,22 +269,6 @@ export function ListsDashboard() {
                     </div>
                     
                     <div className="flex items-center gap-2 ml-4">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleImportSubscribers(list)}
-                        title="Import CSV"
-                      >
-                        <Upload className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => handleEditList(list)}
-                        title="Edit List"
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button 
@@ -323,6 +276,7 @@ export function ListsDashboard() {
                             size="sm" 
                             className="text-red-600 hover:text-red-700"
                             title="Delete List"
+                            onClick={(e) => e.stopPropagation()}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -345,6 +299,7 @@ export function ListsDashboard() {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
+                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
                     </div>
                   </div>
                 );
@@ -360,24 +315,6 @@ export function ListsDashboard() {
         onOpenChange={setCreateDialogOpen}
         onListCreated={handleListCreated}
       />
-
-      {selectedList && (
-        <>
-          <EditListDialog
-            open={editDialogOpen}
-            onOpenChange={setEditDialogOpen}
-            list={selectedList}
-            onListUpdated={handleListUpdated}
-          />
-          
-          <ImportSubscribersDialog
-            open={importDialogOpen}
-            onOpenChange={setImportDialogOpen}
-            list={selectedList}
-            onSubscribersImported={handleSubscribersImported}
-          />
-        </>
-      )}
     </div>
   );
 }
