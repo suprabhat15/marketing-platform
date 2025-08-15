@@ -14,12 +14,13 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
-  image     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  emailVerified Boolean  @default(false)
+  image         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   lists      List[]
   campaigns  Campaign[]
@@ -27,7 +28,7 @@ model User {
   sessions   Session[]
   accounts   Account[]
   
-  @@map("users")
+  @@map("user")
 }
 
 model List {
@@ -43,7 +44,7 @@ model List {
   subscribers Subscriber[]
   campaigns   Campaign[]
   
-  @@map("lists")
+  @@map("list")
 }
 
 model Subscriber {
@@ -61,7 +62,7 @@ model Subscriber {
   events    Event[]
   
   @@unique([email, listId])
-  @@map("subscribers")
+  @@map("subscriber")
 }
 
 model Campaign {
@@ -87,7 +88,7 @@ model Campaign {
   
   events     Event[]
   
-  @@map("campaigns")
+  @@map("campaign")
 }
 
 model Template {
@@ -104,7 +105,7 @@ model Template {
   
   campaigns Campaign[]
   
-  @@map("templates")
+  @@map("template")
 }
 
 model Event {
@@ -119,7 +120,7 @@ model Event {
   campaignId   String?
   campaign     Campaign? @relation(fields: [campaignId], references: [id])
   
-  @@map("events")
+  @@map("event")
 }
 
 enum SubscriberStatus {
@@ -150,35 +151,37 @@ enum EventType {
 // Better Auth tables
 model Session {
   id        String   @id @default(cuid())
-  token     String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
   expiresAt DateTime
+  ipAddress String?
+  userAgent String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@map("sessions")
+  @@map("session")
 }
 
-model Account {
-  id                String  @id @default(cuid())
-  userId            String
-  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type              String
-  provider          String
-  providerAccountId String
-  refresh_token     String?
-  access_token      String?
-  expires_at        Int?
-  token_type        String?
-  scope             String?
-  id_token          String?
-  session_state     String?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
 
-  @@unique([provider, providerAccountId])
-  @@map("accounts")
+model Account {
+  id                     String    @id @default(cuid())
+  userId                 String
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accountId              String
+  providerId             String
+  accessToken            String?
+  refreshToken           String?
+  accessTokenExpiresAt   DateTime?
+  refreshTokenExpiresAt  DateTime?
+  scope                  String?
+  idToken                String?
+  password               String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@map("account")
 }
 
 model VerificationToken {
@@ -187,5 +190,16 @@ model VerificationToken {
   expires    DateTime
 
   @@unique([identifier, token])
-  @@map("verification_tokens")
+  @@map("verification_token")
+}
+
+model Verification {
+  id         String    @id @default(cuid())
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@map("verification")
 }

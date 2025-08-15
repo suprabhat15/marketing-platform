@@ -1,0 +1,26 @@
+{
+  "watch": [
+    "app",
+    "components",
+    "lib",
+    "middleware.ts",
+    "next.config.ts",
+    "prisma/schema.prisma",
+    ".env.local"
+  ],
+  "ext": "js,ts,tsx,json,prisma",
+  "ignore": [
+    "node_modules",
+    ".next",
+    "dist",
+    "build",
+    "coverage",
+    ".git",
+    "*.log",
+    "*.lock"
+  ],
+  "delay": "1000",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}

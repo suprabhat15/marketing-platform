@@ -5,6 +5,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "nm": "nodemon --exec \"next dev\"",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
@@ -55,6 +56,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "15.3.4",
+    "nodemon": "^3.0.2",
     "prettier": "^3.5.3",
     "prettier-plugin-tailwindcss": "^0.6.13",
     "prisma": "^6.10.1",
