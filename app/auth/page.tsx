@@ -17,24 +17,24 @@ export default function AuthPage() {
   const router = useRouter();
 
   // Login form state
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
 
   // Signup form state
-  const [signupEmail, setSignupEmail] = useState("");
-  const [signupPassword, setSignupPassword] = useState("");
-  const [signupName, setSignupName] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [signupEmail, setSignupEmail] = useState('');
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupName, setSignupName] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
-      setError("Please fill in all fields");
+      setError('Please fill in all fields');
       return;
     }
 
     setIsLoading(true);
-    setError("");
+    setError('');
 
     try {
       const result = await signIn.email({
@@ -43,12 +43,12 @@ export default function AuthPage() {
       });
 
       if (result.error) {
-        setError(result.error.message || "Login failed");
+        setError(result.error.message || 'Login failed');
       } else {
-        router.push("/");
+        router.push('/');
       }
     } catch (err) {
-      setError("An unexpected error occurred");
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -57,22 +57,22 @@ export default function AuthPage() {
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!signupEmail || !signupPassword || !signupName || !confirmPassword) {
-      setError("Please fill in all fields");
+      setError('Please fill in all fields');
       return;
     }
 
     if (signupPassword !== confirmPassword) {
-      setError("Passwords do not match");
+      setError('Passwords do not match');
       return;
     }
 
     if (signupPassword.length < 6) {
-      setError("Password must be at least 6 characters");
+      setError('Password must be at least 6 characters');
       return;
     }
 
     setIsLoading(true);
-    setError("");
+    setError('');
 
     try {
       const result = await signUp.email({
@@ -82,12 +82,12 @@ export default function AuthPage() {
       });
 
       if (result.error) {
-        setError(result.error.message || "Signup failed");
+        setError(result.error.message || 'Signup failed');
       } else {
-        router.push("/");
+        router.push('/');
       }
     } catch (err) {
-      setError("An unexpected error occurred");
+      setError('An unexpected error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -95,15 +95,15 @@ export default function AuthPage() {
 
   const handleGoogleAuth = async () => {
     setIsLoading(true);
-    setError("");
+    setError('');
 
     try {
       await signIn.social({
-        provider: "google",
-        // callbackURL: "/",
+        provider: 'google',
+        callbackURL: '/',
       });
     } catch (err) {
-      setError("Google authentication failed");
+      setError('Google authentication failed');
       setIsLoading(false);
     }
   };

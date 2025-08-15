@@ -13,12 +13,15 @@ export const auth = betterAuth({
   socialProviders: {
     google: { 
       clientId: process.env.GOOGLE_CLIENT_ID as string, 
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string, 
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET as string,
+      redirectURI: `${process.env.BETTER_AUTH_URL}/api/auth/callback/google`,
     }, 
   },
   session: {
     expiresIn: 60 * 60 * 24 * 7, // 7 days
   },
+  basePath: '/api/auth',
+  baseURL: process.env.BETTER_AUTH_URL as string,
 });
 
 export type Session = typeof auth.$Infer.Session;

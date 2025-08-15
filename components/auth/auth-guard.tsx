@@ -20,15 +20,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
     }
 
     // If user is authenticated and on auth page, redirect to dashboard
-    // if (session && pathname === "/auth") {
-    //   router.push("/");
-    //   return;
-    // }
+    if (session && pathname === '/auth') {
+      router.push('/');
+      return;
+    }
 
     // If user is not authenticated and not on auth page, redirect to auth
-    // if (!session && pathname !== "/auth") {
-    //   router.push("/auth");
-    // }
+    if (!session && pathname !== '/auth') {
+      router.push('/auth');
+    }
   }, [session, isPending, router, pathname]);
 
   // Show loading spinner while checking authentication
@@ -46,7 +46,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
 
   // If authenticated, show children
-  if (!session) {
+  if (session) {
     return <>{children}</>;
   }
 
