@@ -8,7 +8,12 @@
     "nm": "nodemon --exec \"next dev\"",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "type-check": "tsc --noEmit",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
