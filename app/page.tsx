@@ -14,11 +14,8 @@ export default function LandingPage() {
             <span className="text-2xl font-bold text-gray-900">MailPackr</span>
           </div>
           <div className="flex items-center space-x-4">
-            <Link href="/auth" className="text-gray-600 hover:text-gray-900">
-              Sign In
-            </Link>
             <Button asChild>
-              <Link href="/auth">Get Started</Link>
+              <Link href="/auth">Sign In</Link>
             </Button>
           </div>
         </nav>
@@ -34,10 +31,7 @@ export default function LandingPage() {
             Create, send, and track beautiful email campaigns that convert. 
             Build your audience and grow your business with MailPackr.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Button size="lg" asChild>
-              <Link href="/auth">Start Free Trial</Link>
-            </Button>
+          <div className="flex justify-center">
             <Button variant="outline" size="lg">
               Watch Demo
             </Button>
@@ -95,17 +89,107 @@ export default function LandingPage() {
           </Card>
         </div>
 
-        {/* CTA Section */}
-        <div className="mt-24 text-center bg-white rounded-2xl p-12 shadow-lg">
-          <h2 className="text-3xl font-bold text-gray-900 mb-4">
-            Ready to grow your business?
-          </h2>
-          <p className="text-lg text-gray-600 mb-8">
-            Join thousands of businesses using MailPackr to connect with their customers.
-          </p>
-          <Button size="lg" asChild>
-            <Link href="/auth">Get Started Today</Link>
-          </Button>
+        {/* Pricing Section */}
+        <div className="mt-24">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">
+              Simple, Transparent Pricing
+            </h2>
+            <p className="text-lg text-gray-600">
+              Start free, scale as you grow
+            </p>
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto">
+            {/* Free Plan */}
+            <Card className="border-2 border-blue-200 bg-blue-50/50">
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl font-bold text-blue-600">Free</CardTitle>
+                <div className="text-4xl font-bold text-gray-900 mt-4">$0</div>
+                <p className="text-gray-600">Forever free</p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3 mb-8">
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    3,000 emails/month
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Unlimited contacts
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Email templates
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Basic analytics
+                  </li>
+                </ul>
+                <Button className="w-full" asChild>
+                  <Link href="/auth">Start Free</Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            {/* Business Plan */}
+            <Card className="border-2 border-purple-200 bg-purple-50/50 relative">
+              <div className="absolute top-0 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-purple-600 text-white px-4 py-1 rounded-full text-sm font-medium">
+                Most Popular
+              </div>
+              <CardHeader className="text-center">
+                <CardTitle className="text-2xl font-bold text-purple-600">Business</CardTitle>
+                <div className="text-4xl font-bold text-gray-900 mt-4">$0.001</div>
+                <p className="text-gray-600">per email sent</p>
+              </CardHeader>
+              <CardContent>
+                <ul className="space-y-3 mb-8">
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Unlimited emails/month
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Unlimited contacts
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Premium templates
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Advanced analytics
+                  </li>
+                  <li className="flex items-center">
+                    <svg className="w-5 h-5 text-green-500 mr-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                    </svg>
+                    Pay-as-you-go model
+                  </li>
+                </ul>
+                <Button className="w-full bg-purple-600 hover:bg-purple-700" asChild>
+                  <Link href="/auth">Start Business</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </main>
 
