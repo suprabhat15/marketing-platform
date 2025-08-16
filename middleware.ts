@@ -44,8 +44,8 @@ export function middleware(request: NextRequest) {
       return NextResponse.next();
     }
     
-    // Default: serve landing page
-    return NextResponse.next();
+    // Default: redirect unknown routes to landing page
+    return NextResponse.redirect(new URL('/', request.url));
   }
 
   // App domain (app.domain.com) - serve app pages only
