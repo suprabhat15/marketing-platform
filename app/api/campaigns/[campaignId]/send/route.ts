@@ -19,14 +19,14 @@ export async function POST(
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const campaign = await prisma.campaign.findFirst({
       where: {
         id: campaignId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
       include: {
         list: {

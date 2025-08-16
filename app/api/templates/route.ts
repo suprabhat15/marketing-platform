@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     });
 
     const templates = await prisma.template.findMany({
-      where: { userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz' },
+      where: { userId: session?.user.id },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -42,9 +42,9 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const body = await request.json();
     const { name, subject, content, attachments } = createTemplateSchema.parse(body);
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         subject,
         content,
         attachments: attachments || [],
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 

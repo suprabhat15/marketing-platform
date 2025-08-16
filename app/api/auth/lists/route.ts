@@ -14,12 +14,12 @@ export async function GET(request: NextRequest) {
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const lists = await prisma.list.findMany({
-      where: { userId: session?.user.id  || 'cmdowqcn000003v0xla2ytqwz'},
+      where: { userId: session?.user.id },
       include: {
         _count: {
           select: { subscribers: true },

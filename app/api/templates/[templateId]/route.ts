@@ -26,14 +26,14 @@ export async function DELETE(
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     await prisma.template.delete({
       where: {
         id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 
@@ -61,7 +61,7 @@ export async function GET(
     const template = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 
@@ -98,7 +98,7 @@ export async function PUT(
     const existingTemplate = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 

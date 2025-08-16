@@ -19,12 +19,12 @@ export async function GET(request: NextRequest) {
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const campaigns = await prisma.campaign.findMany({
-      where: { userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz' },
+      where: { userId: session?.user.id },
       include: {
         list: true,
         template: true,
@@ -148,9 +148,9 @@ export async function POST(request: NextRequest) { // Created first campaign via
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     const body = await request.json();
     const { name, subject, content, listId, templateId, scheduledAt, subscriberIds } =
@@ -160,7 +160,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
     const list = await prisma.list.findFirst({
       where: {
         id: listId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 
@@ -177,7 +177,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
         templateId,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
         subscriberIds: subscriberIds,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 
