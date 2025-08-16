@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 import { z } from 'zod';
 
 const createListSchema = z.object({
@@ -16,17 +17,16 @@ const createListSchema = z.object({
 // GET /api/lists - Get all lists for the authenticated user
 export async function GET(request: NextRequest) {
   try {
-    // TODO: Get user ID from authentication
-    // For now, we'll use a placeholder or get from the first user
-    const users = await prisma.user.findMany({ take: 1 });
-    const userId = users[0]?.id;
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
 
-    if (!userId) {
-      return NextResponse.json({ lists: [] });
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-
+    
     const lists = await prisma.list.findMany({
-      where: { userId },
+      where: { userId: session?.user.id },
       include: {
         _count: {
           select: { subscribers: true },
@@ -54,23 +54,19 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, description, subscribers } = createListSchema.parse(body);
     
-    // TODO: Get user ID from authentication
-    // For now, we'll use the first user or create one if none exists
-    let user = await prisma.user.findFirst();
-    if (!user) {
-      user = await prisma.user.create({
-        data: {
-          email: 'demo@example.com',
-          name: 'Demo User',
-        },
-      });
-    }
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
 
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    
     const list = await prisma.list.create({
       data: {
         name,
         description: description || '',
-        userId: user.id,
+        userId: session?.user.id,
         subscribers: subscribers ? {
           create: subscribers.map(subscriber => ({
             email: subscriber.email,

@@ -155,7 +155,6 @@ export async function POST(request: NextRequest) { // Created first campaign via
     const body = await request.json();
     const { name, subject, content, listId, templateId, scheduledAt, subscriberIds } =
       createCampaignSchema.parse(body);
-
     // Verify list ownership
     const list = await prisma.list.findFirst({
       where: {
