@@ -1,6 +1,5 @@
 import { sendEmail } from './ses';
 import { prisma } from './prisma';
-import { createEmailTracker } from './tracking';
 
 export async function sendCampaign(campaignId: string) {
   const campaign = await prisma.campaign.findUnique({
@@ -55,7 +54,6 @@ export async function sendCampaign(campaignId: string) {
     console.log(`Sending campaign to ${subscribers.length} selected subscribers out of ${allSubscribers.length} total subscribers`);
     
     const batchSize = 50; // SES limit
-    const tracker = createEmailTracker();
 
     for (let i = 0; i < subscribers.length; i += batchSize) {
       const batch = subscribers.slice(i, i + batchSize);
@@ -63,26 +61,13 @@ export async function sendCampaign(campaignId: string) {
       for (const subscriber of batch) {
         console.log("Sending email to " + subscriber.email);
         try {
-          // Generate tracking data
-          const trackingParams = {
-            campaignId: campaignId,
-            subscriberId: subscriber.id,
-            listId: campaign.list.id,
-          };
-
-          // Add tracking to email content
-          const htmlContentWithTracking = tracker.injectTrackingIntoHtml(
-            campaign.content,
-            trackingParams
-          );
-
           // Generate unique message ID for this email
           const messageId = `${campaignId}-${subscriber.id}-${Date.now()}`;
 
           await sendEmail({
             to: [subscriber.email],
             subject: campaign.subject,
-            html: htmlContentWithTracking,
+            html: campaign.content,
             configurationSetName: process.env.AWS_SES_CONFIGURATION_SET,
             campaignId: campaignId,
             messageId: messageId,
@@ -146,4 +131,3 @@ export async function sendCampaign(campaignId: string) {
   }
 }
 
-// Tracking is now handled by the EmailTracker class in the tracking library

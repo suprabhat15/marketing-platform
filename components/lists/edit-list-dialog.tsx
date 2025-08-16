@@ -46,7 +46,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
     email: '',
     firstName: '',
     lastName: '',
-    status: 'ACTIVE' as const,
+    status: 'ACTIVE' as 'ACTIVE' | 'UNSUBSCRIBED',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -58,6 +58,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
       setDescription(list.description || '');
       fetchSubscribers();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, list]);
 
   const fetchSubscribers = async () => {
@@ -89,7 +90,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
       email: '',
       firstName: '',
       lastName: '',
-      status: 'ACTIVE',
+      status: 'ACTIVE' as 'ACTIVE' | 'UNSUBSCRIBED',
     });
   };
 

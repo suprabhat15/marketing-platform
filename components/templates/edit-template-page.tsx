@@ -87,7 +87,6 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
     '{{email}}',
     '{{companyName}}',
     '{{unsubscribeUrl}}',
-    '{{trackingPixel}}',
   ];
 
   useEffect(() => {
@@ -95,6 +94,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
       setTemplateId(resolvedParams.templateId);
       fetchTemplate(resolvedParams.templateId);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
   const fetchTemplate = async (id: string) => {
@@ -290,6 +290,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
       if (editorRef.current && content && !editorRef.current.innerHTML) {
         editorRef.current.innerHTML = content;
       }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [content]);
 
     return (

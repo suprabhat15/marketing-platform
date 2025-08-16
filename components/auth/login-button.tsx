@@ -6,9 +6,9 @@ import { Button } from "@/components/ui/button";
 export function LoginButton() {
   const { data: session, isPending } = useSession();
 
-  // if (isPending) {
-  //   return <Button disabled>Loading...</Button>;
-  // }
+  if (isPending) {
+    return <Button disabled>Loading...</Button>;
+  }
 
   if (session) {
     return (
@@ -19,9 +19,5 @@ export function LoginButton() {
     );
   }
 
-  return (
-    <Button onClick={() => signIn.google()}>
-      Sign in with Google
-    </Button>
-  );
+  return null;
 }

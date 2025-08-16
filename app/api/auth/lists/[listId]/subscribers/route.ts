@@ -11,9 +11,10 @@ const addSubscriberSchema = z.object({
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { listId: string } }
+  { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    const { listId } = await params;
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -24,7 +25,7 @@ export async function GET(
 
     const list = await prisma.list.findFirst({
       where: {
-        id: params.listId,
+        id: listId,
         userId: session?.user.id,
       },
     });
@@ -34,7 +35,7 @@ export async function GET(
     }
 
     const subscribers = await prisma.subscriber.findMany({
-      where: { listId: params.listId },
+      where: { listId },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -49,9 +50,10 @@ export async function GET(
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { listId: string } }
+  { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    const { listId } = await params;
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -62,7 +64,7 @@ export async function POST(
 
     const list = await prisma.list.findFirst({
       where: {
-        id: params.listId,
+        id: listId,
         userId: session?.user.id,
       },
     });
@@ -78,7 +80,7 @@ export async function POST(
       where: {
         email_listId: {
           email,
-          listId: params.listId,
+          listId,
         },
       },
       update: {
@@ -90,7 +92,7 @@ export async function POST(
         email,
         firstName,
         lastName,
-        listId: params.listId,
+        listId,
       },
     });
 

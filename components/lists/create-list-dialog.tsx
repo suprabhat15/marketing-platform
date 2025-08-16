@@ -38,7 +38,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
     email: '',
     firstName: '',
     lastName: '',
-    status: 'ACTIVE' as const,
+    status: 'ACTIVE' as 'ACTIVE' | 'UNSUBSCRIBED',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -58,7 +58,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
       email: '',
       firstName: '',
       lastName: '',
-      status: 'ACTIVE',
+      status: 'ACTIVE' as 'ACTIVE' | 'UNSUBSCRIBED',
     });
   };
 
@@ -107,7 +107,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
           email: '',
           firstName: '',
           lastName: '',
-          status: 'ACTIVE',
+          status: 'ACTIVE' as 'ACTIVE' | 'UNSUBSCRIBED',
         });
         onListCreated();
       } else {

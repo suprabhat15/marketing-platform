@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 // import { Badge } from '@/components/ui/badge';
-import { Calendar, Mail, Users, TrendingUp, Plus } from 'lucide-react';
+import { Mail, Users, TrendingUp, Plus } from 'lucide-react';
 // import { CampaignStats } from './campaign-stats';
 import { CampaignList } from './campaign-list';
 import { useRouter } from 'next/navigation';
@@ -28,9 +28,8 @@ const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
-  status: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
-  latestStatus: z.enum(['DRAFT', 'SCHEDULED', 'SENDING', 'SENT', 'FAILED']),
-  scheduledAt: z.string().datetime().nullable(),
+  status: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
+  latestStatus: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   latestCreatedAt: z.string().datetime(),
@@ -51,7 +50,6 @@ const campaignSchema = z.object({
 const statsSchema = z.object({
   total: z.number(),
   sent: z.number(),
-  scheduled: z.number(),
   draft: z.number(),
   totalEvents: z.number(),
 });
@@ -64,7 +62,6 @@ export function CampaignDashboard() {
   const [stats, setStats] = useState<Stats>({
     total: 0,
     sent: 0,
-    scheduled: 0,
     draft: 0,
     totalEvents: 0,
   });
@@ -153,15 +150,6 @@ export function CampaignDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Scheduled</CardTitle>
-            <Calendar className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{stats.scheduled}</div>
-          </CardContent>
-        </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

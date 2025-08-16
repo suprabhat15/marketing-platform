@@ -25,12 +25,22 @@ import { z } from 'zod';
 
 const automationTriggerSchema = z.object({
   type: z.enum(['time_based', 'action_based', 'date_based']),
-  config: z.record(z.any()),
+  config: z.object({
+    interval: z.string().optional(),
+    time: z.string().optional(),
+    action: z.string().optional(),
+    date: z.string().optional(),
+  }).catchall(z.any()),
 });
 
 const automationActionSchema = z.object({
   type: z.enum(['send_email', 'add_to_list', 'remove_from_list', 'wait']),
-  config: z.record(z.any()),
+  config: z.object({
+    templateId: z.string().optional(),
+    listId: z.string().optional(),
+    duration: z.string().optional(),
+    unit: z.string().optional(),
+  }).catchall(z.any()),
 });
 
 const automationSchema = z.object({
@@ -70,15 +80,15 @@ export function AutomationBuilder({
   const [newAutomation, setNewAutomation] = useState({
     name: '',
     description: '',
-    status: 'draft' as const,
+    status: 'draft' as 'draft' | 'active' | 'paused',
     trigger: {
-      type: 'time_based' as const,
-      config: {},
+      type: 'time_based' as 'time_based' | 'action_based' | 'date_based',
+      config: {} as any,
     },
     actions: [
       {
-        type: 'send_email' as const,
-        config: {},
+        type: 'send_email' as 'send_email' | 'add_to_list' | 'remove_from_list' | 'wait',
+        config: {} as any,
       },
     ],
   });
@@ -116,9 +126,9 @@ export function AutomationBuilder({
       setNewAutomation({
         name: '',
         description: '',
-        status: 'draft',
-        trigger: { type: 'time_based', config: {} },
-        actions: [{ type: 'send_email', config: {} }],
+        status: 'draft' as 'draft' | 'active' | 'paused',
+        trigger: { type: 'time_based' as 'time_based' | 'action_based' | 'date_based', config: {} as any },
+        actions: [{ type: 'send_email' as 'send_email' | 'add_to_list' | 'remove_from_list' | 'wait', config: {} as any }],
       });
       setShowCreateDialog(false);
     }
@@ -174,7 +184,7 @@ export function AutomationBuilder({
                       value={newAutomation.trigger.type}
                       onValueChange={(value) => setNewAutomation(prev => ({
                         ...prev,
-                        trigger: { type: value as any, config: {} }
+                        trigger: { type: value as any, config: {} as any }
                       }))}
                     >
                       <SelectTrigger>
@@ -265,7 +275,7 @@ export function AutomationBuilder({
                       value={newAutomation.actions[0]?.type || 'send_email'}
                       onValueChange={(value) => setNewAutomation(prev => ({
                         ...prev,
-                        actions: [{ type: value as any, config: {} }]
+                        actions: [{ type: value as any, config: {} as any }]
                       }))}
                     >
                       <SelectTrigger>

@@ -81,7 +81,6 @@ export function NewTemplatePage() {
     '{{email}}',
     '{{companyName}}',
     '{{unsubscribeUrl}}',
-    '{{trackingPixel}}',
   ];
 
   const handleFileUpload = async (files: FileList) => {
