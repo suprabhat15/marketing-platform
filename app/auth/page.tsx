@@ -45,7 +45,12 @@ export default function AuthPage() {
       if (result.error) {
         setError(result.error.message || 'Login failed');
       } else {
-        router.push('/');
+        // Redirect to app subdomain
+        const currentHost = window.location.host;
+        const appUrl = currentHost.startsWith('app.') 
+          ? `${window.location.protocol}//${currentHost}/`
+          : `${window.location.protocol}//app.${currentHost}/`;
+        window.location.href = appUrl;
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -84,7 +89,12 @@ export default function AuthPage() {
       if (result.error) {
         setError(result.error.message || 'Signup failed');
       } else {
-        router.push('/');
+        // Redirect to app subdomain
+        const currentHost = window.location.host;
+        const appUrl = currentHost.startsWith('app.') 
+          ? `${window.location.protocol}//${currentHost}/`
+          : `${window.location.protocol}//app.${currentHost}/`;
+        window.location.href = appUrl;
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -98,9 +108,14 @@ export default function AuthPage() {
     setError('');
 
     try {
+      const currentHost = window.location.host;
+      const appUrl = currentHost.startsWith('app.') 
+        ? `${window.location.protocol}//${currentHost}/`
+        : `${window.location.protocol}//app.${currentHost}/`;
+      
       await signIn.social({
         provider: 'google',
-        callbackURL: '/',
+        callbackURL: appUrl,
       });
     } catch (err) {
       setError('Google authentication failed');
