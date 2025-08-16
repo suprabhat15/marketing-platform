@@ -51,14 +51,19 @@ export function middleware(request: NextRequest) {
 
   // App domain (app.domain.com) - serve app pages only
   if (isAppDomain) {
-    // Redirect landing pages to main domain
-    if (landingPages.includes(pathname) && pathname !== '/') {
+    // Redirect terms and privacy to main domain
+    if (pathname.startsWith('/terms') || pathname.startsWith('/privacy')) {
       const baseDomain = host.replace('app.', '');
       const mainUrl = `https://${baseDomain}${pathname}`;
       return NextResponse.redirect(mainUrl);
     }
     
-    // Allow auth page on app domain (for redirects after login)
+    // Redirect root to campaigns dashboard
+    if (pathname === '/') {
+      return NextResponse.redirect(new URL('/campaigns', request.url));
+    }
+    
+    // Allow auth page on app domain
     if (pathname === '/auth') {
       return NextResponse.next();
     }
