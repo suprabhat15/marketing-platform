@@ -28,9 +28,10 @@ export function middleware(request: NextRequest) {
       return NextResponse.next();
     }
     
-    // Allow auth page on main domain (for login/signup)
+    // Redirect auth page to app subdomain
     if (pathname === '/auth') {
-      return NextResponse.next();
+      const appUrl = `https://app.${host}${pathname}`;
+      return NextResponse.redirect(appUrl);
     }
     
     // Redirect app pages to app subdomain
