@@ -40,17 +40,39 @@ import {
   Palette
 } from 'lucide-react';
 import { z } from 'zod';
+import dynamic from 'next/dynamic';
+
+const TiptapEditor = dynamic(
+  () =>
+    import('@/components/email-editor/tiptap-editor').then((mod) => ({
+      default: mod.TiptapEditor,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-lg border">
+        <div className="h-12 animate-pulse border-b bg-gray-50 p-2" />
+        <div className="min-h-[300px] animate-pulse bg-gray-50 p-4" />
+        <div className="h-16 animate-pulse border-t bg-gray-50 p-3" />
+      </div>
+    ),
+  }
+);
 
 const templateUpdateSchema = z.object({
   name: z.string().min(1, 'Template name is required'),
   subject: z.string().min(1, 'Subject is required'),
   content: z.string().min(1, 'Content is required'),
-  attachments: z.array(z.object({
-    name: z.string(),
-    size: z.number(),
-    type: z.string(),
-    url: z.string(),
-  })).optional(),
+  attachments: z
+    .array(
+      z.object({
+        name: z.string(),
+        size: z.number(),
+        type: z.string(),
+        url: z.string(),
+      })
+    )
+    .optional(),
 });
 
 type Template = z.infer<typeof templateUpdateSchema>;
@@ -72,9 +94,12 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
-  const [textContent, setTextContent] = useState('');
-  const [activeTab, setActiveTab] = useState('wysiwyg');
-  const [isWysiwygMode, setIsWysiwygMode] = useState(true);
+  const [activeTab, setActiveTab] = useState('notion');
+
+  const [editorMode, setEditorMode] = useState<'notion' | 'code'>('notion');
+
+  const [showModeSwitch, setShowModeSwitch] = useState(false);
+  const [pendingMode, setPendingMode] = useState<'notion' | 'code'>('notion');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
@@ -82,13 +107,13 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
   const router = useRouter();
 
   const availableVariables = [
-    '{{name}}',
     '{{firstName}}',
     '{{lastName}}',
     '{{email}}',
     '{{companyName}}',
     '{{unsubscribeUrl}}',
   ];
+
 
   useEffect(() => {
     params.then((resolvedParams) => {
@@ -107,8 +132,20 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
         setName(template.name || '');
         setSubject(template.subject || '');
         setContent(template.content || '');
-        setTextContent(template.textContent || '');
         setAttachments(template.attachments || []);
+
+        // Load editor mode for this template
+        try {
+          const editorModes = JSON.parse(
+            localStorage.getItem('template-editor-modes') || '{}'
+          );
+          const savedMode = editorModes[id];
+          if (savedMode === 'notion' || savedMode === 'code') {
+            setEditorMode(savedMode);
+          }
+        } catch (error) {
+          console.error('Error loading editor mode:', error);
+        }
       } else {
         router.push('/templates');
       }
@@ -123,7 +160,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
   const handleFileUpload = async (files: FileList) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Maximum size is 10MB.`);
@@ -139,12 +176,12 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
         file: file,
       };
 
-      setAttachments(prev => [...prev, attachment]);
+      setAttachments((prev) => [...prev, attachment]);
     }
   };
 
   const removeAttachment = (index: number) => {
-    setAttachments(prev => {
+    setAttachments((prev) => {
       const updated = [...prev];
       URL.revokeObjectURL(updated[index].url);
       updated.splice(index, 1);
@@ -152,24 +189,69 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
     });
   };
 
-  const insertVariable = (variable: string) => {
-    if (isWysiwygMode) {
-      setContent(prev => prev + variable);
+  const handleModeSwitch = (mode: 'notion' | 'code') => {
+    if (mode === editorMode) return;
+
+    if (content.trim()) {
+      setPendingMode(mode);
+      setShowModeSwitch(true);
     } else {
-      setContent(prev => prev + variable);
+      setEditorMode(mode);
+    }
+  };
+
+  const confirmModeSwitch = () => {
+    setContent('');
+    setEditorMode(pendingMode);
+    setShowModeSwitch(false);
+  };
+
+  const insertVariable = (variable: string) => {
+    if (editorMode === 'notion') {
+      // For Notion editor, let the TiptapEditor handle it directly
+      // The TiptapEditor component will handle this through its own insertVariable function
+      return;
+    } else {
+      // For code editor, insert at cursor position and preserve scroll
+      const textarea = document.getElementById(
+        'code-content'
+      ) as HTMLTextAreaElement;
+      if (textarea) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const currentContent = textarea.value;
+        const scrollTop = textarea.scrollTop;
+
+        const newContent =
+          currentContent.substring(0, start) +
+          variable +
+          currentContent.substring(end);
+
+        setContent(newContent);
+
+        // Preserve scroll position and cursor
+        setTimeout(() => {
+          textarea.focus();
+          textarea.scrollTop = scrollTop;
+          textarea.setSelectionRange(
+            start + variable.length,
+            start + variable.length
+          );
+        }, 0);
+      } else {
+        // Fallback: append to end
+        setContent((prev) => prev + variable);
+      }
     }
   };
 
   const validateForm = (): boolean => {
     try {
-      // Determine which content to validate based on active tab
-      const finalContent = activeTab === 'text' ? textContent : content;
-      
       const templateData = {
         name: name.trim(),
         subject: subject.trim(),
-        content: finalContent.trim(),
-        attachments: attachments.map(att => ({
+        content: content.trim(),
+        attachments: attachments.map((att) => ({
           name: att.name,
           size: att.size,
           type: att.type,
@@ -198,14 +280,23 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
 
     setSaving(true);
     try {
-      // Send the appropriate content based on selected tab
-      const finalContent = activeTab === 'text' ? textContent : content;
-      
+      // Save current editor mode to localStorage
+      if (templateId) {
+        const editorModes = JSON.parse(
+          localStorage.getItem('template-editor-modes') || '{}'
+        );
+        editorModes[templateId] = editorMode;
+        localStorage.setItem(
+          'template-editor-modes',
+          JSON.stringify(editorModes)
+        );
+      }
+
       const templateData = {
         name,
         subject,
-        content: finalContent,
-        attachments: attachments.map(att => ({
+        content,
+        attachments: attachments.map((att) => ({
           name: att.name,
           size: att.size,
           type: att.type,
@@ -246,177 +337,10 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // WYSIWYG Editor Component
-  const WysiwygEditor = () => {
-    const editorRef = useRef<HTMLDivElement>(null);
-
-    const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-      setContent(e.currentTarget.innerHTML);
-    };
-
-    const executeCommand = (command: string, value?: string) => {
-      document.execCommand(command, false, value);
-      if (editorRef.current) {
-        setContent(editorRef.current.innerHTML);
-        editorRef.current.focus();
-      }
-    };
-
-    const insertVariableInEditor = (variable: string) => {
-      if (editorRef.current) {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          range.deleteContents();
-          const span = document.createElement('span');
-          span.className = 'bg-blue-100 text-blue-800 px-1 rounded text-sm';
-          span.textContent = variable;
-          range.insertNode(span);
-          range.setStartAfter(span);
-          range.setEndAfter(span);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        } else {
-          const span = document.createElement('span');
-          span.className = 'bg-blue-100 text-blue-800 px-1 rounded text-sm';
-          span.textContent = variable;
-          editorRef.current.appendChild(span);
-        }
-        setContent(editorRef.current.innerHTML);
-        editorRef.current.focus();
-      }
-    };
-
-    useEffect(() => {
-      if (editorRef.current && content && !editorRef.current.innerHTML) {
-        editorRef.current.innerHTML = content;
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [content]);
-
-    return (
-      <div className="border rounded-lg">
-        <div className="border-b p-2 flex items-center gap-1 flex-wrap">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('bold')}
-          >
-            <Bold className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('italic')}
-          >
-            <Italic className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('underline')}
-          >
-            <Underline className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyLeft')}
-          >
-            <AlignLeft className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyCenter')}
-          >
-            <AlignCenter className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyRight')}
-          >
-            <AlignRight className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const url = prompt('Enter URL:');
-              if (url) executeCommand('createLink', url);
-            }}
-          >
-            <Link className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('insertUnorderedList')}
-          >
-            <List className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const color = prompt('Enter color (hex):');
-              if (color) executeCommand('foreColor', color);
-            }}
-          >
-            <Palette className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        <div
-          ref={editorRef}
-          contentEditable
-          className="min-h-[300px] p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
-          style={{ whiteSpace: 'pre-wrap' }}
-          onInput={handleInput}
-          onPaste={(e) => {
-            e.preventDefault();
-            const text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
-          }}
-        />
-        
-        <div className="border-t p-2 bg-gray-50">
-          <p className="text-xs text-gray-600 mb-2">Insert variables:</p>
-          <div className="flex flex-wrap gap-1">
-            {availableVariables.map((variable) => (
-              <Button
-                key={variable}
-                variant="outline"
-                size="sm"
-                className="text-xs h-6"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insertVariableInEditor(variable)}
-              >
-                {variable}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900"></div>
       </div>
     );
   }
@@ -478,94 +402,75 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
               <div className="flex items-center justify-between">
                 <CardTitle>Email Content</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="editor-mode" className="text-sm">
-                    WYSIWYG Mode
-                  </Label>
-                  <Switch
-                    id="editor-mode"
-                    checked={isWysiwygMode}
-                    onCheckedChange={setIsWysiwygMode}
-                  />
+                  <Label className="text-sm">Editor Mode:</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={editorMode === 'notion' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleModeSwitch('notion')}
+                    >
+                      Notion
+                    </Button>
+                    <Button
+                      variant={editorMode === 'code' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleModeSwitch('code')}
+                    >
+                      Code
+                    </Button>
+                  </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList>
-                  <TabsTrigger
-                    value="wysiwyg"
-                    className="flex items-center gap-2"
-                  >
-                    <Type className="h-4 w-4" />
-                    {isWysiwygMode ? 'Visual Editor' : 'HTML Editor'}
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="preview"
-                    className="flex items-center gap-2"
-                  >
-                    <Eye className="h-4 w-4" />
-                    Preview
-                  </TabsTrigger>
-                  <TabsTrigger value="text" className="flex items-center gap-2">
-                    <Code className="h-4 w-4" />
-                    Plain Text
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="wysiwyg" className="mt-4">
-                  {isWysiwygMode ? (
-                    <WysiwygEditor />
-                  ) : (
-                    <div>
-                      <Label htmlFor="html-content">HTML Content</Label>
-                      <Textarea
-                        id="html-content"
-                        value={content}
-                        onChange={(e) => setContent(e.target.value)}
-                        placeholder="Enter HTML content"
-                        className={`min-h-[300px] font-mono ${errors.content ? 'border-red-500' : ''}`}
-                      />
-                    </div>
-                  )}
+              {editorMode === 'notion' ? (
+                <div>
+                  <TiptapEditor
+                    content={content}
+                    onChange={setContent}
+                    placeholder="Start writing your email content..."
+                    availableVariables={availableVariables}
+                    onInsertVariable={insertVariable}
+                  />
                   {errors.content && (
                     <p className="mt-1 text-sm text-red-500">
                       {errors.content}
                     </p>
                   )}
-                </TabsContent>
-
-                <TabsContent value="preview" className="mt-4">
-                  <div className="min-h-[300px] rounded-lg border bg-gray-50 p-4">
-                    <div className="rounded bg-white p-4 shadow-sm">
-                      <div className="mb-4 border-b pb-2">
-                        <strong>Subject:</strong> {subject || 'No subject'}
-                      </div>
-                      <div
-                        dangerouslySetInnerHTML={{
-                          __html: content || textContent || '<p>No content</p>',
-                        }}
-                      />
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="text" className="mt-4">
-                  <div>
-                    <Label htmlFor="text-content">Plain Text Content</Label>
-                    <Textarea
-                      id="text-content"
-                      value={textContent}
-                      onChange={(e) => setTextContent(e.target.value)}
-                      placeholder="Enter plain text content"
-                      className={`min-h-[300px] ${errors.content && activeTab === 'text' ? 'border-red-500' : ''}`}
-                    />
-                    <p className="text-muted-foreground mt-1 text-sm">
-                      Plain text version for email clients that don&apos;t
-                      support HTML
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="code-content">HTML/CSS Code</Label>
+                  <Textarea
+                    id="code-content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="Enter your HTML/CSS code here..."
+                    className={`min-h-[400px] font-mono text-sm ${errors.content ? 'border-red-500' : ''}`}
+                  />
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <p className="mr-2 text-xs text-gray-600">
+                      Insert variables:
                     </p>
+                    {availableVariables.map((variable) => (
+                      <Button
+                        key={variable}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => insertVariable(variable)}
+                      >
+                        {variable}
+                      </Button>
+                    ))}
                   </div>
-                </TabsContent>
-              </Tabs>
+                  {errors.content && (
+                    <p className="mt-1 text-sm text-red-500">
+                      {errors.content}
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -671,7 +576,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
                       </div>
                       <div
                         dangerouslySetInnerHTML={{
-                          __html: content || textContent || '<p>No content</p>',
+                          __html: content || '<p>No content</p>',
                         }}
                       />
                       {attachments.length > 0 && (
@@ -692,6 +597,30 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
               </Dialog>
             </CardContent>
           </Card>
+
+          {/* Mode Switch Confirmation Dialog */}
+          <Dialog open={showModeSwitch} onOpenChange={setShowModeSwitch}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Switch Editor Mode</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Switching from {editorMode} mode to {pendingMode} mode will
+                  clear all current content. Are you sure you want to continue?
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowModeSwitch(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={confirmModeSwitch}>Switch Mode</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           <Card>
             <CardHeader>

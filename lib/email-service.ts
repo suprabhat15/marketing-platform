@@ -9,7 +9,6 @@ function replaceVariables(content: string, subscriber: any): string {
     firstName: subscriber.firstName || subscriber.name?.split(' ')[0] || '',
     lastName: subscriber.lastName || subscriber.name?.split(' ').slice(1).join(' ') || '',
     email: subscriber.email || '',
-    name: subscriber.name || '',
     // Add unsubscribe URL (you may want to generate this dynamically)
     unsubscribeUrl: `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(subscriber.email)}`,
   };

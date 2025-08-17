@@ -62,7 +62,7 @@ export function EmailPreview({
     let processedContent = content;
     Object.entries(defaultSampleData).forEach(([key, value]) => {
       const regex = new RegExp(`{{${key}}}`, 'g');
-      processedContent = processedContent.replace(regex, value);
+      processedContent = processedContent.replace(regex, String(value));
     });
     return processedContent;
   };

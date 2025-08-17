@@ -40,6 +40,24 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
+import dynamic from 'next/dynamic';
+
+const TiptapEditor = dynamic(
+  () =>
+    import('@/components/email-editor/tiptap-editor').then((mod) => ({
+      default: mod.TiptapEditor,
+    })),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="rounded-lg border">
+        <div className="h-12 animate-pulse border-b bg-gray-50 p-2" />
+        <div className="min-h-[300px] animate-pulse bg-gray-50 p-4" />
+        <div className="h-16 animate-pulse border-t bg-gray-50 p-3" />
+      </div>
+    ),
+  }
+);
 
 const templateCreateSchema = z.object({
   name: z.string().min(1, 'Template name is required'),
@@ -67,16 +85,18 @@ export function NewTemplatePage() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
-  const [textContent, setTextContent] = useState('');
-  const [activeTab, setActiveTab] = useState('wysiwyg');
-  const [isWysiwygMode, setIsWysiwygMode] = useState(true);
+  const [activeTab, setActiveTab] = useState('code');
+  
+  const [editorMode, setEditorMode] = useState<'notion' | 'code'>('notion');
+  
+  const [showModeSwitch, setShowModeSwitch] = useState(false);
+  const [pendingMode, setPendingMode] = useState<'notion' | 'code'>('notion');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const router = useRouter();
 
   const availableVariables = [
-    '{{name}}',
     '{{firstName}}',
     '{{lastName}}',
     '{{email}}',
@@ -84,10 +104,24 @@ export function NewTemplatePage() {
     '{{unsubscribeUrl}}',
   ];
 
+
+  // Load default editor mode from localStorage on mount
+  useEffect(() => {
+    try {
+      const editorModes = JSON.parse(localStorage.getItem('template-editor-modes') || '{}');
+      const savedMode = editorModes['new-template-default'];
+      if (savedMode === 'notion' || savedMode === 'code') {
+        setEditorMode(savedMode);
+      }
+    } catch (error) {
+      console.error('Error loading editor mode:', error);
+    }
+  }, []);
+
   const handleFileUpload = async (files: FileList) => {
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      
+
       // Validate file size (max 10MB)
       if (file.size > 10 * 1024 * 1024) {
         alert(`File ${file.name} is too large. Maximum size is 10MB.`);
@@ -103,12 +137,12 @@ export function NewTemplatePage() {
         file: file,
       };
 
-      setAttachments(prev => [...prev, attachment]);
+      setAttachments((prev) => [...prev, attachment]);
     }
   };
 
   const removeAttachment = (index: number) => {
-    setAttachments(prev => {
+    setAttachments((prev) => {
       const updated = [...prev];
       URL.revokeObjectURL(updated[index].url);
       updated.splice(index, 1);
@@ -116,26 +150,69 @@ export function NewTemplatePage() {
     });
   };
 
-  const insertVariable = (variable: string) => {
-    if (isWysiwygMode) {
-      // For WYSIWYG mode, we would need to integrate with the editor
-      setContent(prev => prev + variable);
+  const handleModeSwitch = (mode: 'notion' | 'code') => {
+    if (mode === editorMode) return;
+
+    if (content.trim()) {
+      setPendingMode(mode);
+      setShowModeSwitch(true);
     } else {
-      // For text mode, insert at cursor position
-      setContent(prev => prev + variable);
+      setEditorMode(mode);
+    }
+  };
+
+  const confirmModeSwitch = () => {
+    setContent('');
+    setEditorMode(pendingMode);
+    setShowModeSwitch(false);
+  };
+
+  const insertVariable = (variable: string) => {
+    if (editorMode === 'notion') {
+      // For Notion editor, let the TiptapEditor handle it directly
+      // The TiptapEditor component will handle this through its own insertVariable function
+      return;
+    } else {
+      // For code editor, insert at cursor position and preserve scroll
+      const textarea = document.getElementById(
+        'code-content'
+      ) as HTMLTextAreaElement;
+      if (textarea) {
+        const start = textarea.selectionStart;
+        const end = textarea.selectionEnd;
+        const currentContent = textarea.value;
+        const scrollTop = textarea.scrollTop;
+        
+        const newContent =
+          currentContent.substring(0, start) +
+          variable +
+          currentContent.substring(end);
+
+        setContent(newContent);
+
+        // Preserve scroll position and cursor
+        setTimeout(() => {
+          textarea.focus();
+          textarea.scrollTop = scrollTop;
+          textarea.setSelectionRange(
+            start + variable.length,
+            start + variable.length
+          );
+        }, 0);
+      } else {
+        // Fallback: append to end
+        setContent((prev) => prev + variable);
+      }
     }
   };
 
   const validateForm = (): boolean => {
     try {
-      // Determine which content to validate based on active tab
-      const finalContent = activeTab === 'text' ? textContent : content;
-      
       const templateData = {
         name: name.trim(),
         subject: subject.trim(),
-        content: finalContent.trim(),
-        attachments: attachments.map(att => ({
+        content: content.trim(),
+        attachments: attachments.map((att) => ({
           name: att.name,
           size: att.size,
           type: att.type,
@@ -164,14 +241,11 @@ export function NewTemplatePage() {
 
     setSaving(true);
     try {
-      // Send the appropriate content based on selected tab
-      const finalContent = activeTab === 'text' ? textContent : content;
-      
       const templateData = {
         name,
         subject,
-        content: finalContent,
-        attachments: attachments.map(att => ({
+        content,
+        attachments: attachments.map((att) => ({
           name: att.name,
           size: att.size,
           type: att.type,
@@ -186,6 +260,17 @@ export function NewTemplatePage() {
       });
 
       if (response.ok) {
+        const data = await response.json();
+        const templateId = data.template?.id;
+        
+        // Save editor mode for this template and as default for new templates
+        if (templateId) {
+          const editorModes = JSON.parse(localStorage.getItem('template-editor-modes') || '{}');
+          editorModes[templateId] = editorMode;
+          editorModes['new-template-default'] = editorMode;
+          localStorage.setItem('template-editor-modes', JSON.stringify(editorModes));
+        }
+        
         router.push('/templates');
       } else {
         const error = await response.json();
@@ -212,201 +297,28 @@ export function NewTemplatePage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  // WYSIWYG Editor Component
-  const WysiwygEditor = () => {
-    const editorRef = useRef<HTMLDivElement>(null);
-
-    const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
-      setContent(e.currentTarget.innerHTML);
-    };
-
-    const executeCommand = (command: string, value?: string) => {
-      document.execCommand(command, false, value);
-      if (editorRef.current) {
-        setContent(editorRef.current.innerHTML);
-        editorRef.current.focus();
-      }
-    };
-
-    const insertVariable = (variable: string) => {
-      if (editorRef.current) {
-        const selection = window.getSelection();
-        if (selection && selection.rangeCount > 0) {
-          const range = selection.getRangeAt(0);
-          range.deleteContents();
-          const span = document.createElement('span');
-          span.className = 'bg-blue-100 text-blue-800 px-1 rounded text-sm';
-          span.textContent = variable;
-          range.insertNode(span);
-          range.setStartAfter(span);
-          range.setEndAfter(span);
-          selection.removeAllRanges();
-          selection.addRange(range);
-        } else {
-          // Fallback: append at the end
-          const span = document.createElement('span');
-          span.className = 'bg-blue-100 text-blue-800 px-1 rounded text-sm';
-          span.textContent = variable;
-          editorRef.current.appendChild(span);
-        }
-        setContent(editorRef.current.innerHTML);
-        editorRef.current.focus();
-      }
-    };
-
-    // Set initial content only once
-    useEffect(() => {
-      if (editorRef.current && !editorRef.current.innerHTML) {
-        editorRef.current.innerHTML = content || '<p>Start typing your email content...</p>';
-      }
-    }, []);
-
-    return (
-      <div className="border rounded-lg">
-        {/* Toolbar */}
-        <div className="border-b p-2 flex items-center gap-1 flex-wrap">
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('bold')}
-          >
-            <Bold className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('italic')}
-          >
-            <Italic className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('underline')}
-          >
-            <Underline className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyLeft')}
-          >
-            <AlignLeft className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyCenter')}
-          >
-            <AlignCenter className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('justifyRight')}
-          >
-            <AlignRight className="h-4 w-4" />
-          </Button>
-          <div className="w-px h-6 bg-border mx-1" />
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const url = prompt('Enter URL:');
-              if (url) executeCommand('createLink', url);
-            }}
-          >
-            <Link className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => executeCommand('insertUnorderedList')}
-          >
-            <List className="h-4 w-4" />
-          </Button>
-          <Button 
-            variant="ghost" 
-            size="sm"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => {
-              const color = prompt('Enter color (hex):');
-              if (color) executeCommand('foreColor', color);
-            }}
-          >
-            <Palette className="h-4 w-4" />
-          </Button>
-        </div>
-        
-        {/* Editor Content */}
-        <div
-          ref={editorRef}
-          contentEditable
-          className="min-h-[300px] p-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset"
-          style={{ whiteSpace: 'pre-wrap' }}
-          onInput={handleInput}
-          onPaste={(e) => {
-            // Handle paste to maintain formatting
-            e.preventDefault();
-            const text = e.clipboardData.getData('text/plain');
-            document.execCommand('insertText', false, text);
-          }}
-        />
-        
-        {/* Variable insertion toolbar */}
-        <div className="border-t p-2 bg-gray-50">
-          <p className="text-xs text-gray-600 mb-2">Insert variables:</p>
-          <div className="flex flex-wrap gap-1">
-            {availableVariables.map((variable) => (
-              <Button
-                key={variable}
-                variant="outline"
-                size="sm"
-                className="text-xs h-6"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insertVariable(variable)}
-              >
-                {variable}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => router.back()}
-        >
-          <ArrowLeft className="h-4 w-4 mr-2" />
+        <Button variant="ghost" size="sm" onClick={() => router.back()}>
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Create New Template</h1>
+          <h1 className="text-3xl font-bold tracking-tight">
+            Create New Template
+          </h1>
           <p className="text-muted-foreground">
             Build reusable email templates with text or WYSIWYG editor
           </p>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         {/* Main Content */}
-        <div className="lg:col-span-3 space-y-6">
+        <div className="space-y-6 lg:col-span-3">
           {/* Template Details */}
           <Card>
             <CardHeader>
@@ -423,7 +335,7 @@ export function NewTemplatePage() {
                   className={errors.name ? 'border-red-500' : ''}
                 />
                 {errors.name && (
-                  <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.name}</p>
                 )}
               </div>
 
@@ -437,7 +349,7 @@ export function NewTemplatePage() {
                   className={errors.subject ? 'border-red-500' : ''}
                 />
                 {errors.subject && (
-                  <p className="text-sm text-red-500 mt-1">{errors.subject}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.subject}</p>
                 )}
               </div>
             </CardContent>
@@ -449,83 +361,86 @@ export function NewTemplatePage() {
               <div className="flex items-center justify-between">
                 <CardTitle>Email Content</CardTitle>
                 <div className="flex items-center gap-2">
-                  <Label htmlFor="editor-mode" className="text-sm">
-                    WYSIWYG Mode
-                  </Label>
-                  <Switch
-                    id="editor-mode"
-                    checked={isWysiwygMode}
-                    onCheckedChange={setIsWysiwygMode}
-                  />
+                  <Label className="text-sm">Editor Mode:</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant={editorMode === 'notion' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleModeSwitch('notion')}
+                    >
+                      Notion
+                    </Button>
+                    <Button
+                      variant={editorMode === 'code' ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => handleModeSwitch('code')}
+                    >
+                      Code
+                    </Button>
+                  </div>
                 </div>
               </div>
             </CardHeader>
             <CardContent>
-              <Tabs value={activeTab} onValueChange={setActiveTab}>
-                <TabsList>
-                  <TabsTrigger value="wysiwyg" className="flex items-center gap-2">
-                    <Type className="h-4 w-4" />
-                    {isWysiwygMode ? 'Visual Editor' : 'HTML Editor'}
-                  </TabsTrigger>
-                  <TabsTrigger value="preview" className="flex items-center gap-2">
-                    <Eye className="h-4 w-4" />
-                    Preview
-                  </TabsTrigger>
-                  <TabsTrigger value="text" className="flex items-center gap-2">
-                    <Code className="h-4 w-4" />
-                    Plain Text
-                  </TabsTrigger>
-                </TabsList>
-
-                <TabsContent value="wysiwyg" className="mt-4">
-                  {isWysiwygMode ? (
-                    <WysiwygEditor />
-                  ) : (
-                    <div>
-                      <Label htmlFor="html-content">HTML Content</Label>
-                      <Textarea
-                        id="html-content"
-                        value={content}
-                        onChange={(e) => setContent(e.target.value)}
-                        placeholder="Enter HTML content"
-                        className={`min-h-[300px] font-mono ${errors.content ? 'border-red-500' : ''}`}
-                      />
-                    </div>
-                  )}
+              {editorMode === 'notion' ? (
+                <div>
+                  <TiptapEditor
+                    content={content}
+                    onChange={setContent}
+                    placeholder="Start writing your email content..."
+                    availableVariables={availableVariables}
+                    onInsertVariable={insertVariable}
+                  />
                   {errors.content && (
-                    <p className="text-sm text-red-500 mt-1">{errors.content}</p>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="preview" className="mt-4">
-                  <div className="border rounded-lg p-4 min-h-[300px] bg-gray-50">
-                    <div className="bg-white p-4 rounded shadow-sm">
-                      <div className="border-b pb-2 mb-4">
-                        <strong>Subject:</strong> {subject || 'No subject'}
-                      </div>
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: content || textContent || '<p>No content</p>' }}
-                      />
-                    </div>
-                  </div>
-                </TabsContent>
-
-                <TabsContent value="text" className="mt-4">
-                  <div>
-                    <Label htmlFor="text-content">Plain Text Content</Label>
-                    <Textarea
-                      id="text-content"
-                      value={textContent}
-                      onChange={(e) => setTextContent(e.target.value)}
-                      placeholder="Enter plain text content"
-                      className={`min-h-[300px] ${errors.content && activeTab === 'text' ? 'border-red-500' : ''}`}
-                    />
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Plain text version for email clients that don&apos;t support HTML
+                    <p className="mt-1 text-sm text-red-500">
+                      {errors.content}
                     </p>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <Label htmlFor="code-content">HTML/CSS Code</Label>
+                  <Textarea
+                    id="code-content"
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                    placeholder="Enter your HTML/CSS code here..."
+                    className={`min-h-[400px] font-mono text-sm ${errors.content ? 'border-red-500' : ''}`}
+                    style={{
+                      background: `linear-gradient(transparent, transparent), 
+                        repeating-linear-gradient(
+                          0deg,
+                          transparent,
+                          transparent 1ch,
+                          transparent 1ch,
+                          transparent 2ch
+                        )`
+                    }}
+                  />
+                  
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    <p className="mr-2 text-xs text-gray-600">
+                      Insert variables:
+                    </p>
+                    {availableVariables.map((variable) => (
+                      <Button
+                        key={variable}
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs"
+                        onClick={() => insertVariable(variable)}
+                      >
+                        {variable}
+                      </Button>
+                    ))}
                   </div>
-                </TabsContent>
-              </Tabs>
+                  {errors.content && (
+                    <p className="mt-1 text-sm text-red-500">
+                      {errors.content}
+                    </p>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -539,8 +454,8 @@ export function NewTemplatePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
-                  <Upload className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <div className="rounded-lg border-2 border-dashed border-gray-300 p-6 text-center">
+                  <Upload className="mx-auto mb-4 h-12 w-12 text-gray-400" />
                   <div className="space-y-2">
                     <p className="text-sm text-gray-600">
                       Drag and drop files here, or click to select files
@@ -548,14 +463,18 @@ export function NewTemplatePage() {
                     <Input
                       type="file"
                       multiple
-                      onChange={(e) => e.target.files && handleFileUpload(e.target.files)}
+                      onChange={(e) =>
+                        e.target.files && handleFileUpload(e.target.files)
+                      }
                       className="hidden"
                       id="file-upload"
                     />
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => document.getElementById('file-upload')?.click()}
+                      onClick={() =>
+                        document.getElementById('file-upload')?.click()
+                      }
                     >
                       Select Files
                     </Button>
@@ -571,13 +490,16 @@ export function NewTemplatePage() {
                     {attachments.map((attachment, index) => (
                       <div
                         key={index}
-                        className="flex items-center gap-3 p-3 border rounded-lg"
+                        className="flex items-center gap-3 rounded-lg border p-3"
                       >
                         {getFileIcon(attachment.type)}
                         <div className="flex-1">
-                          <p className="text-sm font-medium">{attachment.name}</p>
+                          <p className="text-sm font-medium">
+                            {attachment.name}
+                          </p>
                           <p className="text-xs text-gray-500">
-                            {formatFileSize(attachment.size)} • {attachment.type}
+                            {formatFileSize(attachment.size)} •{' '}
+                            {attachment.type}
                           </p>
                         </div>
                         <Button
@@ -604,37 +526,37 @@ export function NewTemplatePage() {
               <CardTitle>Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-3">
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full"
-              >
-                <Save className="h-4 w-4 mr-2" />
+              <Button onClick={handleSave} disabled={saving} className="w-full">
+                <Save className="mr-2 h-4 w-4" />
                 {saving ? 'Saving...' : 'Save Template'}
               </Button>
-              
+
               <Dialog>
                 <DialogTrigger asChild>
                   <Button variant="outline" className="w-full">
-                    <Eye className="h-4 w-4 mr-2" />
+                    <Eye className="mr-2 h-4 w-4" />
                     Preview Email
                   </Button>
                 </DialogTrigger>
-                <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                <DialogContent className="max-h-[80vh] max-w-2xl overflow-y-auto">
                   <DialogHeader>
                     <DialogTitle>Email Preview</DialogTitle>
                   </DialogHeader>
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <div className="bg-white p-4 rounded shadow-sm">
-                      <div className="border-b pb-2 mb-4">
+                  <div className="rounded-lg border bg-gray-50 p-4">
+                    <div className="rounded bg-white p-4 shadow-sm">
+                      <div className="mb-4 border-b pb-2">
                         <strong>Subject:</strong> {subject || 'No subject'}
                       </div>
-                      <div 
-                        dangerouslySetInnerHTML={{ __html: content || textContent || '<p>No content</p>' }}
+                      <div
+                        dangerouslySetInnerHTML={{
+                          __html: content || '<p>No content</p>',
+                        }}
                       />
                       {attachments.length > 0 && (
-                        <div className="mt-4 pt-4 border-t">
-                          <p className="text-sm font-medium mb-2">Attachments:</p>
+                        <div className="mt-4 border-t pt-4">
+                          <p className="mb-2 text-sm font-medium">
+                            Attachments:
+                          </p>
                           {attachments.map((attachment, index) => (
                             <div key={index} className="text-sm text-gray-600">
                               📎 {attachment.name}
@@ -649,6 +571,30 @@ export function NewTemplatePage() {
             </CardContent>
           </Card>
 
+          {/* Mode Switch Confirmation Dialog */}
+          <Dialog open={showModeSwitch} onOpenChange={setShowModeSwitch}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Switch Editor Mode</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Switching from {editorMode} mode to {pendingMode} mode will
+                  clear all current content. Are you sure you want to continue?
+                </p>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowModeSwitch(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button onClick={confirmModeSwitch}>Switch Mode</Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
           {/* Variables */}
           <Card>
             <CardHeader>
@@ -656,14 +602,14 @@ export function NewTemplatePage() {
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
-                <p className="text-sm text-gray-600 mb-3">
+                <p className="mb-3 text-sm text-gray-600">
                   Click to insert variables into your template:
                 </p>
                 {availableVariables.map((variable) => (
                   <Badge
                     key={variable}
                     variant="outline"
-                    className="cursor-pointer hover:bg-gray-100 mr-1 mb-1"
+                    className="mr-1 mb-1 cursor-pointer hover:bg-gray-100"
                     onClick={() => insertVariable(variable)}
                   >
                     {variable}
