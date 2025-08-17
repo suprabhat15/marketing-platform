@@ -82,6 +82,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
   const router = useRouter();
 
   const availableVariables = [
+    '{{name}}',
     '{{firstName}}',
     '{{lastName}}',
     '{{email}}',

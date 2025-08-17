@@ -76,6 +76,7 @@ export function NewTemplatePage() {
   const router = useRouter();
 
   const availableVariables = [
+    '{{name}}',
     '{{firstName}}',
     '{{lastName}}',
     '{{email}}',

@@ -1,6 +1,29 @@
 import { sendEmail } from './ses';
 import { prisma } from './prisma';
 
+function replaceVariables(content: string, subscriber: any): string {
+  let processedContent = content;
+  
+  // Replace subscriber-specific variables
+  const variables = {
+    firstName: subscriber.firstName || subscriber.name?.split(' ')[0] || '',
+    lastName: subscriber.lastName || subscriber.name?.split(' ').slice(1).join(' ') || '',
+    email: subscriber.email || '',
+    name: subscriber.name || '',
+    // Add unsubscribe URL (you may want to generate this dynamically)
+    unsubscribeUrl: `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(subscriber.email)}`,
+  };
+  
+  // Replace all variables in the format {{variableName}}
+  Object.entries(variables).forEach(([key, value]) => {
+    const regex = new RegExp(`{{${key}}}`, 'g');
+    processedContent = processedContent.replace(regex, String(value));
+  });
+  
+  return processedContent;
+}
+
+
 export async function sendCampaign(campaignId: string) {
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
@@ -64,10 +87,14 @@ export async function sendCampaign(campaignId: string) {
           // Generate unique message ID for this email
           const messageId = `${campaignId}-${subscriber.id}-${Date.now()}`;
 
+          // Process template variables for this subscriber
+          const processedContent = replaceVariables(campaign.content, subscriber);
+          const processedSubject = replaceVariables(campaign.subject, subscriber);
+
           await sendEmail({
             to: [subscriber.email],
-            subject: campaign.subject,
-            html: campaign.content,
+            subject: processedSubject,
+            html: processedContent,
             configurationSetName: process.env.AWS_SES_CONFIGURATION_SET,
             campaignId: campaignId,
             messageId: messageId,
@@ -81,7 +108,7 @@ export async function sendCampaign(campaignId: string) {
               campaignId: campaignId,
               data: {
                 email: subscriber.email,
-                subject: campaign.subject,
+                subject: processedSubject,
                 messageId: messageId,
                 timestamp: new Date().toISOString(),
               },
