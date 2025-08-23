@@ -41,11 +41,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { z } from 'zod';
+import { CampaignRealTimeEvents } from './campaign-real-time-events';
 
 const eventSchema = z.object({
   id: z.string(),
   type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
-  data: z.any().nullable(),
+  data: z.any().optional(),
   createdAt: z.string().datetime(),
   subscriber: z.object({
     id: z.string(),
@@ -97,7 +98,6 @@ export function CampaignList({
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
   const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
-  const [eventFilters, setEventFilters] = useState<Record<string, string>>({});
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
@@ -109,19 +109,6 @@ export function CampaignList({
       newExpanded.add(campaignId);
     }
     setExpandedCampaigns(newExpanded);
-  };
-
-  const updateEventFilter = (campaignId: string, filter: string) => {
-    setEventFilters(prev => ({
-      ...prev,
-      [campaignId]: filter === 'all' ? '' : filter,
-    }));
-  };
-
-  const getFilteredEvents = (campaign: Campaign) => {
-    const filter = eventFilters[campaign.id];
-    if (!filter) return campaign.events;
-    return campaign.events.filter(event => event.type === filter);
   };
 
   // Filter campaigns based on search query and status
@@ -381,74 +368,17 @@ export function CampaignList({
                   </div>
                 </div>
 
-                {/* Expanded Events Section */}
+                {/* Real-time Events Section */}
                 {expandedCampaigns.has(campaign.id) && (
                   <div className="mt-4 border-t pt-4">
-                    <div className="mb-3 flex items-center justify-between">
-                      <h4 className="flex items-center gap-2 font-medium">
-                        <Activity className="h-4 w-4" />
-                        Campaign Events ({getFilteredEvents(campaign).length})
-                      </h4>
-                      <Select
-                        value={eventFilters[campaign.id] || 'all'}
-                        onValueChange={(value) =>
-                          updateEventFilter(campaign.id, value)
-                        }
-                      >
-                        <SelectTrigger className="w-40">
-                          <Filter className="mr-2 h-3 w-3" />
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="all">All Events</SelectItem>
-                          <SelectItem value="SENT">Sent</SelectItem>
-                          <SelectItem value="DELIVERED">Delivered</SelectItem>
-                          <SelectItem value="OPENED">Opened</SelectItem>
-                          <SelectItem value="CLICKED">Clicked</SelectItem>
-                          <SelectItem value="BOUNCED">Bounced</SelectItem>
-                          <SelectItem value="COMPLAINED">Complained</SelectItem>
-                          <SelectItem value="UNSUBSCRIBED">
-                            Unsubscribed
-                          </SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="max-h-60 space-y-2 overflow-y-auto">
-                      {getFilteredEvents(campaign).length === 0 ? (
-                        <p className="text-muted-foreground py-4 text-center text-sm">
-                          No events found for the selected filter.
-                        </p>
-                      ) : (
-                        getFilteredEvents(campaign).map((event) => (
-                          <div
-                            key={event.id}
-                            className="flex items-center justify-between rounded bg-gray-50 p-2 text-sm"
-                          >
-                            <div className="flex items-center gap-3">
-                              <Badge className={getEventTypeColor(event.type)}>
-                                {event.type}
-                              </Badge>
-                              <span className="text-muted-foreground">
-                                {event.subscriber?.email || 'Unknown recipient'}
-                              </span>
-                              {event.subscriber?.firstName && (
-                                <span className="text-muted-foreground">
-                                  ({event.subscriber.firstName}{' '}
-                                  {event.subscriber.lastName})
-                                </span>
-                              )}
-                            </div>
-                            <span className="text-muted-foreground text-xs">
-                              {format(
-                                new Date(event.createdAt),
-                                'MMM d, HH:mm'
-                              )}
-                            </span>
-                          </div>
-                        ))
-                      )}
-                    </div>
+                    <CampaignRealTimeEvents
+                      campaignId={campaign.id}
+                      initialEvents={campaign.events}
+                      onStatsUpdate={(stats) => {
+                        // Optional: Update parent component stats if needed
+                        // console.log('Stats updated for campaign', campaign.id, stats);
+                      }}
+                    />
                   </div>
                 )}
               </div>

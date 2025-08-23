@@ -48,12 +48,26 @@ export async function sendEmail({
   campaignId,
   messageId,
 }: SendEmailParams) {
-  // Add tracking pixel for open tracking
+  // Get the recipient email for tracking
+  const recipientEmail = to[0]; // Assuming single recipient per call
+  
+  // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
+  const trackingData = campaignId ? Buffer.from(JSON.stringify({
+    email: recipientEmail,
+    campaignId,
+    messageId: messageId || Date.now().toString()
+  })).toString('base64') : '';
+  
   const trackingPixel = campaignId ? 
-    `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?cid=${campaignId}&email={{email}}&mid=${messageId || Date.now()}" width="1" height="1" style="display:none;" />` : '';
+    `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />` : '';
   
   // Process HTML to add click tracking
-  const processedHtml = campaignId ? addClickTracking(html, campaignId, messageId) : html;
+  let processedHtml = campaignId ? addClickTracking(html, campaignId, messageId) : html;
+  
+  // Replace {{email}} placeholder in tracking URLs with actual email
+  if (campaignId) {
+    processedHtml = processedHtml.replace(/{{email}}/g, encodeURIComponent(recipientEmail));
+  }
   
   // Use the original subject without campaign metadata (tracking is done via SES tags)
   const trackedSubject = subject;

@@ -99,20 +99,6 @@ export async function sendCampaign(campaignId: string) {
             messageId: messageId,
           });
 
-          // Log sent event
-          await prisma.event.create({
-            data: {
-              type: 'SENT',
-              subscriberId: subscriber.id,
-              campaignId: campaignId,
-              data: {
-                email: subscriber.email,
-                subject: processedSubject,
-                messageId: messageId,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          });
         } catch (error) {
           console.error(`Failed to send email to ${subscriber.email}:`, error);
           

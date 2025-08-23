@@ -45,12 +45,8 @@ export default function AuthPage() {
       if (result.error) {
         setError(result.error.message || 'Login failed');
       } else {
-        // Redirect to app subdomain
-        const currentHost = window.location.host;
-        const appUrl = currentHost.startsWith('app.') 
-          ? `${window.location.protocol}//${currentHost}/`
-          : `${window.location.protocol}//app.${currentHost}/`;
-        window.location.href = appUrl;
+        // Redirect to campaigns dashboard
+        router.push('/campaigns');
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -89,12 +85,8 @@ export default function AuthPage() {
       if (result.error) {
         setError(result.error.message || 'Signup failed');
       } else {
-        // Redirect to app subdomain
-        const currentHost = window.location.host;
-        const appUrl = currentHost.startsWith('app.') 
-          ? `${window.location.protocol}//${currentHost}/`
-          : `${window.location.protocol}//app.${currentHost}/`;
-        window.location.href = appUrl;
+        // Redirect to campaigns dashboard
+        router.push('/campaigns');
       }
     } catch (err) {
       setError('An unexpected error occurred');
@@ -108,14 +100,9 @@ export default function AuthPage() {
     setError('');
 
     try {
-      const currentHost = window.location.host;
-      const appUrl = currentHost.startsWith('app.') 
-        ? `${window.location.protocol}//${currentHost}/`
-        : `${window.location.protocol}//app.${currentHost}/`;
-      
       await signIn.social({
         provider: 'google',
-        callbackURL: appUrl,
+        callbackURL: '/campaigns',
       });
     } catch (err) {
       setError('Google authentication failed');

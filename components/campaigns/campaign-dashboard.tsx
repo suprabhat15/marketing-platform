@@ -6,22 +6,32 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 // import { Badge } from '@/components/ui/badge';
 import { Mail, Users, TrendingUp, Plus } from 'lucide-react';
-// import { CampaignStats } from './campaign-stats';
+import { CampaignRealTimeEvents } from './campaign-real-time-events';
 import { CampaignList } from './campaign-list';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 
 const eventSchema = z.object({
   id: z.string(),
-  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
+  type: z.enum([
+    'SENT',
+    'DELIVERED',
+    'OPENED',
+    'CLICKED',
+    'BOUNCED',
+    'COMPLAINED',
+    'UNSUBSCRIBED',
+  ]),
   data: z.any().nullable(),
   createdAt: z.string().datetime(),
-  subscriber: z.object({
-    id: z.string(),
-    email: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-  }).nullable(),
+  subscriber: z
+    .object({
+      id: z.string(),
+      email: z.string(),
+      firstName: z.string().nullable(),
+      lastName: z.string().nullable(),
+    })
+    .nullable(),
 });
 
 const campaignSchema = z.object({
@@ -37,10 +47,12 @@ const campaignSchema = z.object({
     id: z.string(),
     name: z.string(),
   }),
-  template: z.object({
-    id: z.string(),
-    name: z.string(),
-  }).nullable(),
+  template: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+    })
+    .nullable(),
   events: z.array(eventSchema),
   totalEvents: z.number(),
   campaignIds: z.array(z.string()),
@@ -76,8 +88,10 @@ export function CampaignDashboard() {
     try {
       const response = await fetch('/api/campaigns');
       const data = await response.json();
-      console.log("data", data);
-      setCampaigns(data.campaigns.map((c: Campaign) => campaignSchema.parse(c)));
+      // console.log('data', data);
+      setCampaigns(
+        data.campaigns.map((c: Campaign) => campaignSchema.parse(c))
+      );
       setStats(statsSchema.parse(data.stats));
     } catch (error) {
       console.error('Error fetching campaigns:', error);
@@ -91,8 +105,8 @@ export function CampaignDashboard() {
       const response = await fetch(`/api/campaigns/${campaignId}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          scheduleAt: scheduleAt?.toISOString() 
+        body: JSON.stringify({
+          scheduleAt: scheduleAt?.toISOString(),
         }),
       });
 
@@ -107,7 +121,7 @@ export function CampaignDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900"></div>
       </div>
     );
   }
@@ -123,17 +137,19 @@ export function CampaignDashboard() {
           </p>
         </div>
         <Button onClick={() => router.push('/campaigns/new')}>
-          <Plus className="h-4 w-4 mr-2" />
+          <Plus className="mr-2 h-4 w-4" />
           New Campaign
         </Button>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Campaigns</CardTitle>
-            <Mail className="h-4 w-4 text-muted-foreground" />
+            <CardTitle className="text-sm font-medium">
+              Total Campaigns
+            </CardTitle>
+            <Mail className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{stats.total}</div>
@@ -143,27 +159,27 @@ export function CampaignDashboard() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Sent</CardTitle>
-            <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            <TrendingUp className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">{stats.sent}</div>
+            <div className="text-2xl font-bold text-green-600">
+              {stats.sent}
+            </div>
           </CardContent>
         </Card>
-
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Drafts</CardTitle>
-            <Users className="h-4 w-4 text-muted-foreground" />
+            <Users className="text-muted-foreground h-4 w-4" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-gray-600">{stats.draft}</div>
+            <div className="text-2xl font-bold text-gray-600">
+              {stats.draft}
+            </div>
           </CardContent>
         </Card>
       </div>
-
-      {/* Campaign Stats */}
-      {/* <CampaignStats /> */}
 
       {/* Campaign List */}
       <CampaignList
