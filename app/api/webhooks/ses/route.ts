@@ -87,16 +87,45 @@ const mapEventType = (sesEventType: string): string => {
     'renderingFailure': 'BOUNCED', // Treat rendering failures as bounces
   };
   
-  return mapping[sesEventType] || sesEventType.toUpperCase();
+  return mapping[sesEventType.toLowerCase()] || sesEventType.toUpperCase();
 };
 
-// Verify SNS signature (optional but recommended for production)
+// Verify SNS signature for production
 async function verifySNSSignature(headers: Headers, body: string): Promise<boolean> {
   try {
-    // In production, you should implement proper SNS signature verification
-    // This is a simplified version - see AWS docs for complete implementation
-    const signature = headers.get('x-amz-sns-message-id');
-    return !!signature; // For now, just check if the header exists
+    const messageId = headers.get('x-amz-sns-message-id');
+    const messageType = headers.get('x-amz-sns-message-type');
+    const topicArn = headers.get('x-amz-sns-topic-arn');
+    
+    // Basic header validation
+    if (!messageId || !messageType || !topicArn) {
+      console.error('Missing required SNS headers');
+      return false;
+    }
+
+    // Parse the message to get signature details
+    const message = JSON.parse(body);
+    const signature = message.Signature;
+    const signingCertURL = message.SigningCertURL;
+    
+    if (!signature || !signingCertURL) {
+      console.error('Missing signature or signing cert URL');
+      return false;
+    }
+
+    // Verify the signing cert URL is from AWS
+    const certUrl = new URL(signingCertURL);
+    if (!certUrl.hostname.endsWith('.amazonaws.com')) {
+      console.error('Invalid signing cert URL domain');
+      return false;
+    }
+
+    // For production, you should implement full signature verification
+    // This requires downloading the cert and verifying the signature
+    // For now, we'll validate the basic structure and headers
+    console.log('SNS signature validation passed basic checks');
+    return true;
+    
   } catch (error) {
     console.error('SNS signature verification failed:', error);
     return false;
@@ -109,32 +138,69 @@ export async function POST(request: NextRequest) {
     const headers = request.headers;
 
     // Verify SNS signature (in production)
-    if (process.env.NODE_ENV === 'production') {
+    // if (process.env.NODE_ENV === 'production') {
       const isValid = await verifySNSSignature(headers, body);
       if (!isValid) {
         console.error('Invalid SNS signature');
         return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
       }
-    }
+    // }
 
     const snsMessage: SNSMessage = JSON.parse(body);
-
+    // console.log("snsMessage Details: ", snsMessage) // " sesEvent Detailss: ", JSON.parse(snsMessage.Message)
     // Handle SNS subscription confirmation
     if (snsMessage.Type === 'SubscriptionConfirmation') {
-      console.log('SNS Subscription confirmation received:', snsMessage.SubscribeURL);
+      // console.log('SNS Subscription confirmation received for topic:', snsMessage.TopicArn);
+      // console.log('Token:', snsMessage.Token);
+      // console.log('SubscribeURL:', snsMessage.SubscribeURL);
       
-      // In production, you should automatically confirm the subscription
-      // by making a GET request to the SubscribeURL
+      // Automatically confirm the subscription by making a GET request to the SubscribeURL
       if (snsMessage.SubscribeURL) {
         try {
-          const response = await fetch(snsMessage.SubscribeURL);
-          console.log('Subscription confirmed:', response.status);
+          // console.log('Confirming subscription...');
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 10000);
+          
+          const response = await fetch(snsMessage.SubscribeURL, {
+            method: 'GET',
+            signal: controller.signal,
+          });
+          
+          clearTimeout(timeoutId);
+          
+          if (response.ok) {
+            const responseText = await response.text();
+            // console.log('✅ Subscription confirmed successfully:', response.status);
+            // console.log('Response snippet:', responseText.substring(0, 200));
+            
+            return NextResponse.json({ 
+              message: 'Subscription confirmed successfully',
+              topicArn: snsMessage.TopicArn,
+              subscriptionArn: responseText.includes('SubscriptionArn') ? 'Extracted from response' : 'Not available'
+            });
+          } else {
+            console.error('❌ Failed to confirm subscription - HTTP error:', response.status);
+            return NextResponse.json({ 
+              error: 'Failed to confirm subscription',
+              status: response.status,
+              topicArn: snsMessage.TopicArn
+            }, { status: 500 });
+          }
         } catch (error) {
-          console.error('Failed to confirm subscription:', error);
+          console.error('❌ Failed to confirm subscription - Network error:', error);
+          return NextResponse.json({ 
+            error: 'Failed to confirm subscription',
+            details: error instanceof Error ? error.message : 'Unknown error',
+            topicArn: snsMessage.TopicArn
+          }, { status: 500 });
         }
+      } else {
+        console.error('❌ No SubscribeURL provided in confirmation message');
+        return NextResponse.json({ 
+          error: 'No SubscribeURL provided',
+          topicArn: snsMessage.TopicArn
+        }, { status: 400 });
       }
-      
-      return NextResponse.json({ message: 'Subscription confirmation received' });
     }
 
     // Handle notification messages
@@ -266,13 +332,22 @@ async function processEventForRecipient(
     }
 
     // Create the event record
-    await prisma.event.create({
+    const newEvent = await prisma.event.create({
       data: {
-        type: eventType as any,
+        type: eventType as 'SENT' | 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED',
         data: eventData,
         subscriberId: subscriber.id,
         campaignId: campaignId,
         createdAt: new Date(sesEvent.mail.timestamp),
+      },
+      include: {
+        subscriber: {
+          select: {
+            email: true,
+            firstName: true,
+            lastName: true,
+          },
+        },
       },
     });
 
@@ -289,7 +364,15 @@ async function processEventForRecipient(
       });
     }
 
-    console.log(`Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`);
+    // Broadcast the event to real-time listeners
+    try {
+      const { broadcastEvent } = await import('@/app/api/events/stream/route');
+      await broadcastEvent(campaignId, newEvent);
+    } catch (error) {
+      console.error('Error broadcasting event:', error);
+    }
+
+    // console.log(`Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`);
 
   } catch (error) {
     console.error(`Error processing event for ${recipientEmail}:`, error);
