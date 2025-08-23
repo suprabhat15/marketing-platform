@@ -366,7 +366,7 @@ async function processEventForRecipient(
 
     // Broadcast the event to real-time listeners
     try {
-      const { broadcastEvent } = await import('@/app/api/events/stream/route');
+      const { broadcastEvent } = await import('@/lib/event-broadcast');
       await broadcastEvent(campaignId, newEvent);
     } catch (error) {
       console.error('Error broadcasting event:', error);

@@ -1,8 +1,6 @@
 import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
-
-// Store active connections
-const connections = new Map<string, (data: string) => void>();
+import { registerConnection, unregisterConnection } from '@/lib/event-broadcast';
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -36,14 +34,15 @@ export async function GET(request: NextRequest) {
       controller.enqueue(new TextEncoder().encode(data));
 
       // Store the connection
-      connections.set(connectionId, (data: string) => {
+      const sendData = (data: string) => {
         try {
           controller.enqueue(new TextEncoder().encode(data));
         } catch (error) {
           console.error('Error sending SSE data:', error);
-          connections.delete(connectionId);
+          unregisterConnection(connectionId);
         }
-      });
+      };
+      registerConnection(connectionId, sendData);
 
       // Send recent events for this campaign
       prisma.event.findMany({
@@ -75,7 +74,7 @@ export async function GET(request: NextRequest) {
     },
 
     cancel() {
-      connections.delete(connectionId);
+      unregisterConnection(connectionId);
       console.log(`SSE connection closed: ${connectionId}`);
     },
   });
@@ -91,34 +90,4 @@ export async function GET(request: NextRequest) {
   });
 }
 
-// Function to broadcast event to all connected clients for a campaign
-export async function broadcastEvent(campaignId: string, event: any) {
-  const eventData = `data: ${JSON.stringify({ 
-    type: 'new_event', 
-    event,
-    campaignId 
-  })}\n\n`;
-
-  // Find all connections for this campaign
-  for (const [connectionId, sendData] of connections.entries()) {
-    if (connectionId.includes(campaignId)) {
-      try {
-        sendData(eventData);
-      } catch (error) {
-        console.error(`Error broadcasting to connection ${connectionId}:`, error);
-        connections.delete(connectionId);
-      }
-    }
-  }
-}
-
-// Cleanup inactive connections periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [connectionId] of connections.entries()) {
-    const timestamp = parseInt(connectionId.split('-').pop() || '0');
-    if (now - timestamp > 3600000) { // 1 hour
-      connections.delete(connectionId);
-    }
-  }
-}, 300000); // Check every 5 minutes
+// Broadcasting functionality has been moved to /lib/event-broadcast.ts
