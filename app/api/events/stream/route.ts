@@ -29,16 +29,21 @@ export async function GET(request: NextRequest) {
   // Set up SSE stream
   const stream = new ReadableStream({
     start(controller) {
+      let isClosed = false;
+      
       // Send initial connection confirmation
       const data = `data: ${JSON.stringify({ type: 'connected', campaignId })}\n\n`;
       controller.enqueue(new TextEncoder().encode(data));
 
       // Store the connection
       const sendData = (data: string) => {
+        if (isClosed) return;
+        
         try {
           controller.enqueue(new TextEncoder().encode(data));
         } catch (error) {
           console.error('Error sending SSE data:', error);
+          isClosed = true;
           unregisterConnection(connectionId);
         }
       };
@@ -59,6 +64,8 @@ export async function GET(request: NextRequest) {
         orderBy: { createdAt: 'desc' },
         take: 10,
       }).then(events => {
+        if (isClosed) return; // Don't send if connection is closed
+        
         const initialData = `data: ${JSON.stringify({ 
           type: 'initial_events', 
           events 
@@ -67,10 +74,16 @@ export async function GET(request: NextRequest) {
           controller.enqueue(new TextEncoder().encode(initialData));
         } catch (error) {
           console.error('Error sending initial events:', error);
+          isClosed = true;
         }
       }).catch(error => {
         console.error('Error fetching initial events:', error);
       });
+      
+      // Mark as closed when cancel is called
+      return () => {
+        isClosed = true;
+      };
     },
 
     cancel() {
@@ -89,5 +102,3 @@ export async function GET(request: NextRequest) {
     },
   });
 }
-
-// Broadcasting functionality has been moved to /lib/event-broadcast.ts

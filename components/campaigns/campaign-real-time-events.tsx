@@ -56,62 +56,73 @@ export function CampaignRealTimeEvents({
     unsubscribed: 0,
   });
 
-  const calculateStats = useCallback((eventList: Event[]) => {
-    const newStats = {
-      sent: 0,
-      delivered: 0,
-      opened: 0,
-      clicked: 0,
-      bounced: 0,
-      complained: 0,
-      unsubscribed: 0,
-    };
-    
-    eventList.forEach(event => {
-      switch (event.type) {
-        case 'SENT':
-          newStats.sent++;
-          break;
-        case 'DELIVERED':
-          newStats.delivered++;
-          break;
-        case 'OPENED':
-          newStats.opened++;
-          break;
-        case 'CLICKED':
-          newStats.clicked++;
-          break;
-        case 'BOUNCED':
-          newStats.bounced++;
-          break;
-        case 'COMPLAINED':
-          newStats.complained++;
-          break;
-        case 'UNSUBSCRIBED':
-          newStats.unsubscribed++;
-          break;
-      }
-    });
+  const calculateStats = useCallback(
+    (eventList: Event[]) => {
+      const newStats = {
+        sent: 0,
+        delivered: 0,
+        opened: 0,
+        clicked: 0,
+        bounced: 0,
+        complained: 0,
+        unsubscribed: 0,
+      };
 
-    setStats(newStats);
-    onStatsUpdate?.(newStats);
-  }, [onStatsUpdate]);
+      eventList.forEach((event) => {
+        switch (event.type) {
+          case 'SENT':
+            newStats.sent++;
+            break;
+          case 'DELIVERED':
+            newStats.delivered++;
+            break;
+          case 'OPENED':
+            newStats.opened++;
+            break;
+          case 'CLICKED':
+            newStats.clicked++;
+            break;
+          case 'BOUNCED':
+            newStats.bounced++;
+            break;
+          case 'COMPLAINED':
+            newStats.complained++;
+            break;
+          case 'UNSUBSCRIBED':
+            newStats.unsubscribed++;
+            break;
+        }
+      });
+
+      setStats(newStats);
+      onStatsUpdate?.(newStats);
+    },
+    [onStatsUpdate]
+  );
 
   useEffect(() => {
     calculateStats(initialEvents);
   }, [initialEvents, calculateStats]);
 
+  // Add deduplication to prevent duplicate events from polling
+  const [lastEventId, setLastEventId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!session?.user?.id || !campaignId) return;
 
-    // Fetch events from database every 5 seconds
     const fetchEvents = async () => {
       try {
         const response = await fetch(`/api/campaigns/${campaignId}/events`);
         if (response.ok) {
           const data = await response.json();
-          setEvents(data.events || []);
-          calculateStats(data.events || []);
+          const newEvents = data.events || [];
+
+          // Check if we have new events
+          if (newEvents.length > 0 && newEvents[0].id !== lastEventId) {
+            setEvents(newEvents);
+            setLastEventId(newEvents[0].id);
+            calculateStats(newEvents);
+          }
           setIsConnected(true);
         } else {
           setIsConnected(false);
@@ -132,11 +143,11 @@ export function CampaignRealTimeEvents({
       clearInterval(interval);
       setIsConnected(false);
     };
-  }, [session?.user?.id, campaignId, calculateStats]);
+  }, [session?.user?.id, campaignId, calculateStats, lastEventId]);
 
   const getFilteredEvents = () => {
     if (eventFilter === 'all') return events;
-    return events.filter(event => event.type === eventFilter);
+    return events.filter((event) => event.type === eventFilter);
   };
 
   const getEventTypeColor = (type: string) => {
@@ -168,12 +179,14 @@ export function CampaignRealTimeEvents({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
-            <span className="text-xs text-muted-foreground">
+            <div
+              className={`h-2 w-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`}
+            />
+            <span className="text-muted-foreground text-xs">
               {isConnected ? 'Live tracking' : 'Offline'}
             </span>
           </div>
-          
+
           {/* Quick Stats */}
           <div className="flex gap-2">
             {stats.sent > 0 && (
@@ -182,22 +195,22 @@ export function CampaignRealTimeEvents({
               </Badge>
             )}
             {stats.delivered > 0 && (
-              <Badge variant="outline" className="text-xs bg-green-50">
+              <Badge variant="outline" className="bg-green-50 text-xs">
                 Delivered: {stats.delivered}
               </Badge>
             )}
             {stats.opened > 0 && (
-              <Badge variant="outline" className="text-xs bg-purple-50">
+              <Badge variant="outline" className="bg-purple-50 text-xs">
                 Opened: {stats.opened}
               </Badge>
             )}
             {stats.clicked > 0 && (
-              <Badge variant="outline" className="text-xs bg-orange-50">
+              <Badge variant="outline" className="bg-orange-50 text-xs">
                 Clicked: {stats.clicked}
               </Badge>
             )}
             {stats.bounced > 0 && (
-              <Badge variant="outline" className="text-xs bg-red-50">
+              <Badge variant="outline" className="bg-red-50 text-xs">
                 Bounced: {stats.bounced}
               </Badge>
             )}
@@ -211,10 +224,7 @@ export function CampaignRealTimeEvents({
           <Activity className="h-4 w-4" />
           Campaign Events ({filteredEvents.length})
         </h4>
-        <Select
-          value={eventFilter}
-          onValueChange={setEventFilter}
-        >
+        <Select value={eventFilter} onValueChange={setEventFilter}>
           <SelectTrigger className="w-40">
             <Filter className="mr-2 h-3 w-3" />
             <SelectValue />
@@ -255,12 +265,11 @@ export function CampaignRealTimeEvents({
                 </span>
                 {event.subscriber?.firstName && (
                   <span className="text-muted-foreground">
-                    ({event.subscriber.firstName}{' '}
-                    {event.subscriber.lastName})
+                    ({event.subscriber.firstName} {event.subscriber.lastName})
                   </span>
                 )}
                 {event.type === 'CLICKED' && event.data?.url && (
-                  <span className="text-xs text-blue-600 truncate max-w-xs">
+                  <span className="max-w-xs truncate text-xs text-blue-600">
                     → {event.data.url}
                   </span>
                 )}

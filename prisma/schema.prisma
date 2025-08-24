@@ -72,6 +72,7 @@ model Campaign {
   content       String
   status        CampaignStatus @default(DRAFT)
   scheduledAt   DateTime?
+  queuedAt      DateTime?
   sentAt        DateTime?
   subscriberIds Json     @default("[]")
   createdAt     DateTime @default(now())
@@ -96,6 +97,7 @@ model Template {
   name        String
   subject     String
   content     String
+  html        String?
   attachments Json?    @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -133,9 +135,11 @@ enum SubscriberStatus {
 enum CampaignStatus {
   DRAFT
   SCHEDULED
+  QUEUED
   SENDING
   SENT
   CANCELLED
+  FAILED
 }
 
 enum EventType {
