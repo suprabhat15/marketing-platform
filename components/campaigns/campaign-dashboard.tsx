@@ -9,6 +9,7 @@ import { Mail, Users, TrendingUp, Plus } from 'lucide-react';
 import { CampaignRealTimeEvents } from './campaign-real-time-events';
 import { CampaignList } from './campaign-list';
 import { useRouter } from 'next/navigation';
+import { useSession } from '@/lib/auth-client';
 import { z } from 'zod';
 
 const eventSchema = z.object({
@@ -38,8 +39,8 @@ const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
-  status: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
-  latestStatus: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
+  status: z.enum(['DRAFT', 'QUEUED', 'SENDING', 'SENT', 'FAILED']),
+  latestStatus: z.enum(['DRAFT', 'QUEUED', 'SENDING', 'SENT', 'FAILED']),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   latestCreatedAt: z.string().datetime(),
@@ -79,10 +80,96 @@ export function CampaignDashboard() {
   });
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+  const { data: session } = useSession();
 
   useEffect(() => {
     fetchCampaigns();
   }, []);
+
+  // Set up SSE connection to listen for campaign status updates
+  useEffect(() => {
+    if (!session?.user?.id || campaigns.length === 0) return;
+
+    const eventSources: EventSource[] = [];
+    const activeCampaigns = campaigns.filter(
+      (c) =>
+        c.status === 'SENDING' || c.status === 'QUEUED' || c.status === 'SENT'
+    );
+
+    console.log(
+      `Setting up SSE for ${activeCampaigns.length} active campaigns:`,
+      activeCampaigns.map((c) => `${c.name} (${c.status})`)
+    );
+
+    // Set up SSE for each active campaign
+    activeCampaigns.forEach((campaign) => {
+      const eventSource = new EventSource(
+        `/api/events/stream?campaignId=${campaign.id}&userId=${session.user.id}`
+      );
+
+      console.log(
+        `SSE connection established for campaign: ${campaign.name} (${campaign.id})`
+      );
+
+      eventSource.onopen = () => {
+        console.log(`SSE connection opened for campaign: ${campaign.name}`);
+      };
+
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log('SSE event received:', data);
+
+          if (data.type === 'campaign_status_update') {
+            console.log(
+              `Campaign ${data.campaignId} status update: ${data.status}`
+            );
+
+            // Update the campaign status in real-time
+            setCampaigns((prevCampaigns) => {
+              const updated = prevCampaigns.map((c) =>
+                c.id === data.campaignId
+                  ? {
+                      ...c,
+                      status: data.status,
+                      latestStatus: data.status,
+                      sentAt: data.data?.sentAt || c.sentAt,
+                    }
+                  : c
+              );
+              console.log(
+                'Updated campaigns:',
+                updated.find((c) => c.id === data.campaignId)
+              );
+              return updated;
+            });
+
+            // Update stats if campaign changed to SENT
+            if (data.status === 'SENT') {
+              setStats((prevStats) => ({
+                ...prevStats,
+                sent: prevStats.sent + 1,
+              }));
+            }
+          }
+        } catch (error) {
+          console.error('Error parsing SSE event:', error);
+        }
+      };
+
+      eventSource.onerror = (error) => {
+        console.error(`SSE error for campaign ${campaign.name}:`, error);
+        eventSource.close();
+      };
+
+      eventSources.push(eventSource);
+    });
+
+    return () => {
+      console.log('Closing SSE connections');
+      eventSources.forEach((source) => source.close());
+    };
+  }, [session?.user?.id, campaigns]);
 
   const fetchCampaigns = async () => {
     try {

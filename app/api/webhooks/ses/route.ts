@@ -283,6 +283,29 @@ async function processEventForRecipient(
     // Map the event type
     const eventType = mapEventType(sesEvent.eventType);
 
+    // Check for existing event to prevent duplicates
+    // Look for events with same type, subscriber, campaign, and messageId within last 10 minutes
+    const existingEvent = await prisma.event.findFirst({
+      where: {
+        campaignId,
+        subscriberId: subscriber.id,
+        type: eventType as 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED' | 'SENT',
+        createdAt: {
+          gte: new Date(Date.now() - 10 * 60 * 1000) // Within last 10 minutes
+        },
+        // Also check if the event data contains the same messageId
+        data: {
+          path: ['messageId'],
+          equals: sesEvent.mail.messageId
+        }
+      }
+    });
+
+    if (existingEvent) {
+      console.log(`Skipping duplicate event: ${eventType} for ${recipientEmail} in campaign ${campaignId} (messageId: ${sesEvent.mail.messageId})`);
+      return;
+    }
+
     // Prepare event data
     const eventData: any = {
       messageId: sesEvent.mail.messageId,
@@ -334,7 +357,7 @@ async function processEventForRecipient(
     // Create the event record
     const newEvent = await prisma.event.create({
       data: {
-        type: eventType as 'SENT' | 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED',
+        type: eventType as 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED' | 'SENT',
         data: eventData,
         subscriberId: subscriber.id,
         campaignId: campaignId,
@@ -372,7 +395,7 @@ async function processEventForRecipient(
       console.error('Error broadcasting event:', error);
     }
 
-    // console.log(`Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`);
+    console.log(`Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`);
 
   } catch (error) {
     console.error(`Error processing event for ${recipientEmail}:`, error);

@@ -60,8 +60,8 @@ const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
-  status: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
-  latestStatus: z.enum(['DRAFT', 'SENDING', 'SENT', 'FAILED']),
+  status: z.enum(['DRAFT', 'QUEUED', 'SENDING', 'SENT', 'FAILED']),
+  latestStatus: z.enum(['DRAFT', 'QUEUED', 'SENDING', 'SENT', 'FAILED']),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   latestCreatedAt: z.string().datetime(),
@@ -128,6 +128,8 @@ export function CampaignList({
         return 'bg-green-100 text-green-800 border-green-200';
       case 'SENDING':
         return 'bg-blue-100 text-blue-800 border-blue-200';
+      case 'QUEUED':
+        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
       case 'FAILED':
         return 'bg-red-100 text-red-800 border-red-200';
       default:
@@ -160,6 +162,8 @@ export function CampaignList({
     switch (status) {
       case 'DRAFT':
         return 'Draft';
+      case 'QUEUED':
+        return 'Queued';
       case 'SENDING':
         return 'Sending';
       case 'SENT':
@@ -206,6 +210,7 @@ export function CampaignList({
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
                 <SelectItem value="DRAFT">Draft</SelectItem>
+                <SelectItem value="QUEUED">Queued</SelectItem>
                 <SelectItem value="SENDING">Sending</SelectItem>
                 <SelectItem value="SENT">Sent</SelectItem>
                 <SelectItem value="FAILED">Failed</SelectItem>

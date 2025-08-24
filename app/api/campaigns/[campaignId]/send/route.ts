@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { sendCampaign } from '@/lib/email-service';
+import { addCampaignToQueue } from '@/lib/queue';
 import { z } from 'zod';
 
 const sendCampaignSchema = z.object({
   scheduleAt: z.string().datetime().optional(),
+  batchSize: z.number().min(1).max(1000).optional().default(100),
 });
 
 export async function POST(
@@ -29,6 +30,7 @@ export async function POST(
         userId: session?.user.id,
       },
       include: {
+        template: true,
         list: {
           include: {
             subscribers: {
@@ -52,15 +54,43 @@ export async function POST(
       );
     }
 
+    if (campaign.status === 'SENDING' || campaign.status === 'QUEUED') {
+      return NextResponse.json(
+        { error: 'Campaign is already being processed' },
+        { status: 400 }
+      );
+    }
+
+    if (!campaign.template) {
+      return NextResponse.json(
+        { error: 'Campaign template not found' },
+        { status: 400 }
+      );
+    }
+
+    if (!campaign.template.html && !campaign.template.content) {
+      return NextResponse.json(
+        { error: 'Campaign template has no content' },
+        { status: 400 }
+      );
+    }
+
     let scheduleAt: string | undefined;
+    let batchSize = 100;
     
     try {
-      const body = await request.json();
-      const parsed = sendCampaignSchema.parse(body);
-      scheduleAt = parsed.scheduleAt;
+      const contentType = request.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        const body = await request.json();
+        const parsed = sendCampaignSchema.parse(body);
+        scheduleAt = parsed.scheduleAt;
+        batchSize = parsed.batchSize || 100;
+        console.log('📝 Parsed request body:', { scheduleAt, batchSize });
+      } else {
+        console.log('📤 No JSON body provided, using defaults');
+      }
     } catch (error) {
-      // If no body or invalid JSON, proceed without scheduling
-      console.log('No valid request body, sending immediately');
+      console.log('⚠️ Error parsing request body, using defaults:', error instanceof Error ? error.message : error);
     }
 
     if (scheduleAt) {
@@ -85,12 +115,40 @@ export async function POST(
         scheduledAt: scheduledDate,
       });
     } else {
-      // Send immediately
-      const result = await sendCampaign(campaign.id); 
+      // Check if there are active subscribers
+      if (campaign.list.subscribers.length === 0) {
+        return NextResponse.json(
+          { error: 'No active subscribers found in the selected list' },
+          { status: 400 }
+        );
+      }
+
+      console.log(`🚀 Queuing campaign ${campaignId} with ${campaign.list.subscribers.length} subscribers`);
+
+      // Update campaign status to queued first
+      await prisma.campaign.update({
+        where: { id: campaignId },
+        data: { 
+          status: 'QUEUED',
+          queuedAt: new Date()
+        }
+      });
+
+      // Add campaign to queue for processing
+      const job = await addCampaignToQueue(campaign.id, session.user.id, {
+        batchSize
+      });
+
+      console.log(`✅ Campaign ${campaignId} queued successfully with job ID: ${job.id}`);
 
       return NextResponse.json({
-        message: 'Campaign sent successfully',
-        result // DOUBT: what is this ?
+        message: 'Campaign queued for sending',
+        status: 'QUEUED',
+        jobId: job.id,
+        subscriberCount: campaign.list.subscribers.length,
+        batchSize,
+        estimatedBatches: Math.ceil(campaign.list.subscribers.length / batchSize),
+        queuedAt: new Date().toISOString()
       });
     }
   } catch (error) {

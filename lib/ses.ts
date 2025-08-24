@@ -1,5 +1,29 @@
 import { SESClient, SendEmailCommand, SendBulkTemplatedEmailCommand } from '@aws-sdk/client-ses';
 
+// Function to wrap text content in full HTML structure
+function wrapInFullHtml(content: string, isHtml: boolean = false): string {
+  if (isHtml && content.toLowerCase().includes('<!doctype html')) {
+    // Already a full HTML document, just ensure it has the basic structure
+    return content;
+  }
+  
+  const htmlContent = isHtml ? content : content.replace(/\n/g, '<br>');
+  
+  return `<!doctype html>
+<html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style type="text/css">
+    body { margin: 0; padding: 20px; font-family: Arial, sans-serif; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  ${htmlContent}
+</body>
+</html>`;
+}
+
 // Function to add click tracking to HTML content
 function addClickTracking(html: string, campaignId: string, messageId?: string): string {
   // Replace all href attributes with tracking URLs
@@ -51,6 +75,19 @@ export async function sendEmail({
   // Get the recipient email for tracking
   const recipientEmail = to[0]; // Assuming single recipient per call
   
+  // Always ensure we have HTML content - wrap text in full HTML if needed
+  let fullHtml = html;
+  if (!html && text) {
+    // Convert text to HTML format
+    fullHtml = wrapInFullHtml(text, false);
+  } else if (html) {
+    // Ensure HTML is in full document format
+    fullHtml = wrapInFullHtml(html, true);
+  } else {
+    // Fallback to empty HTML structure
+    fullHtml = wrapInFullHtml('', false);
+  }
+  
   // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
   const trackingData = campaignId ? Buffer.from(JSON.stringify({
     email: recipientEmail,
@@ -62,11 +99,16 @@ export async function sendEmail({
     `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />` : '';
   
   // Process HTML to add click tracking
-  let processedHtml = campaignId ? addClickTracking(html, campaignId, messageId) : html;
+  let processedHtml = campaignId ? addClickTracking(fullHtml, campaignId, messageId) : fullHtml;
   
   // Replace {{email}} placeholder in tracking URLs with actual email
   if (campaignId) {
     processedHtml = processedHtml.replace(/{{email}}/g, encodeURIComponent(recipientEmail));
+  }
+  
+  // Add tracking pixel before closing body tag
+  if (trackingPixel) {
+    processedHtml = processedHtml.replace('</body>', `  ${trackingPixel}\n</body>`);
   }
   
   // Use the original subject without campaign metadata (tracking is done via SES tags)
@@ -84,15 +126,10 @@ export async function sendEmail({
       },
       Body: {
         Html: {
-          Data: processedHtml + trackingPixel,
+          Data: processedHtml,
           Charset: 'UTF-8',
         },
-        Text: text
-          ? {
-              Data: text,
-              Charset: 'UTF-8',
-            }
-          : undefined,
+        // Always send HTML, remove text version to ensure HTML rendering
       },
     },
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
