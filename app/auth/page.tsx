@@ -115,7 +115,7 @@ export default function AuthPage() {
       <div className="w-full max-w-md space-y-8">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-gray-900">MailPackr</h1>
-          <p className="mt-2 text-gray-600">Your email marketing platform</p>
+          <p className="mt-2 text-gray-600">Drive engagement with every send</p>
         </div>
 
         <Card>
