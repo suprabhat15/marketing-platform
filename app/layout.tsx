@@ -16,8 +16,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MailPackr",
-  description: "Email marketing platform",
+  title: 'MailPackr',
+  description: 'Drive engagement with every send',
+  icons: {
+    icon: '/logo.svg',
+  },
 };
 
 export default function RootLayout({
