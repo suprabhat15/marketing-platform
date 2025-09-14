@@ -68,7 +68,10 @@ export function CampaignRealTimeStats({ campaignId }: RealTimeStatsProps) {
         
         switch (data.type) {
           case 'connected':
-            // console.log('Connected to event stream for campaign:', data.campaignId);
+            console.log(
+              'Connected to event stream for campaign:',
+              data.campaignId
+            );
             break;
             
           case 'initial_events':

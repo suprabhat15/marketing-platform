@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { getQueueStats } from '@/lib/queue';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     const session = await auth.api.getSession({
@@ -9,7 +11,10 @@ export async function GET(request: NextRequest) {
     });
 
     if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401, headers: { 'Cache-Control': 'no-store' } }
+      );
     }
 
     // Get queue statistics
@@ -21,17 +26,17 @@ export async function GET(request: NextRequest) {
         campaign: {
           name: 'Campaign Processing',
           description: 'Processes campaign send requests and splits them into batches',
-          ...stats.campaign
+          ...(stats.campaign ?? {})
         },
         batch: {
           name: 'Batch Processing', 
           description: 'Processes batches of subscribers and queues individual emails',
-          ...stats.batch
+          ...(stats.batch ?? {})
         },
         email: {
           name: 'Email Sending',
           description: 'Sends individual emails via AWS SES',
-          ...stats.email
+          ...(stats.email ?? {})
         }
       },
       totals: {
@@ -40,13 +45,13 @@ export async function GET(request: NextRequest) {
         completed: (stats.campaign.completed || 0) + (stats.batch.completed || 0) + (stats.email.completed || 0),
         failed: (stats.campaign.failed || 0) + (stats.batch.failed || 0) + (stats.email.failed || 0),
       }
-    });
+    }, { headers: { 'Cache-Control': 'no-store' } });
 
   } catch (error) {
     console.error('Error getting queue stats:', error);
     return NextResponse.json(
       { error: 'Failed to get queue statistics' },
-      { status: 500 }
+      { status: 500, headers: { 'Cache-Control': 'no-store' } }
     );
   }
 }

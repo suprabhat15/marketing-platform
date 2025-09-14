@@ -46,3 +46,4 @@ server.log
 next-env.d.ts
 
 /lib/generated/prisma
+.vscode/

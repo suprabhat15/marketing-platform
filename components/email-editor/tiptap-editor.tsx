@@ -21,7 +21,7 @@ import {
   Heading2,
   Code,
 } from 'lucide-react';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 
 interface TiptapEditorProps {
   content: string;
@@ -76,7 +76,14 @@ export function TiptapEditor({
         class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[300px] p-4',
       },
     },
-  });
+  }, [content]);
+
+  // Sync content changes when content prop changes
+  useEffect(() => {
+    if (editor && content !== editor.getHTML()) {
+      editor.commands.setContent(content, { emitUpdate: false });
+    }
+  }, [editor, content]);
 
   const insertVariable = useCallback((variable: string) => {
     if (editor) {

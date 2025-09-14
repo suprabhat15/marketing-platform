@@ -15,12 +15,21 @@ export async function GET(request: NextRequest) {
     // Get worker status
     const status = await getWorkerStatus();
 
-    return NextResponse.json({
-      timestamp: new Date().toISOString(),
-      worker: status,
-      mode: 'on-demand',
-      description: 'Worker starts automatically when campaigns are queued and stops when idle'
-    });
+    return NextResponse.json(
+      {
+        timestamp: new Date().toISOString(),
+        worker: status,
+        mode: 'on-demand',
+        description:
+          'Worker starts automatically when campaigns are queued and stops when idle',
+      },
+      {
+        headers: {
+          'Cache-Control': 'private, no-store',
+          Vary: 'Authorization, Cookie',
+        },
+      },
+    );
 
   } catch (error) {
     console.error('Error getting worker status:', error);

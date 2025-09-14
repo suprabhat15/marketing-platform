@@ -18,11 +18,16 @@ export async function GET(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const userId = session.user?.id;
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Verify campaign ownership
     const campaign = await prisma.campaign.findFirst({
       where: {
         id: campaignId,
-        userId: session.user.id,
+        userId,
       },
       include: {
         list: {

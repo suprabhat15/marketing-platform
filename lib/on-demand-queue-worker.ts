@@ -4,7 +4,7 @@
  * Saves compute resources and bandwidth when idle
  */
 
-import { campaignQueue, batchQueue, emailQueue } from './queue';
+import { campaignQueue, batchQueue, emailQueue, campaignWorker, batchWorker, emailWorker } from './queue';
 
 let isWorkerRunning = false;
 let workerTimeout: NodeJS.Timeout | null = null;
@@ -22,7 +22,7 @@ function startProcessors() {
   
   console.log('🚀 Starting queue processors...');
   
-  // The processors/workers are already defined in queue.ts when the module loads
+  // The workers are already created and running in queue.ts when the module loads
   // We just need to ensure the queues are ready to process
   processorsStarted = true;
   
@@ -135,27 +135,27 @@ async function checkForActiveJobs(): Promise<boolean> {
  * Set up worker monitoring and event listeners
  */
 function setupWorkerMonitoring(): void {
-  // Reset idle timer on any queue activity
-  campaignQueue.on('active', () => resetIdleTimer());
-  batchQueue.on('active', () => resetIdleTimer());
-  emailQueue.on('active', () => resetIdleTimer());
+  // Reset idle timer on any worker activity
+  campaignWorker.on('active', () => resetIdleTimer());
+  batchWorker.on('active', () => resetIdleTimer());
+  emailWorker.on('active', () => resetIdleTimer());
   
   // Log significant events
-  campaignQueue.on('completed', (job) => {
+  campaignWorker.on('completed', (job) => {
     console.log(`✅ [Campaign] Completed: ${job.data.campaignId}`);
   });
 
-  batchQueue.on('completed', (job) => {
+  batchWorker.on('completed', (job) => {
     console.log(`✅ [Batch] Completed: ${job.data.batchNumber}/${job.data.totalBatches} for campaign ${job.data.campaignId}`);
   });
 
-  emailQueue.on('completed', (job) => {
+  emailWorker.on('completed', (job) => {
     console.log(`📧 [Email] Sent: ${job.data.email}`);
   });
 
   // Handle failures
-  campaignQueue.on('failed', (job, err) => {
-    console.error(`❌ [Campaign] Failed: ${job.data.campaignId} - ${err.message}`);
+  campaignWorker.on('failed', (job, err) => {
+    console.error(`❌ [Campaign] Failed: ${job?.data?.campaignId} - ${err.message}`);
   });
 
   // Set up periodic health check

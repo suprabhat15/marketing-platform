@@ -6,7 +6,7 @@
  * Run this script to start processing queued campaigns
  */
 
-import { campaignQueue, batchQueue, emailQueue, getQueueStats } from '../lib/queue.js';
+import { campaignQueue, batchQueue, emailQueue, campaignWorker, batchWorker, emailWorker, getQueueStats } from '../lib/queue.js';
 
 console.log('🚀 Starting MailPackr Queue Worker...');
 
@@ -35,41 +35,41 @@ async function startWorker() {
     console.log('🚀 Campaign Queue: Processing 1 job at a time');
     console.log('\n⚡ Press Ctrl+C to stop the worker\n');
 
-    // Log queue activity
-    campaignQueue.on('active', (job) => {
+    // Log worker activity
+    campaignWorker.on('active', (job) => {
       console.log(`🚀 [Campaign] Processing: ${job.data.campaignId}`);
     });
 
-    campaignQueue.on('completed', (job) => {
+    campaignWorker.on('completed', (job) => {
       console.log(`✅ [Campaign] Completed: ${job.data.campaignId}`);
     });
 
-    campaignQueue.on('failed', (job, err) => {
-      console.log(`❌ [Campaign] Failed: ${job.data.campaignId} - ${err.message}`);
+    campaignWorker.on('failed', (job, err) => {
+      console.log(`❌ [Campaign] Failed: ${job?.data?.campaignId} - ${err.message}`);
     });
 
-    batchQueue.on('active', (job) => {
+    batchWorker.on('active', (job) => {
       console.log(`📦 [Batch] Processing: Campaign ${job.data.campaignId}, Batch ${job.data.batchNumber}/${job.data.totalBatches}`);
     });
 
-    batchQueue.on('completed', (job) => {
+    batchWorker.on('completed', (job) => {
       console.log(`✅ [Batch] Completed: Campaign ${job.data.campaignId}, Batch ${job.data.batchNumber}/${job.data.totalBatches}`);
     });
 
-    batchQueue.on('failed', (job, err) => {
-      console.log(`❌ [Batch] Failed: Campaign ${job.data.campaignId}, Batch ${job.data.batchNumber} - ${err.message}`);
+    batchWorker.on('failed', (job, err) => {
+      console.log(`❌ [Batch] Failed: Campaign ${job?.data?.campaignId}, Batch ${job?.data?.batchNumber} - ${err.message}`);
     });
 
-    emailQueue.on('active', (job) => {
+    emailWorker.on('active', (job) => {
       console.log(`📧 [Email] Sending: ${job.data.email} (Campaign: ${job.data.campaignId})`);
     });
 
-    emailQueue.on('completed', (job) => {
+    emailWorker.on('completed', (job) => {
       console.log(`✅ [Email] Sent: ${job.data.email}`);
     });
 
-    emailQueue.on('failed', (job, err) => {
-      console.log(`❌ [Email] Failed: ${job.data.email} - ${err.message}`);
+    emailWorker.on('failed', (job, err) => {
+      console.log(`❌ [Email] Failed: ${job?.data?.email} - ${err.message}`);
     });
 
     // Display stats every 30 seconds
@@ -91,7 +91,10 @@ process.on('SIGTERM', async () => {
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),
-    emailQueue.close()
+    emailQueue.close(),
+    campaignWorker.close(),
+    batchWorker.close(),
+    emailWorker.close()
   ]);
   console.log('✅ Queue worker shut down successfully');
   process.exit(0);
@@ -102,7 +105,10 @@ process.on('SIGINT', async () => {
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),
-    emailQueue.close()
+    emailQueue.close(),
+    campaignWorker.close(),
+    batchWorker.close(),
+    emailWorker.close()
   ]);
   console.log('✅ Queue worker shut down successfully');
   process.exit(0);

@@ -1,8 +1,41 @@
-import Bull, { Queue, Job } from 'bull';
+import { Queue, Worker, Job } from 'bullmq';
 import { redis } from './redis';
 import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { broadcastEvent, broadcastCampaignUpdate } from './event-broadcast';
+
+// aws ses get-send-statistics
+
+const EMAILS_PER_SECOND = parseInt(process.env.SES_RATE_LIMIT || '5');
+
+async function acquireToken(limit = EMAILS_PER_SECOND, interval = 1000) {
+  const key = 'ses:rate-limit';
+  const now = Date.now();
+
+  // Use a sorted set to track requests in the last `interval`
+  const min = now - interval;
+
+  await redis.zremrangebyscore(key, 0, min);
+  const count = await redis.zcard(key);
+
+  if (count >= limit) {
+    // Too many requests → wait
+    return false;
+  }
+
+  await redis.zadd(key, now, `${now}-${Math.random()}`);
+  await redis.expire(key, Math.ceil(interval / 1000));
+
+  return true;
+}
+
+async function sendEmailWithRateLimit(emailData: any) {
+  while (!(await acquireToken(EMAILS_PER_SECOND, 1000))) {
+    await new Promise(res => setTimeout(res, 200)); // retry in 200ms
+  }
+  console.log('Sending email with rate limiting', emailData);
+  return sendEmail(emailData);
+}
 
 // Template variable replacement function
 function replaceVariables(content: string, subscriber: any): string {
@@ -119,32 +152,43 @@ interface EmailJobData {
 }
 
 // Queue configuration
-const queueConfig = {
-  redis: {
-    port: 6379,
-    host: process.env.REDIS_URL?.replace('redis://', '').split(':')[0] || 'localhost',
-    password: process.env.REDIS_PASSWORD,
-  },
-  defaultJobOptions: {
-    removeOnComplete: 100,
-    removeOnFail: 50,
-    attempts: 3,
-    backoff: {
-      type: 'exponential',
-      delay: 2000,
-    },
+const redisConfig = {
+  host: process.env.REDIS_URL?.replace('redis://', '').split(':')[0] || 'localhost',
+  port: 6379,
+  // password: process.env.REDIS_PASSWORD,
+};
+
+const defaultJobOptions = {
+  removeOnComplete: true,
+  removeOnFail: 500,
+  attempts: 3,
+  backoff: {
+    type: 'exponential',
+    delay: 5000,
   },
 };
 
 // Create queues
-export const campaignQueue: Queue<CampaignJobData> = new Bull('campaign-processing', queueConfig);
-export const batchQueue: Queue<BatchJobData> = new Bull('batch-processing', queueConfig);
-export const emailQueue: Queue<EmailJobData> = new Bull('email-sending', queueConfig);
+export const campaignQueue = new Queue<CampaignJobData>('campaign-processing', {
+  connection: redisConfig,
+  defaultJobOptions,
+});
+export const batchQueue = new Queue<BatchJobData>('batch-processing', {
+  connection: redisConfig,
+  defaultJobOptions,
+});
+export const emailQueue = new Queue<EmailJobData>('email-sending', {
+  connection: redisConfig,
+  defaultJobOptions
+});
 
 // INFO: When a worker instance is created, it launches the processor immediately
 
-// Campaign queue processor/Worker
-campaignQueue.process('process-campaign', async (job: Job<CampaignJobData>) => {
+// Create workers
+export const campaignWorker = new Worker<CampaignJobData>('campaign-processing', async (job: Job<CampaignJobData>) => {
+  if (job.name !== 'process-campaign') return;
+  
+  console.log(`Processing campaign worker job: ${job.id}`);
   const { campaignId, userId, batchSize = 100 } = job.data;
   
   console.log(`Processing campaign ${campaignId} for user ${userId}`);
@@ -228,10 +272,12 @@ campaignQueue.process('process-campaign', async (job: Job<CampaignJobData>) => {
     
     throw error;
   }
-});
+}, { connection: redisConfig, concurrency: 1 });
 
-// Batch queue processor/Worker
-batchQueue.process('process-batch', async (job: Job<BatchJobData>) => {
+export const batchWorker = new Worker<BatchJobData>('batch-processing', async (job: Job<BatchJobData>) => {
+  if (job.name !== 'process-batch') return;
+  
+  console.log(`Processing batch worker job: ${job.id}`);
   const { 
     campaignId, 
     subscriberIds, 
@@ -283,10 +329,12 @@ batchQueue.process('process-batch', async (job: Job<BatchJobData>) => {
     console.error(`Error processing batch ${batchNumber} for campaign ${campaignId}:`, error);
     throw error;
   }
-});
+}, { connection: redisConfig, concurrency: 1 });
 
-// Email queue processor/Worker
-emailQueue.process('send-email', 5, async (job: Job<EmailJobData>) => {
+export const emailWorker = new Worker<EmailJobData>('email-sending', async (job: Job<EmailJobData>) => {
+  if (job.name !== 'send-email') return;
+  
+  console.log(`Processing email worker job: ${job.id}`);
   const { 
     campaignId, 
     subscriberId, 
@@ -300,8 +348,8 @@ emailQueue.process('send-email', 5, async (job: Job<EmailJobData>) => {
   } = job.data;
 
   try {
-    // Send the email
-    await sendEmail({
+    // Send the email with rate limiting
+    await sendEmailWithRateLimit({
       to: [email],
       subject,
       html: templateHtml,
@@ -351,29 +399,32 @@ emailQueue.process('send-email', 5, async (job: Job<EmailJobData>) => {
     
     throw error;
   }
+}, { 
+  connection: redisConfig, 
+  concurrency: 10, // High concurrency since rate limiting is handled in the function
 });
 
-// Queue event listeners
-campaignQueue.on('completed', async (job) => {
+// Worker event listeners
+campaignWorker.on('completed', async (job) => {
   console.log(`Campaign job ${job.id} completed`);
   
   // Campaign job completion just means batches are queued, not that emails are sent
   // We'll check for campaign completion after all emails are sent
 });
 
-campaignQueue.on('failed', async (job, err) => {
-  console.error(`Campaign job ${job.id} failed:`, err.message);
+campaignWorker.on('failed', async (job, err) => {
+  console.error(`Campaign job ${job?.id} failed:`, err.message);
 });
 
-batchQueue.on('completed', async (job) => {
+batchWorker.on('completed', async (job) => {
   console.log(`Batch job ${job.id} completed`);
 });
 
-batchQueue.on('failed', async (job, err) => {
-  console.error(`Batch job ${job.id} failed:`, err.message);
+batchWorker.on('failed', async (job, err) => {
+  console.error(`Batch job ${job?.id} failed:`, err.message);
 });
 
-emailQueue.on('completed', async (job) => {
+emailWorker.on('completed', async (job) => {
   const { campaignId } = job.data;
   console.log(`📧 Email job ${job.id} completed for campaign ${campaignId}`);
   
@@ -381,13 +432,14 @@ emailQueue.on('completed', async (job) => {
   await checkCampaignCompletion(campaignId);
 });
 
-emailQueue.on('failed', async (job, err) => {
-  console.error(`Email job ${job.id} failed:`, err.message);
+emailWorker.on('failed', async (job, err) => {
+  console.error(`Email job ${job?.id} failed:`, err.message);
   
-  const { campaignId } = job.data;
-  
-  // Check if this campaign is now complete (even with failed emails)
-  await checkCampaignCompletion(campaignId);
+  if (job?.data) {
+    const { campaignId } = job.data;
+    // Check if this campaign is now complete (even with failed emails)
+    await checkCampaignCompletion(campaignId);
+  }
 });
 
 // Queue management functions
@@ -415,15 +467,24 @@ export async function addCampaignToQueue(campaignId: string, userId: string, opt
 
 export async function getQueueStats() {
   const [campaignStats, batchStats, emailStats] = await Promise.all([
-    campaignQueue.getJobCounts(),
-    batchQueue.getJobCounts(),
-    emailQueue.getJobCounts(),
+    campaignQueue.getJobs(['waiting', 'active', 'completed', 'failed']),
+    batchQueue.getJobs(['waiting', 'active', 'completed', 'failed']),
+    emailQueue.getJobs(['waiting', 'active', 'completed', 'failed']),
   ]);
 
+  const getJobCounts = (jobs: Job[]) => {
+    return {
+      waiting: jobs.filter(j => j.processedOn === undefined && j.finishedOn === undefined).length,
+      active: jobs.filter(j => j.processedOn !== undefined && j.finishedOn === undefined).length,
+      completed: jobs.filter(j => j.finishedOn !== undefined && j.failedReason === undefined).length,
+      failed: jobs.filter(j => j.failedReason !== undefined).length,
+    };
+  };
+
   return {
-    campaign: campaignStats,
-    batch: batchStats,
-    email: emailStats,
+    campaign: getJobCounts(campaignStats),
+    batch: getJobCounts(batchStats),
+    email: getJobCounts(emailStats),
   };
 }
 
@@ -459,21 +520,27 @@ export async function getCampaignQueueStatus(campaignId: string) {
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
-  console.log('Received SIGTERM, closing queues gracefully...');
+  console.log('Received SIGTERM, closing queues and workers gracefully...');
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),
-    emailQueue.close()
+    emailQueue.close(),
+    campaignWorker.close(),
+    batchWorker.close(),
+    emailWorker.close()
   ]);
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
-  console.log('Received SIGINT, closing queues gracefully...');
+  console.log('Received SIGINT, closing queues and workers gracefully...');
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),
-    emailQueue.close()
+    emailQueue.close(),
+    campaignWorker.close(),
+    batchWorker.close(),
+    emailWorker.close()
   ]);
   process.exit(0);
 });
