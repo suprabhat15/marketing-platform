@@ -222,7 +222,7 @@ export function CampaignRealTimeEvents({
       <div className="flex items-center justify-between">
         <h4 className="flex items-center gap-2 font-medium">
           <Activity className="h-4 w-4" />
-          Campaign Events ({filteredEvents.length})
+          Latest 50 Events ({filteredEvents.length})
         </h4>
         <Select value={eventFilter} onValueChange={setEventFilter}>
           <SelectTrigger className="w-40">

@@ -6,7 +6,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 // import { Badge } from '@/components/ui/badge';
 import { Mail, Users, TrendingUp, Plus } from 'lucide-react';
-import { CampaignRealTimeEvents } from './campaign-real-time-events';
 import { CampaignList } from './campaign-list';
 import { useRouter } from 'next/navigation';
 import { useSession } from '@/lib/auth-client';
@@ -272,7 +271,7 @@ export function CampaignDashboard() {
       <CampaignList
         campaigns={campaigns}
         onSendCampaign={handleSendCampaign}
-        onRefresh={fetchCampaigns}
+        // onRefresh={fetchCampaigns}
       />
     </div>
   );

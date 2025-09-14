@@ -2,6 +2,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,8 +21,6 @@ import {
   Edit,
   Trash2,
   MoreHorizontal,
-  ChevronDown,
-  ChevronRight,
   Activity,
   Filter,
   Search,
@@ -41,19 +40,28 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { z } from 'zod';
-import { CampaignRealTimeEvents } from './campaign-real-time-events';
 
 const eventSchema = z.object({
   id: z.string(),
-  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
+  type: z.enum([
+    'SENT',
+    'DELIVERED',
+    'OPENED',
+    'CLICKED',
+    'BOUNCED',
+    'COMPLAINED',
+    'UNSUBSCRIBED',
+  ]),
   data: z.any().optional(),
   createdAt: z.string().datetime(),
-  subscriber: z.object({
-    id: z.string(),
-    email: z.string(),
-    firstName: z.string().nullable(),
-    lastName: z.string().nullable(),
-  }).nullable(),
+  subscriber: z
+    .object({
+      id: z.string(),
+      email: z.string(),
+      firstName: z.string().nullable(),
+      lastName: z.string().nullable(),
+    })
+    .nullable(),
 });
 
 const campaignSchema = z.object({
@@ -69,10 +77,12 @@ const campaignSchema = z.object({
     id: z.string(),
     name: z.string(),
   }),
-  template: z.object({
-    id: z.string(),
-    name: z.string(),
-  }).nullable(),
+  template: z
+    .object({
+      id: z.string(),
+      name: z.string(),
+    })
+    .nullable(),
   events: z.array(eventSchema),
   totalEvents: z.number(),
   campaignIds: z.array(z.string()),
@@ -85,40 +95,28 @@ type Event = z.infer<typeof eventSchema>;
 interface CampaignListProps {
   campaigns: Campaign[];
   onSendCampaign: (campaignId: string, scheduleAt?: Date) => void;
-  onRefresh: () => void;
 }
 
-export function CampaignList({
-  campaigns,
-  onSendCampaign,
-  onRefresh,
-}: CampaignListProps) {
+export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
+  const router = useRouter();
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
-  const [expandedCampaigns, setExpandedCampaigns] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
 
-  const toggleCampaignExpansion = (campaignId: string) => {
-    const newExpanded = new Set(expandedCampaigns);
-    if (newExpanded.has(campaignId)) {
-      newExpanded.delete(campaignId);
-    } else {
-      newExpanded.add(campaignId);
-    }
-    setExpandedCampaigns(newExpanded);
-  };
 
   // Filter campaigns based on search query and status
-  const filteredCampaigns = campaigns.filter(campaign => {
-    const matchesSearch = searchQuery === '' || 
+  const filteredCampaigns = campaigns.filter((campaign) => {
+    const matchesSearch =
+      searchQuery === '' ||
       campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       campaign.subject.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || campaign.latestStatus === statusFilter;
-    
+
+    const matchesStatus =
+      statusFilter === 'all' || campaign.latestStatus === statusFilter;
+
     return matchesSearch && matchesStatus;
   });
 
@@ -266,24 +264,15 @@ export function CampaignList({
             filteredCampaigns.map((campaign) => (
               <div
                 key={campaign.id}
-                className="hover:bg-background rounded-lg border p-4 transition-colors"
+                className="hover:bg-gray-50 rounded-lg border p-4 transition-colors cursor-pointer"
+                onClick={() => router.push(`/campaigns/${campaign.id}`)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => toggleCampaignExpansion(campaign.id)}
-                        className="h-auto p-0"
-                      >
-                        {expandedCampaigns.has(campaign.id) ? (
-                          <ChevronDown className="h-4 w-4" />
-                        ) : (
-                          <ChevronRight className="h-4 w-4" />
-                        )}
-                      </Button>
-                      <h3 className="text-lg font-semibold">{campaign.name}</h3>
+                      <h3 className="text-lg font-semibold">
+                        {campaign.name}
+                      </h3>
                       <Badge className={getStatusColor(campaign.latestStatus)}>
                         {getStatusLabel(campaign.latestStatus)}
                       </Badge>
@@ -330,12 +319,15 @@ export function CampaignList({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
                     {campaign.latestStatus === 'DRAFT' && (
                       <>
                         <Button
                           size="sm"
-                          onClick={() => onSendCampaign(campaign.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSendCampaign(campaign.id);
+                          }}
                           className="flex items-center gap-1"
                         >
                           <Send className="h-3 w-3" />
@@ -344,7 +336,10 @@ export function CampaignList({
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => openScheduleDialog(campaign.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openScheduleDialog(campaign.id);
+                          }}
                           className="flex items-center gap-1"
                         >
                           <Clock className="h-3 w-3" />
@@ -355,11 +350,15 @@ export function CampaignList({
 
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm">
+                        <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => router.push(`/campaigns/${campaign.id}`)}>
+                          <Activity className="mr-2 h-4 w-4" />
+                          View Details
+                        </DropdownMenuItem>
                         <DropdownMenuItem>
                           <Edit className="mr-2 h-4 w-4" />
                           Edit
@@ -372,20 +371,6 @@ export function CampaignList({
                     </DropdownMenu>
                   </div>
                 </div>
-
-                {/* Real-time Events Section */}
-                {expandedCampaigns.has(campaign.id) && (
-                  <div className="mt-4 border-t pt-4">
-                    <CampaignRealTimeEvents
-                      campaignId={campaign.id}
-                      initialEvents={campaign.events}
-                      onStatsUpdate={(stats) => {
-                        // Optional: Update parent component stats if needed
-                        // console.log('Stats updated for campaign', campaign.id, stats);
-                      }}
-                    />
-                  </div>
-                )}
               </div>
             ))
           )}
