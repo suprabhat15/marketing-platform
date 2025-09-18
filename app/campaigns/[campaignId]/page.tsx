@@ -10,8 +10,10 @@ import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Pagination } from '@/components/ui/pagination';
-import { ArrowLeft, CalendarIcon, UsersIcon, FilterIcon, Search, Loader2, Activity } from 'lucide-react';
+import { ArrowLeft, CalendarIcon, UsersIcon, FilterIcon, Search, Loader2, Activity, Wifi, WifiOff } from 'lucide-react';
 import { format } from 'date-fns';
+import { useCampaignEvents } from '@/hooks/use-campaign-events';
+import { useSession } from '@/lib/auth-client';
 
 interface Event {
   id: string;
@@ -64,6 +66,7 @@ export default function CampaignDetailPage() {
   const params = useParams();
   const router = useRouter();
   const campaignId = params?.campaignId as string;
+  const { data: session } = useSession();
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -79,11 +82,34 @@ export default function CampaignDetailPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
-  const [autoRefresh, setAutoRefresh] = useState(true);
 
-  // Refs for batching/debouncing and auto-refresh
+  // Refs for batching/debouncing
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const autoRefreshRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // SSE connection for real-time events
+  const { isConnected: sseConnected } = useCampaignEvents(campaignId, session?.user?.id || '', {
+    onEvent: (event) => {
+      // Add new event to the current page if it matches filters
+      const matchesFilter = statusFilter === 'all' || event.type === statusFilter;
+      const matchesSearch = !searchTerm || 
+        event.subscriber?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        `${event.subscriber?.firstName || ''} ${event.subscriber?.lastName || ''}`.toLowerCase().includes(searchTerm.toLowerCase());
+      
+      if (matchesFilter && matchesSearch && pagination.page === 1) {
+        // Add to beginning of events list if on first page
+        setEvents(prev => [event, ...prev].slice(0, pageSize));
+      }
+    },
+    onStatsUpdate: (stats) => {
+      // Update campaign stats from SSE
+      setCampaign(prev => prev ? {
+        ...prev,
+        eventsByType: stats.eventsByType,
+        totalEvents: stats.totalEvents,
+        status: stats.campaign.status as any
+      } : null);
+    }
+  });
 
   const fetchCampaign = useCallback(async () => {
     try {
@@ -176,35 +202,11 @@ export default function CampaignDetailPage() {
     }
   }, [pageSize]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-refresh effect
-  useEffect(() => {
-    if (!autoRefresh || !campaignId) return;
-
-    const startAutoRefresh = () => {
-      autoRefreshRef.current = setInterval(() => {
-        // Silent background refresh without loading states
-        fetchEventsCore(pagination.page, searchTerm, statusFilter, pageSize, false);
-        fetchCampaign(); // Also refresh campaign stats
-      }, 10000); // Refresh every 10 seconds
-    };
-
-    startAutoRefresh();
-
-    return () => {
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
-      }
-    };
-  }, [autoRefresh, campaignId, pagination.page, searchTerm, statusFilter, pageSize, fetchEventsCore, fetchCampaign]);
-
   // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (fetchTimeoutRef.current) {
         clearTimeout(fetchTimeoutRef.current);
-      }
-      if (autoRefreshRef.current) {
-        clearInterval(autoRefreshRef.current);
       }
     };
   }, []);
@@ -411,6 +413,17 @@ export default function CampaignDetailPage() {
                   <CardTitle className="flex items-center gap-2">
                     <FilterIcon className="h-5 w-5" />
                     Campaign Events
+                    {sseConnected ? (
+                      <div className="flex items-center gap-1 text-sm text-green-600">
+                        <Wifi className="w-3 h-3" />
+                        Live
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1 text-sm text-amber-600">
+                        <WifiOff className="w-3 h-3" />
+                        Offline
+                      </div>
+                    )}
                   </CardTitle>
                   <div className="flex gap-2">
                     <div className="relative">
