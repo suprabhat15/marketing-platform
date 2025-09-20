@@ -28,6 +28,14 @@ export async function broadcastEvent(campaignId: string, event: any) {
   }
 
   // Use the high-performance event broadcaster
+  console.log(`📡 Queuing event for broadcast:`, {
+    id: event.id,
+    type: event.type,
+    campaignId,
+    subscriberId: event.subscriberId,
+    hasSubscriberData: !!event.subscriber
+  });
+  
   await eventBroadcaster.queueEvent({
     id: event.id,
     type: event.type,

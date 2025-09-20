@@ -52,15 +52,38 @@ export function useCampaignEvents(campaignId: string, userId: string, options: U
   const [stats, setStats] = useState<CampaignStats | null>(null);
 
   const unsubscribeRef = useRef<(() => void) | null>(null);
+  
+  // Use refs to avoid stale closures
+  const callbacksRef = useRef({
+    onEvent,
+    onStatsUpdate,
+    onError,
+    onConnectionChange
+  });
+  
+  // Update refs when callbacks change
+  useEffect(() => {
+    callbacksRef.current = {
+      onEvent,
+      onStatsUpdate,
+      onError,
+      onConnectionChange
+    };
+  }, [onEvent, onStatsUpdate, onError, onConnectionChange]);
 
   // Use global SSE manager to prevent duplicates
   useEffect(() => {
-    if (!enabled || !campaignId || !userId) return;
+    console.log(`🔄 useEffect triggered for campaign: ${campaignId}, userId: ${userId}, enabled: ${enabled}`);
+    
+    if (!enabled || !campaignId || !userId) {
+      console.log(`❌ Skipping SSE subscription: enabled=${enabled}, campaignId=${campaignId}, userId=${userId}`);
+      return;
+    }
 
-    console.log(`🔗 Subscribing to global SSE for campaign: ${campaignId}`);
+    console.log(`🔗 Subscribing to global SSE for campaign: ${campaignId}, userId: ${userId}`);
     setIsConnected(true);
     setConnectionError(null);
-    onConnectionChange?.(true);
+    callbacksRef.current.onConnectionChange?.(true);
 
     const unsubscribe = globalSSEManager.subscribe(campaignId, userId, (data) => {
       try {
@@ -70,11 +93,11 @@ export function useCampaignEvents(campaignId: string, userId: string, options: U
         } else if (data.type === 'event' && data.data) {
           const eventData: CampaignEvent = data.data;
           setLastEventId(eventData.id);
-          onEvent?.(eventData);
+          callbacksRef.current.onEvent?.(eventData);
         } else if (data.type === 'campaign-stats') {
           const statsData: CampaignStats = data.data;
           setStats(statsData);
-          onStatsUpdate?.(statsData);
+          callbacksRef.current.onStatsUpdate?.(statsData);
         } else if (data.type === 'campaign_status_update') {
           // Handle campaign status updates as stats
           const campaignData = data.data || data;
@@ -91,7 +114,7 @@ export function useCampaignEvents(campaignId: string, userId: string, options: U
               totalEvents: 0
             };
             setStats(mockStats);
-            onStatsUpdate?.(mockStats);
+            callbacksRef.current.onStatsUpdate?.(mockStats);
           }
         } else if (data.type === 'heartbeat') {
           // Just acknowledge heartbeat
@@ -100,19 +123,19 @@ export function useCampaignEvents(campaignId: string, userId: string, options: U
         console.error('❌ Error processing global SSE data:', error);
         const errorObj = new Error('SSE data processing failed');
         setConnectionError(errorObj);
-        onError?.(errorObj);
+        callbacksRef.current.onError?.(errorObj);
       }
     });
 
     unsubscribeRef.current = unsubscribe;
 
     return () => {
-      console.log(`🔗 Unsubscribing from global SSE for campaign: ${campaignId}`);
+      console.log(`🔗 Unsubscribing from global SSE for campaign: ${campaignId}, userId: ${userId}`);
       unsubscribe();
       setIsConnected(false);
-      onConnectionChange?.(false);
+      callbacksRef.current.onConnectionChange?.(false);
     };
-  }, [campaignId, userId, enabled, onEvent, onStatsUpdate, onError, onConnectionChange]);
+  }, [campaignId, userId, enabled]); // Remove function deps to prevent constant re-renders
 
   const disconnect = useCallback(() => {
     if (unsubscribeRef.current) {
@@ -120,8 +143,8 @@ export function useCampaignEvents(campaignId: string, userId: string, options: U
       unsubscribeRef.current = null;
     }
     setIsConnected(false);
-    onConnectionChange?.(false);
-  }, [onConnectionChange]);
+    callbacksRef.current.onConnectionChange?.(false);
+  }, []); // No dependencies needed since we use refs
 
   const reconnect = useCallback(() => {
     // Global SSE manager handles reconnection automatically

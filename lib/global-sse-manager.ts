@@ -47,9 +47,13 @@ class GlobalSSEManager {
         try {
           const data = JSON.parse(event.data);
           console.log(`📨 Global SSE event for campaign ${campaignId}:`, data);
+          console.log(`📞 Notifying ${connection!.subscribers.size} subscribers`);
           
           // Notify all subscribers
-          connection!.subscribers.forEach(callback => callback(data));
+          connection!.subscribers.forEach((callback, index) => {
+            console.log(`📞 Calling subscriber ${index + 1}`);
+            callback(data);
+          });
         } catch (error) {
           console.error('❌ Error parsing global SSE event:', error);
         }
@@ -57,7 +61,15 @@ class GlobalSSEManager {
 
       eventSource.onerror = (error) => {
         console.error(`❌ Global SSE error for campaign ${campaignId}:`, error);
-        this.cleanup(key);
+        console.log(`🔍 EventSource readyState: ${eventSource.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSED)`);
+        
+        // Don't cleanup immediately on error - let EventSource handle reconnection
+        if (eventSource.readyState === EventSource.CLOSED) {
+          console.log(`🔌 EventSource closed for campaign ${campaignId}, cleaning up`);
+          this.cleanup(key);
+        } else {
+          console.log(`🔄 EventSource will attempt to reconnect for campaign ${campaignId}`);
+        }
       };
 
       this.connections.set(key, connection);

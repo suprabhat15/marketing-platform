@@ -150,6 +150,22 @@ export function CampaignDashboard() {
     }
   };
 
+  const handleDelete = async (campaignId: string) => {
+    try {
+      const response = await fetch(`/api/campaigns/${campaignId}`, {
+        method: 'DELETE',
+      });
+
+      if (response.ok) {
+        setCampaigns((prevCampaigns) =>
+          prevCampaigns.filter((campaign) => campaign.id !== campaignId)
+        );
+      }
+    } catch (error) {
+      console.error('Error deleting campaign:', error);
+    }
+  };
+
   const handleSendCampaign = async (campaignId: string, scheduleAt?: Date) => {
     try {
       const response = await fetch(`/api/campaigns/${campaignId}/send`, {
@@ -235,6 +251,7 @@ export function CampaignDashboard() {
       <CampaignList
         campaigns={campaigns}
         onSendCampaign={handleSendCampaign}
+        handleDelete={handleDelete}
         // onRefresh={fetchCampaigns}
       />
     </div>

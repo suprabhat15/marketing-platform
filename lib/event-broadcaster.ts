@@ -25,10 +25,18 @@ class EventBroadcaster {
    * Queue an event for broadcasting
    */
   async queueEvent(event: BroadcastEvent) {
+    console.log(`📥 Event queued for processing:`, {
+      id: event.id,
+      type: event.type,
+      campaignId: event.campaignId,
+      queueLength: this.eventQueue.length + 1
+    });
+    
     this.eventQueue.push(event);
     
     // If queue is getting large, process immediately
     if (this.eventQueue.length >= this.BATCH_SIZE * 2) {
+      console.log(`🚀 Queue size large (${this.eventQueue.length}), processing immediately`);
       this.processBatch();
     }
   }
@@ -90,14 +98,17 @@ class EventBroadcaster {
   private async processBatch() {
     if (this.isProcessing || this.eventQueue.length === 0) return;
 
+    console.log(`🔄 Processing batch of ${this.eventQueue.length} events`);
     this.isProcessing = true;
     
     try {
       // Take a batch of events
       const batch = this.eventQueue.splice(0, this.BATCH_SIZE);
+      console.log(`📦 Processing batch of ${batch.length} events`);
       
       // Group events by campaign for efficient processing
       const eventsByCampaign = this.groupEventsByCampaign(batch);
+      console.log(`📊 Events grouped by campaign:`, Array.from(eventsByCampaign.keys()));
       
       // Process each campaign's events
       for (const [campaignId, events] of eventsByCampaign.entries()) {
@@ -168,6 +179,7 @@ class EventBroadcaster {
           }
         });
 
+        console.log(`📡 Event ${event.id} (${event.type}) broadcasted to ${connectionsReached} connections for campaign ${campaignId}`);
         totalConnections += connectionsReached;
       }
 

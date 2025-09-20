@@ -23,7 +23,7 @@ class SSEManager {
   private readonly MAX_CONNECTIONS_PER_CAMPAIGN = 100;
   private readonly MAX_BUFFER_SIZE = 1000;
   private readonly CONNECTION_TIMEOUT = 300000; // 5 minutes
-  private readonly HEARTBEAT_INTERVAL = 30000; // 30 seconds
+  private readonly HEARTBEAT_INTERVAL = 15000; // 15 seconds
 
   constructor() {
     // Cleanup inactive connections every minute
@@ -38,9 +38,13 @@ class SSEManager {
    */
   createConnection(campaignId: string, lastEventId?: string): NextResponse {
     const clientId = this.generateClientId();
+    const connectionStartTime = Date.now();
+    console.log(`🆕 SSE Manager: Creating connection ${clientId} for campaign ${campaignId}`);
     
     const stream = new ReadableStream({
       start: (controller) => {
+        console.log(`🚀 SSE Manager: Starting stream for client ${clientId}, campaign ${campaignId}`);
+        
         // Add connection to pool
         this.addConnection(campaignId, controller, clientId, lastEventId);
         
@@ -53,8 +57,16 @@ class SSEManager {
 
         // Send any buffered events since lastEventId
         this.sendBufferedEvents(campaignId, controller, lastEventId);
+        
+        console.log(`✅ SSE Manager: Connection ${clientId} established for campaign ${campaignId}`);
       },
-      cancel: () => {
+      cancel: (reason) => {
+        const duration = Date.now() - connectionStartTime;
+        console.log(`❌ SSE Manager: Connection ${clientId} cancelled for campaign ${campaignId}`, {
+          reason: reason || 'unknown',
+          durationMs: duration,
+          durationSec: Math.round(duration / 1000)
+        });
         this.removeConnection(campaignId, clientId);
       }
     });
@@ -85,6 +97,7 @@ class SSEManager {
 
     // Get connections for this campaign
     const connections = this.connections.get(campaignId) || [];
+    console.log(`🔗 SSE Manager: Found ${connections.length} connections for campaign ${campaignId}`);
     
     // Broadcast to all active connections
     const activeConnections = connections.filter(conn => {
@@ -94,6 +107,7 @@ class SSEManager {
           data: fullEvent.data,
           id: fullEvent.id
         });
+        console.log(`✅ Event sent to connection ${conn.clientId}`);
         return true;
       } catch (error) {
         // Connection is broken, will be cleaned up later
@@ -107,6 +121,7 @@ class SSEManager {
       this.connections.set(campaignId, activeConnections);
     }
 
+    console.log(`📊 SSE Manager: ${activeConnections.length}/${connections.length} connections reached for campaign ${campaignId}`);
     return activeConnections.length;
   }
 
@@ -146,11 +161,13 @@ class SSEManager {
 
   private addConnection(campaignId: string, controller: ReadableStreamDefaultController, clientId: string, lastEventId?: string) {
     const connections = this.connections.get(campaignId) || [];
+    console.log(`📊 SSE Manager: Adding connection ${clientId}. Current connections for campaign ${campaignId}: ${connections.length}`);
     
     // Limit connections per campaign to prevent memory issues
     if (connections.length >= this.MAX_CONNECTIONS_PER_CAMPAIGN) {
       const oldest = connections.shift();
       if (oldest) {
+        console.log(`🚮 SSE Manager: Removing oldest connection ${oldest.clientId} due to limit`);
         try {
           oldest.controller.close();
         } catch (error) {
@@ -168,13 +185,17 @@ class SSEManager {
     });
 
     this.connections.set(campaignId, connections);
+    console.log(`✅ SSE Manager: Connection ${clientId} added. Total connections for campaign ${campaignId}: ${connections.length}`);
   }
 
   private removeConnection(campaignId: string, clientId: string) {
     const connections = this.connections.get(campaignId) || [];
     const filtered = connections.filter(conn => conn.clientId !== clientId);
     
+    console.log(`➖ SSE Manager: Removing connection ${clientId} from campaign ${campaignId}. Before: ${connections.length}, After: ${filtered.length}`);
+    
     if (filtered.length === 0) {
+      console.log(`🗑️ SSE Manager: No more connections for campaign ${campaignId}, removing from map`);
       this.connections.delete(campaignId);
     } else {
       this.connections.set(campaignId, filtered);
@@ -276,16 +297,26 @@ class SSEManager {
       id: `heartbeat-${Date.now()}`
     };
 
+    let totalConnections = 0;
+    let successfulHeartbeats = 0;
+
     for (const [campaignId, connections] of this.connections.entries()) {
       connections.forEach(conn => {
+        totalConnections++;
         try {
           this.sendEvent(conn.controller, heartbeatEvent);
           // Update timestamp on successful heartbeat
           conn.timestamp = Date.now();
+          successfulHeartbeats++;
         } catch (error) {
+          console.error(`❤️‍🩹 Heartbeat failed for connection ${conn.clientId} in campaign ${campaignId}:`, error);
           // Connection will be cleaned up later
         }
       });
+    }
+
+    if (totalConnections > 0) {
+      console.log(`❤️ Heartbeat sent to ${successfulHeartbeats}/${totalConnections} connections across ${this.connections.size} campaigns`);
     }
   }
 

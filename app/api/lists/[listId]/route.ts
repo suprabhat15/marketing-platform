@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
@@ -180,11 +181,19 @@ export async function PUT(
 
 // DELETE /api/lists/[listId] - Delete list
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
     const { listId } = await params;
+
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Check if list exists
     const existingList = await prisma.list.findUnique({
@@ -203,7 +212,7 @@ export async function DELETE(
       where: { id: listId },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ message: 'List deleted successfully' });
   } catch (error) {
     console.error('Error deleting list:', error);
     return NextResponse.json(

@@ -20,18 +20,18 @@ import {
   Clock,
   Edit,
   Trash2,
-  MoreHorizontal,
+  // MoreHorizontal,
   Activity,
   Filter,
   Search,
 } from 'lucide-react';
 import { format } from 'date-fns';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+// import {
+//   DropdownMenu,
+//   DropdownMenuContent,
+//   DropdownMenuItem,
+//   DropdownMenuTrigger,
+// } from '@/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
@@ -39,6 +39,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+// import {
+//   AlertDialog,
+//   AlertDialogAction,
+//   AlertDialogCancel,
+//   AlertDialogContent,
+//   AlertDialogDescription,
+//   AlertDialogFooter,
+//   AlertDialogHeader,
+//   AlertDialogTitle,
+//   AlertDialogTrigger,
+// } from '@/components/ui/alert-dialog';
+
 import { z } from 'zod';
 
 const eventSchema = z.object({
@@ -95,9 +107,14 @@ type Event = z.infer<typeof eventSchema>;
 interface CampaignListProps {
   campaigns: Campaign[];
   onSendCampaign: (campaignId: string, scheduleAt?: Date) => void;
+  handleDelete: (campaignId: string) => void;
 }
 
-export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
+export function CampaignList({
+  campaigns,
+  onSendCampaign,
+  handleDelete,
+}: CampaignListProps) {
   const router = useRouter();
   const [scheduleDialogOpen, setScheduleDialogOpen] = useState(false);
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
@@ -105,7 +122,6 @@ export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
   const [scheduleTime, setScheduleTime] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
-
 
   // Filter campaigns based on search query and status
   const filteredCampaigns = campaigns.filter((campaign) => {
@@ -264,15 +280,13 @@ export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
             filteredCampaigns.map((campaign) => (
               <div
                 key={campaign.id}
-                className="hover:bg-gray-50 rounded-lg border p-4 transition-colors cursor-pointer"
+                className="cursor-pointer rounded-lg border p-4 transition-colors hover:bg-gray-50"
                 onClick={() => router.push(`/campaigns/${campaign.id}`)}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1 space-y-2">
                     <div className="flex items-center gap-3">
-                      <h3 className="text-lg font-semibold">
-                        {campaign.name}
-                      </h3>
+                      <h3 className="text-lg font-semibold">{campaign.name}</h3>
                       <Badge className={getStatusColor(campaign.latestStatus)}>
                         {getStatusLabel(campaign.latestStatus)}
                       </Badge>
@@ -319,7 +333,10 @@ export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                  <div
+                    className="flex items-center gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     {campaign.latestStatus === 'DRAFT' && (
                       <>
                         <Button
@@ -348,27 +365,99 @@ export function CampaignList({ campaigns, onSendCampaign }: CampaignListProps) {
                       </>
                     )}
 
-                    <DropdownMenu>
+                    {/* <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <MoreHorizontal className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent>
-                        <DropdownMenuItem onClick={() => router.push(`/campaigns/${campaign.id}`)}>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            router.push(`/campaigns/${campaign.id}`)
+                          }
+                        >
                           <Activity className="mr-2 h-4 w-4" />
-                          View Details
-                        </DropdownMenuItem>
-                        <DropdownMenuItem>
-                          <Edit className="mr-2 h-4 w-4" />
                           Edit
                         </DropdownMenuItem>
                         <DropdownMenuItem className="text-red-600">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Delete
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="text-red-600 hover:text-red-700"
+                                title="Delete List"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  handleDelete(campaign.id);
+                                }}
+                              >
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Delete
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>
+                                  Are you sure?
+                                </AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This action cannot be undone. This will
+                                  permanently delete the list &quot;
+                                  {campaign.name}
+                                  &quot; and all its subscribers.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => handleDelete(campaign.id)}
+                                  className="bg-red-600 hover:bg-red-700"
+                                >
+                                  Delete List
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         </DropdownMenuItem>
                       </DropdownMenuContent>
-                    </DropdownMenu>
+                    </DropdownMenu> */}
+
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          router.push(`/campaigns/${campaign.id}`);
+                        }}
+                        className="flex cursor-pointer items-center gap-1"
+                      >
+                        <Edit className="h-3 w-3" />
+                        Edit
+                      </Button>
+
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                          handleDelete(campaign.id);
+                        }}
+                        className="flex cursor-pointer items-center gap-1 text-red-600"
+                      >
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>

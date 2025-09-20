@@ -67,6 +67,16 @@ export default function CampaignDetailPage() {
   const router = useRouter();
   const campaignId = params?.campaignId as string;
   const { data: session } = useSession();
+  
+  // Debug logging for SSE connection issues
+  useEffect(() => {
+    console.log(`📋 Campaign page state changed:`, {
+      campaignId,
+      userId: session?.user?.id,
+      hasSession: !!session,
+      hasUserId: !!session?.user?.id
+    });
+  }, [campaignId, session?.user?.id, session]);
 
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
@@ -87,28 +97,53 @@ export default function CampaignDetailPage() {
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   
   // SSE connection for real-time events
-  const { isConnected: sseConnected } = useCampaignEvents(campaignId, session?.user?.id || '', {
-    onEvent: (event) => {
-      // Add new event to the current page if it matches filters
-      const matchesFilter = statusFilter === 'all' || event.type === statusFilter;
-      const matchesSearch = !searchTerm || 
-        event.subscriber?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        `${event.subscriber?.firstName || ''} ${event.subscriber?.lastName || ''}`.toLowerCase().includes(searchTerm.toLowerCase());
-      
-      if (matchesFilter && matchesSearch && pagination.page === 1) {
-        // Add to beginning of events list if on first page
-        setEvents(prev => [event, ...prev].slice(0, pageSize));
-      }
-    },
-    onStatsUpdate: (stats) => {
-      // Update campaign stats from SSE
-      setCampaign(prev => prev ? {
-        ...prev,
-        eventsByType: stats.eventsByType,
-        totalEvents: stats.totalEvents,
-        status: stats.campaign.status as any
-      } : null);
+  // Only enable SSE when we have both campaignId and userId
+  const userId = session?.user?.id;
+  const sseEnabled = !!(campaignId && userId);
+  
+  // Stabilize callback functions to prevent re-renders
+  const onEventCallback = useCallback((event: any) => {
+    // Add new event to the current page if it matches filters
+    const matchesFilter = statusFilter === 'all' || event.type === statusFilter;
+    const matchesSearch = !searchTerm || 
+      event.subscriber?.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      `${event.subscriber?.firstName || ''} ${event.subscriber?.lastName || ''}`.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    if (matchesFilter && matchesSearch && pagination.page === 1) {
+      // Add to beginning of events list if on first page
+      setEvents(prev => [event, ...prev].slice(0, pageSize));
     }
+    
+    // Update campaign stats incrementally for immediate UI feedback
+    setCampaign(prev => {
+      if (!prev) return null;
+      
+      const newEventsByType = { ...prev.eventsByType };
+      newEventsByType[event.type] = (newEventsByType[event.type] || 0) + 1;
+      
+      return {
+        ...prev,
+        eventsByType: newEventsByType,
+        totalEvents: prev.totalEvents + 1
+      };
+    });
+  }, [statusFilter, searchTerm, pagination.page, pageSize]);
+
+  const onStatsUpdateCallback = useCallback((stats: any) => {
+    // Update campaign stats directly from SSE data (more efficient)
+    setCampaign(prev => prev ? {
+      ...prev,
+      eventsByType: stats.eventsByType,
+      totalEvents: stats.totalEvents,
+      status: stats.campaign.status as any,
+      sentAt: stats.campaign.sentAt || prev.sentAt
+    } : null);
+  }, []);
+
+  const { isConnected: sseConnected } = useCampaignEvents(campaignId, userId || '', {
+    enabled: sseEnabled,
+    onEvent: onEventCallback,
+    onStatsUpdate: onStatsUpdateCallback
   });
 
   const fetchCampaign = useCallback(async () => {
@@ -176,7 +211,7 @@ export default function CampaignDetailPage() {
     if (!campaignId) return;
     fetchCampaign();
     fetchEvents(1, searchTerm, statusFilter, pageSize, true, true); // Show loader on initial load
-  }, [fetchCampaign]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [campaignId]); // Only depend on campaignId
 
   // Effect for search changes with debouncing
   useEffect(() => {

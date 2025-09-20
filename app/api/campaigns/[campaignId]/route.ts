@@ -79,3 +79,47 @@ export async function GET(
     );
   }
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ campaignId: string }> }
+) {
+  try {
+    const { campaignId } = await params;
+    
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Check if campaign exists
+    const existingTemplate = await prisma.campaign.findUnique({
+      where: { id: campaignId }
+    });
+
+    if (!existingTemplate) {
+      return NextResponse.json(
+        { error: 'Campaign not found' },
+        { status: 404 }
+      );
+    }
+
+    await prisma.campaign.delete({
+      where: {
+        id: campaignId,
+        userId: session?.user.id,
+      },
+    });
+
+    return NextResponse.json({ message: 'Campaign deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting campaign:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete campaign' },
+      { status: 500 }
+    );
+  }
+}
