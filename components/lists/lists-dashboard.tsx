@@ -294,7 +294,7 @@ export function ListsDashboard() {
                             title="Delete List"
                             onClick={(e) => {
                               e.stopPropagation();
-                              e.preventDefault();
+                              // e.preventDefault();
                             }}
                           >
                             <Trash2 className="h-4 w-4" />
@@ -310,9 +310,12 @@ export function ListsDashboard() {
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDeleteList(list.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteList(list.id);
+                              }}
                               className="bg-red-600 hover:bg-red-700"
                             >
                               Delete List
