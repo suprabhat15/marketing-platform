@@ -120,8 +120,9 @@ model Event {
   subscriber   Subscriber? @relation(fields: [subscriberId], references: [id])
   
   campaignId   String?
-  campaign     Campaign? @relation(fields: [campaignId], references: [id])
-  
+  campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade) 
+  // Cascade:deletion of campaign will delete all 
+  // the events associated with deleted campaign
   @@map("event")
 }
 
