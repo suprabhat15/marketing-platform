@@ -82,12 +82,12 @@ export default function QueuesAdminPage() {
     try {
       const session = await authClient.getSession();
       
-      if (!session?.user?.email) {
+      if (!session?.data?.user?.email) {
         router.push('/auth');
         return;
       }
 
-      const userIsAdmin = ADMIN_EMAILS.includes(session.user.email);
+      const userIsAdmin = ADMIN_EMAILS.includes(session.data.user.email);
       
       if (!userIsAdmin) {
         router.push('/');
