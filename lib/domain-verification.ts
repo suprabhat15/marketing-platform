@@ -1,7 +1,7 @@
 import { promises as dns } from 'dns';
-import { SESClient, VerifyDomainIdentityCommand, VerifyDomainDkimCommand } from "@aws-sdk/client-ses";
+import { VerifyDomainIdentityCommand, VerifyDomainDkimCommand } from "@aws-sdk/client-ses";
 // import type { DnsRecords, VerificationResult } from "./domain-verification";
-
+import { sesClient } from "./ses"
 export interface DnsRecords {
   txt: {
     key: string;
@@ -30,23 +30,15 @@ export interface VerificationResult {
   errors: string[];
 }
 
-const ses = new SESClient({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
-
 /**
  * Generate real DNS records from AWS SES
  */
 export async function generateDnsRecords(domain: string): Promise<DnsRecords> {
   // 1. Ask SES to start domain identity verification
-  const identity = await ses.send(new VerifyDomainIdentityCommand({ Domain: domain }));
+  const identity = await sesClient.send(new VerifyDomainIdentityCommand({ Domain: domain }));
 
   // 2. Ask SES to create DKIM records (3 CNAMEs)
-  const dkim = await ses.send(new VerifyDomainDkimCommand({ Domain: domain }));
+  const dkim = await sesClient.send(new VerifyDomainDkimCommand({ Domain: domain }));
 
   // 3. Build records
   return {

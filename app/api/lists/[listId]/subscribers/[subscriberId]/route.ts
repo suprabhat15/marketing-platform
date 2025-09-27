@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const updateSubscriberSchema = z.object({
-  email: z.string().email().optional(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-  status: z.enum(['ACTIVE', 'UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED']).optional(),
-});
+import { updateSubscriberSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 // PATCH /api/lists/[listId]/subscribers/[subscriberId] - Update a subscriber
 export async function PATCH(
@@ -45,7 +39,7 @@ export async function PATCH(
       message: 'Subscriber updated successfully'
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }

@@ -10,12 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, X, Users, UserPlus } from 'lucide-react';
-import { z } from 'zod';
-
-const createListSchema = z.object({
-  name: z.string().min(1, 'List name is required'),
-  description: z.string().optional(),
-});
+import { createListSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
 interface Subscriber {
   email: string;
@@ -30,7 +26,11 @@ interface CreateListDialogProps {
   onListCreated: () => void;
 }
 
-export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateListDialogProps) {
+export function CreateListDialog({
+  open,
+  onOpenChange,
+  onListCreated,
+}: CreateListDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -72,7 +72,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
       setErrors({});
       return true;
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof ZodError) {
         const newErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
           const field = err.path[0] as string;
@@ -130,12 +130,12 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Create New List</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* List Details */}
           <Card>
             <CardHeader>
@@ -152,7 +152,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                   className={errors.name ? 'border-red-500' : ''}
                 />
                 {errors.name && (
-                  <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.name}</p>
                 )}
               </div>
 
@@ -187,7 +187,12 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                     id="email"
                     type="email"
                     value={newSubscriber.email}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        email: e.target.value,
+                      }))
+                    }
                     placeholder="email@example.com"
                     onKeyPress={handleKeyPress}
                   />
@@ -197,7 +202,12 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                   <Input
                     id="firstName"
                     value={newSubscriber.firstName}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, firstName: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        firstName: e.target.value,
+                      }))
+                    }
                     placeholder="John"
                     onKeyPress={handleKeyPress}
                   />
@@ -210,7 +220,12 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                   <Input
                     id="lastName"
                     value={newSubscriber.lastName}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, lastName: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        lastName: e.target.value,
+                      }))
+                    }
                     placeholder="Doe"
                     onKeyPress={handleKeyPress}
                   />
@@ -219,8 +234,8 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                   <Label htmlFor="status">Status</Label>
                   <Select
                     value={newSubscriber.status}
-                    onValueChange={(value: 'ACTIVE' | 'UNSUBSCRIBED') => 
-                      setNewSubscriber(prev => ({ ...prev, status: value }))
+                    onValueChange={(value: 'ACTIVE' | 'UNSUBSCRIBED') =>
+                      setNewSubscriber((prev) => ({ ...prev, status: value }))
                     }
                   >
                     <SelectTrigger>
@@ -241,7 +256,7 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                 className="w-full"
                 variant="outline"
               >
-                <UserPlus className="h-4 w-4 mr-2" />
+                <UserPlus className="mr-2 h-4 w-4" />
                 Add Subscriber
               </Button>
             </CardContent>
@@ -251,12 +266,17 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
           {subscribers.length > 0 && (
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-lg">Added Subscribers ({subscribers.length})</CardTitle>
+                <CardTitle className="text-lg">
+                  Added Subscribers ({subscribers.length})
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="max-h-60 space-y-2 overflow-y-auto">
                   {subscribers.map((subscriber, index) => (
-                    <div key={index} className="flex items-center justify-between p-3 border rounded-lg">
+                    <div
+                      key={index}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
                       <div className="flex items-center gap-3">
                         <div>
                           <div className="font-medium">{subscriber.email}</div>
@@ -264,8 +284,16 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
                             {subscriber.firstName} {subscriber.lastName}
                           </div>
                         </div>
-                        <Badge variant={subscriber.status === 'ACTIVE' ? 'default' : 'secondary'}>
-                          {subscriber.status === 'ACTIVE' ? 'Subscribed' : 'Unsubscribed'}
+                        <Badge
+                          variant={
+                            subscriber.status === 'ACTIVE'
+                              ? 'default'
+                              : 'secondary'
+                          }
+                        >
+                          {subscriber.status === 'ACTIVE'
+                            ? 'Subscribed'
+                            : 'Unsubscribed'}
                         </Badge>
                       </div>
                       <Button
@@ -284,12 +312,12 @@ export function CreateListDialog({ open, onOpenChange, onListCreated }: CreateLi
           )}
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="mt-6 flex justify-end gap-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
-            <Plus className="h-4 w-4 mr-2" />
+            <Plus className="mr-2 h-4 w-4" />
             {saving ? 'Creating...' : 'Create List'}
           </Button>
         </div>

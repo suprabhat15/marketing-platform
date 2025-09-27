@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const createCampaignSchema = z.object({
-  name: z.string().min(1).max(100),
-  subject: z.string().min(1).max(200),
-  content: z.string().min(1),
-  listId: z.string(),
-  templateId: z.string().optional(),
-  scheduledAt: z.string().datetime().optional(),
-  subscriberIds: z.array(z.string()).min(1, 'At least one subscriber must be selected'),
-});
+import { createCampaignSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
 export async function GET(request: NextRequest) {
   try {
@@ -182,7 +173,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
 
     return NextResponse.json({ campaign }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(

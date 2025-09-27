@@ -1,15 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const importSubscribersSchema = z.object({
-  subscribers: z.array(z.object({
-    email: z.string().email('Invalid email address'),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    status: z.enum(['ACTIVE', 'UNSUBSCRIBED']).optional(),
-  })),
-});
+import { importSubscribersSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
 // POST /api/lists/[listId]/subscribers/import - Import subscribers from CSV
 export async function POST(
@@ -97,7 +89,7 @@ export async function POST(
       },
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }

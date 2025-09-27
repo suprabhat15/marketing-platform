@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const addSubscriberSchema = z.object({
-  email: z.string().email(),
-  firstName: z.string().optional(),
-  lastName: z.string().optional(),
-});
+import { addSubscriberSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 export async function GET(
   request: NextRequest,
@@ -98,7 +93,7 @@ export async function POST(
 
     return NextResponse.json({ subscriber }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(

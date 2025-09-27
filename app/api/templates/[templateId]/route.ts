@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const templateUpdateSchema = z.object({
-  name: z.string().min(1, 'Template name is required'),
-  subject: z.string().min(1, 'Subject is required'),
-  content: z.string().min(1, 'Content is required'),
-  attachments: z.array(z.object({
-    name: z.string(),
-    size: z.number(),
-    type: z.string(),
-    url: z.string(),
-  })).optional(),
-});
+import { templateUpdateSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 export async function DELETE(
   request: NextRequest,
@@ -136,7 +125,7 @@ export async function PUT(
       template: updatedTemplate 
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }

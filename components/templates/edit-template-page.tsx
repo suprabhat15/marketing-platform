@@ -37,10 +37,11 @@ import {
   AlignLeft,
   AlignCenter,
   AlignRight,
-  Palette
+  Palette,
 } from 'lucide-react';
-import { z } from 'zod';
 import dynamic from 'next/dynamic';
+import { templateUpdateSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
 const TiptapEditor = dynamic(
   () =>
@@ -58,24 +59,6 @@ const TiptapEditor = dynamic(
     ),
   }
 );
-
-const templateUpdateSchema = z.object({
-  name: z.string().min(1, 'Template name is required'),
-  subject: z.string().min(1, 'Subject is required'),
-  content: z.string().min(1, 'Content is required'),
-  attachments: z
-    .array(
-      z.object({
-        name: z.string(),
-        size: z.number(),
-        type: z.string(),
-        url: z.string(),
-      })
-    )
-    .optional(),
-});
-
-type Template = z.infer<typeof templateUpdateSchema>;
 
 interface Attachment {
   name: string;
@@ -113,7 +96,6 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
     '{{companyName}}',
     '{{unsubscribeUrl}}',
   ];
-
 
   useEffect(() => {
     params.then((resolvedParams) => {
@@ -263,7 +245,7 @@ export function EditTemplatePage({ params }: EditTemplatePageProps) {
       setErrors({});
       return true;
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof ZodError) {
         const newErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
           const field = err.path[0] as string;

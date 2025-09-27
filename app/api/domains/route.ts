@@ -1,16 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
-import { getUserDomains } from '@/lib/domain-verification';
 import { prisma } from '@/lib/prisma';
-import { SESClient, DeleteIdentityCommand } from '@aws-sdk/client-ses';
+import { sesClient } from "@/lib/ses";
 
-const ses = new SESClient({
-  region: process.env.AWS_REGION!,
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
-});
+// Lazy import getUserDomains to reduce initial bundle
+async function getUserDomains(userId: string) {
+  return await prisma.domain.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+// Lazy import SES only when needed for deletion
+async function createSESClient() {
+  const { DeleteIdentityCommand } = await import('@aws-sdk/client-ses');
+  
+  return DeleteIdentityCommand;
+}
 
 export async function GET(request: NextRequest) {
   try {
@@ -65,8 +71,9 @@ export async function DELETE(request: NextRequest) {
     }
 
     try {
-      // Delete from AWS SES first
-      await ses.send(new DeleteIdentityCommand({
+      // Delete from AWS SES first - lazy load SES client
+      const DeleteIdentityCommand = await createSESClient();
+      await sesClient.send(new DeleteIdentityCommand({
         Identity: domainRecord.domain,
       }));
     } catch (sesError) {

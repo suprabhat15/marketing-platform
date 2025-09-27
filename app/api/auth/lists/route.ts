@@ -1,12 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const createListSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().optional(),
-});
+import { createListSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
 export async function GET(request: NextRequest) {
   try {
@@ -60,7 +56,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ list }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(

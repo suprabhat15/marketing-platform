@@ -3,12 +3,11 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { verifyDnsRecords } from "@/lib/domain-verification";
 import {
-  SESClient,
   GetIdentityVerificationAttributesCommand,
   GetIdentityDkimAttributesCommand,
 } from "@aws-sdk/client-ses";
+import { sesClient } from "@/lib/ses";
 
-const ses = new SESClient({ region: "us-east-1" });
 
 export async function GET(
   request: NextRequest,
@@ -50,10 +49,10 @@ export async function GET(
     });
 
     // 3. Ask SES for authoritative status
-    const sesIdentityResp = await ses.send(
+    const sesIdentityResp = await sesClient.send(
       new GetIdentityVerificationAttributesCommand({ Identities: [domainRecord.domain] })
     );
-    const sesDkimResp = await ses.send(
+    const sesDkimResp = await sesClient.send(
       new GetIdentityDkimAttributesCommand({ Identities: [domainRecord.domain] })
     );
 

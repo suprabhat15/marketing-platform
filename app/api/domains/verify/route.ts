@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { verifyDnsRecords } from "@/lib/domain-verification";
-import {
-  SESClient,
-  GetIdentityVerificationAttributesCommand,
-  GetIdentityDkimAttributesCommand,
-} from "@aws-sdk/client-ses";
-
-const ses = new SESClient({ region: "us-east-1" });
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
+    const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
@@ -27,7 +16,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Domain is required" }, { status: 400 });
     }
 
-    // Import here to avoid circular dependency
+    // Lazy import utils to avoid pulling them into every API bundle
     const { generateDnsRecords } = await import("@/lib/domain-verification");
 
     // Generate DNS records from SES
@@ -35,14 +24,14 @@ export async function POST(request: NextRequest) {
 
     // Check if domain already exists for this user
     const existingDomain = await prisma.domain.findFirst({
-      where: {
-        domain,
-        userId: session.user.id,
-      },
+      where: { domain, userId: session.user.id },
     });
 
     if (existingDomain) {
-      return NextResponse.json({ error: "Please enter unique domain" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Please enter unique domain" },
+        { status: 400 }
+      );
     }
 
     // Store domain in database
@@ -69,52 +58,68 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error creating domain verification:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({
-      headers: request.headers,
-    });
-
+    const session = await auth.api.getSession({ headers: request.headers });
     if (!session?.user?.id) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
     const { searchParams } = new URL(request.url);
     const domain = searchParams.get("domain");
-
     if (!domain) {
-      return NextResponse.json({ error: "Domain parameter required" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Domain parameter required" },
+        { status: 400 }
+      );
     }
 
     // 1. Load domain record from DB
     const domainRecord = await prisma.domain.findFirst({
       where: { domain, userId: session.user.id },
     });
-
     if (!domainRecord) {
       return NextResponse.json({ error: "Domain not found" }, { status: 404 });
     }
 
-    // 2. Run local DNS checks
+    // 2. Check if DNS records are properly populated
+    if (!domainRecord.txtRecord || !domainRecord.mxRecord || 
+        !domainRecord.cnameKey1 || !domainRecord.cnameValue1 ||
+        !domainRecord.cnameKey2 || !domainRecord.cnameValue2 ||
+        !domainRecord.cnameKey3 || !domainRecord.cnameValue3) {
+      return NextResponse.json({ 
+        error: "Domain verification records not properly initialized" 
+      }, { status: 400 });
+    }
+
+    // 3. Lazy import DNS verification (keeps bundle light)
+    const { verifyDnsRecords } = await import("@/lib/domain-verification");
     const verificationStatus = await verifyDnsRecords(domain, {
-      txt: domainRecord.txtRecord,
-      mx: domainRecord.mxRecord,
+      txt: { key: domain, value: domainRecord.txtRecord },
+      mx: { key: domain, value: domainRecord.mxRecord },
       cname: [
-        { key: domainRecord.cnameKey1!, value: domainRecord.cnameValue1! },
-        { key: domainRecord.cnameKey2!, value: domainRecord.cnameValue2! },
-        { key: domainRecord.cnameKey3!, value: domainRecord.cnameValue3! },
+        { key: domainRecord.cnameKey1, value: domainRecord.cnameValue1 },
+        { key: domainRecord.cnameKey2, value: domainRecord.cnameValue2 },
+        { key: domainRecord.cnameKey3, value: domainRecord.cnameValue3 },
       ],
     });
 
-    // 3. Ask SES for authoritative status
-    const sesIdentityResp = await ses.send(
+    // 3. Lazy import AWS SDK only when needed
+    const { GetIdentityVerificationAttributesCommand, GetIdentityDkimAttributesCommand } =
+      await import("@aws-sdk/client-ses");
+    const { sesClient } = await import("@/lib/ses");
+
+    const sesIdentityResp = await sesClient.send(
       new GetIdentityVerificationAttributesCommand({ Identities: [domain] })
     );
-    const sesDkimResp = await ses.send(
+    const sesDkimResp = await sesClient.send(
       new GetIdentityDkimAttributesCommand({ Identities: [domain] })
     );
 
@@ -130,7 +135,10 @@ export async function GET(request: NextRequest) {
     };
 
     // 4. Update DB status if SES confirmed verification
-    if (sesVerification?.VerificationStatus === "Success" && domainRecord.status !== "VERIFIED") {
+    if (
+      sesVerification?.VerificationStatus === "Success" &&
+      domainRecord.status !== "VERIFIED"
+    ) {
       await prisma.domain.update({
         where: { id: domainRecord.id },
         data: { status: "VERIFIED", verifiedAt: new Date() },
@@ -140,12 +148,15 @@ export async function GET(request: NextRequest) {
     // 5. Respond with combined results
     return NextResponse.json({
       domain,
-      status: sesVerification?.VerificationStatus === "Success" ? "VERIFIED" : "PENDING",
-      dnsCheck: verificationStatus, // granular info (TXT, MX, CNAMEs)
-      sesStatus, // authoritative SES info
+      status:
+        sesVerification?.VerificationStatus === "Success"
+          ? "VERIFIED"
+          : "PENDING",
+      dnsCheck: verificationStatus,
+      sesStatus,
       records: {
-        txt: { key: "mailpackr", value: domainRecord.txtRecord },
-        mx: { key: "mailpackr", value: domainRecord.mxRecord },
+        txt: { key: domain, value: domainRecord.txtRecord },
+        mx: { key: domain, value: domainRecord.mxRecord },
         cname: [
           { key: domainRecord.cnameKey1, value: domainRecord.cnameValue1 },
           { key: domainRecord.cnameKey2, value: domainRecord.cnameValue2 },
@@ -155,6 +166,9 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Error checking domain verification:", error);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
 }
