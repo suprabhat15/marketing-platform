@@ -25,6 +25,7 @@ model User {
   lists      List[]
   campaigns  Campaign[]
   templates  Template[]
+  domains    Domain[]
   sessions   Session[]
   accounts   Account[]
   
@@ -124,6 +125,37 @@ model Event {
   // Cascade:deletion of campaign will delete all 
   // the events associated with deleted campaign
   @@map("event")
+}
+
+model Domain {
+  id         String   @id @default(cuid())
+  domain     String
+  status     DomainStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  verifiedAt DateTime?
+
+  // DNS Records for verification
+  txtRecord    String?
+  mxRecord     String?
+  cnameKey1    String?
+  cnameValue1  String?
+  cnameKey2    String?
+  cnameValue2  String?
+  cnameKey3    String?
+  cnameValue3  String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([domain, userId])
+  @@map("domain")
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
 }
 
 enum SubscriberStatus {
