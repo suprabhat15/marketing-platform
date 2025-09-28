@@ -1,3 +1,4 @@
+export const dynamic = 'force-dynamic'; // ensures runtime rendering
 import DomainsDashboard from '@/components/domains/domains-dashboard';
 import { auth } from '@/lib/auth';
 import { getUserDomains } from '@/lib/domain-verification';
