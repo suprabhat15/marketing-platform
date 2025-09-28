@@ -144,8 +144,9 @@ export async function POST(request: NextRequest) { // Created first campaign via
     }
 
     const body = await request.json();
-    const { name, subject, content, listId, templateId, scheduledAt, subscriberIds } =
+    const { name, subject, content, listId, templateId, scheduledAt, subscriberIds, fromEmail, fromName, replyTo } =
       createCampaignSchema.parse(body);
+      
     // Verify list ownership
     const list = await prisma.list.findFirst({
       where: {
@@ -168,6 +169,9 @@ export async function POST(request: NextRequest) { // Created first campaign via
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
         subscriberIds: subscriberIds,
         userId: session?.user.id,
+        fromEmail,
+        fromName,
+        replyTo
       },
     });
 

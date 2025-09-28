@@ -83,11 +83,15 @@ model Campaign {
   user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   listId     String
-  list       List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list       List   @relation(fields: [listId], references: [id], onDelete: Restrict)
   
   templateId String?
   template   Template? @relation(fields: [templateId], references: [id])
   
+  fromEmail String
+  fromName String?
+  replyTo String?
+
   events     Event[]
   
   @@map("campaign")

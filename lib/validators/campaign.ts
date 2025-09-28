@@ -8,8 +8,9 @@ export const createCampaignSchema = z.object({
   templateId: z.string().optional(),
   scheduledAt: z.string().datetime().optional(),
   subscriberIds: z.array(z.string()).min(1, 'At least one subscriber must be selected'),
-  fromEmail: z.string().email().optional(),
+  fromEmail: z.string().email(),
   fromName: z.string().optional(),
+  replyTo: z.string().optional()
 });
 
 export const updateCampaignSchema = z.object({

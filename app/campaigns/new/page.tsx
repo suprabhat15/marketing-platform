@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ArrowLeft, Send, Clock, Users } from "lucide-react";
+import SendNowFlyout from '@/components/campaigns/send-now-flyout';
 
 interface Template {
   id: string;
@@ -44,13 +45,14 @@ export default function NewCampaignPage() {
   const [selectedSubscribers, setSelectedSubscribers] = useState<string[]>([]);
 
   // Form state
-  const [campaignName, setCampaignName] = useState("");
-  const [subject, setSubject] = useState("");
-  const [content, setContent] = useState("");
-  const [selectedTemplate, setSelectedTemplate] = useState("");
-  const [selectedList, setSelectedList] = useState("");
-  const [scheduleDate, setScheduleDate] = useState("");
-  const [scheduleTime, setScheduleTime] = useState("");
+  const [campaignName, setCampaignName] = useState('');
+  const [subject, setSubject] = useState('');
+  const [content, setContent] = useState('');
+  const [selectedTemplate, setSelectedTemplate] = useState('');
+  const [selectedList, setSelectedList] = useState('');
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('');
+  const [showSendNowFlyout, setShowSendNowFlyout] = useState(false);
 
   useEffect(() => {
     fetchTemplates();
@@ -65,25 +67,25 @@ export default function NewCampaignPage() {
 
   const fetchTemplates = async () => {
     try {
-      const response = await fetch("/api/templates");
+      const response = await fetch('/api/templates');
       if (response.ok) {
         const data = await response.json();
         setTemplates(data.templates || []);
       }
     } catch (error) {
-      console.error("Error fetching templates:", error);
+      console.error('Error fetching templates:', error);
     }
   };
 
   const fetchLists = async () => {
     try {
-      const response = await fetch("/api/lists");
+      const response = await fetch('/api/lists');
       if (response.ok) {
         const data = await response.json();
         setLists(data.lists || []);
       }
     } catch (error) {
-      console.error("Error fetching lists:", error);
+      console.error('Error fetching lists:', error);
     }
   };
 
@@ -95,7 +97,7 @@ export default function NewCampaignPage() {
         setSubscribers(data.subscribers || []);
       }
     } catch (error) {
-      console.error("Error fetching subscribers:", error);
+      console.error('Error fetching subscribers:', error);
     }
   };
 
@@ -120,18 +122,81 @@ export default function NewCampaignPage() {
     if (selectedSubscribers.length === subscribers.length) {
       setSelectedSubscribers([]);
     } else {
-      setSelectedSubscribers(subscribers.map(s => s.id));
+      setSelectedSubscribers(subscribers.map((s) => s.id));
+    }
+  };
+
+  const handleSendNowClick = () => {
+    if (!campaignName || !subject || !content || !selectedList) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    if (selectedSubscribers.length === 0) {
+      alert('Please select at least one subscriber');
+      return;
+    }
+
+    setShowSendNowFlyout(true);
+  };
+
+  const handleSendNow = async (senderConfig: {
+    fromEmail: string;
+    fromName: string;
+    replyTo: string;
+    domain: string;
+  }) => {
+    setIsLoading(true);
+
+    try {
+      const campaignData = {
+        name: campaignName,
+        subject,
+        content,
+        listId: selectedList,
+        templateId: selectedTemplate || undefined,
+        subscriberIds: selectedSubscribers,
+        fromEmail: senderConfig.fromEmail,
+        fromName: senderConfig.fromName,
+        replyTo: senderConfig.replyTo,
+      };
+      console.log('senderConfig ', senderConfig);
+      const response = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(campaignData),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+
+        // Send campaign immediately
+        await fetch(`/api/campaigns/${result.campaign.id}/send`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+        });
+
+        router.push('/campaigns');
+      } else {
+        const error = await response.json();
+        alert(`Error: ${error.error}`);
+      }
+    } catch (error) {
+      console.error('Error creating campaign:', error);
+      alert('An error occurred while creating the campaign');
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const handleCreateCampaign = async (sendNow: boolean = false) => {
     if (!campaignName || !subject || !content || !selectedList) {
-      alert("Please fill in all required fields");
+      alert('Please fill in all required fields');
       return;
     }
 
     if (selectedSubscribers.length === 0) {
-      alert("Please select at least one subscriber");
+      alert('Please select at least one subscriber');
       return;
     }
 
@@ -148,47 +213,47 @@ export default function NewCampaignPage() {
         subscriberIds: selectedSubscribers,
       };
 
-      const response = await fetch("/api/campaigns", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch('/api/campaigns', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(campaignData),
       });
 
       if (response.ok) {
         const result = await response.json();
-        
+
         if (sendNow) {
           // Send campaign immediately
           await fetch(`/api/campaigns/${result.campaign.id}/send`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
           });
         }
 
-        router.push("/campaigns");
+        router.push('/campaigns');
       } else {
         const error = await response.json();
         alert(`Error: ${error.error}`);
       }
     } catch (error) {
-      console.error("Error creating campaign:", error);
-      alert("An error occurred while creating the campaign");
+      console.error('Error creating campaign:', error);
+      alert('An error occurred while creating the campaign');
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
+    <div className="container mx-auto space-y-6 py-6">
       <div className="flex items-center gap-4">
         <Button variant="ghost" onClick={() => router.back()}>
-          <ArrowLeft className="h-4 w-4 mr-2" />
+          <ArrowLeft className="mr-2 h-4 w-4" />
           Back
         </Button>
         <h1 className="text-3xl font-bold">Create New Campaign</h1>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         {/* Campaign Details */}
         <Card>
           <CardHeader>
@@ -207,7 +272,10 @@ export default function NewCampaignPage() {
 
             <div>
               <Label htmlFor="template-select">Email Template</Label>
-              <Select value={selectedTemplate} onValueChange={handleTemplateSelect}>
+              <Select
+                value={selectedTemplate}
+                onValueChange={handleTemplateSelect}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Select a template (optional)" />
                 </SelectTrigger>
@@ -293,27 +361,40 @@ export default function NewCampaignPage() {
 
             {subscribers.length > 0 && (
               <div>
-                <div className="flex items-center justify-between mb-3">
-                  <Label>Choose Subscribers ({selectedSubscribers.length} selected)</Label>
+                <div className="mb-3 flex items-center justify-between">
+                  <Label>
+                    Choose Subscribers ({selectedSubscribers.length} selected)
+                  </Label>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={handleSelectAllSubscribers}
                   >
-                    {selectedSubscribers.length === subscribers.length ? "Deselect All" : "Select All"}
+                    {selectedSubscribers.length === subscribers.length
+                      ? 'Deselect All'
+                      : 'Select All'}
                   </Button>
                 </div>
-                
-                <div className="max-h-60 overflow-y-auto space-y-2 border rounded-md p-3">
+
+                <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border p-3">
                   {subscribers.map((subscriber) => (
-                    <div key={subscriber.id} className="flex items-center space-x-2">
+                    <div
+                      key={subscriber.id}
+                      className="flex items-center space-x-2"
+                    >
                       <Checkbox
                         id={subscriber.id}
                         checked={selectedSubscribers.includes(subscriber.id)}
-                        onCheckedChange={() => handleSubscriberToggle(subscriber.id)}
+                        onCheckedChange={() =>
+                          handleSubscriberToggle(subscriber.id)
+                        }
                       />
-                      <Label htmlFor={subscriber.id} className="flex-1 cursor-pointer">
-                        {subscriber.firstName} {subscriber.lastName} ({subscriber.email})
+                      <Label
+                        htmlFor={subscriber.id}
+                        className="flex-1 cursor-pointer"
+                      >
+                        {subscriber.firstName} {subscriber.lastName} (
+                        {subscriber.email})
                       </Label>
                     </div>
                   ))}
@@ -331,17 +412,21 @@ export default function NewCampaignPage() {
           onClick={() => handleCreateCampaign(false)}
           disabled={isLoading}
         >
-          <Clock className="h-4 w-4 mr-2" />
-          {scheduleDate && scheduleTime ? "Schedule Campaign" : "Save as Draft"}
+          <Clock className="mr-2 h-4 w-4" />
+          {scheduleDate && scheduleTime ? 'Schedule Campaign' : 'Save as Draft'}
         </Button>
-        <Button
-          onClick={() => handleCreateCampaign(true)}
-          disabled={isLoading}
-        >
-          <Send className="h-4 w-4 mr-2" />
-          {isLoading ? "Sending..." : "Send Now"}
+        <Button onClick={handleSendNowClick} disabled={isLoading}>
+          {/* <Button onClick={() => handleCreateCampaign(true)} disabled={isLoading}> */}
+          <Send className="mr-2 h-4 w-4" />
+          {isLoading ? 'Sending...' : 'Send Now'}
         </Button>
       </div>
+
+      <SendNowFlyout
+        open={showSendNowFlyout}
+        onClose={() => setShowSendNowFlyout(false)}
+        onSend={handleSendNow}
+      />
     </div>
   );
 }

@@ -16,9 +16,16 @@ export default async function DomainsPage() {
 
   const domains = await getUserDomains(session.user.id);
 
+  // Convert Date objects to strings for client component
+  const serializedDomains = domains.map(domain => ({
+    ...domain,
+    createdAt: domain.createdAt.toISOString(),
+    verifiedAt: domain.verifiedAt?.toISOString(),
+  }));
+
   return (
     <div className="bg-background">
-        <DomainsDashboard initialDomains={domains} />
+        <DomainsDashboard initialDomains={serializedDomains} />
     </div>
   );
 }
