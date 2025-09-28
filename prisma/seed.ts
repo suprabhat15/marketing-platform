@@ -63,6 +63,9 @@ async function main() {
       userId: user.id,
       listId: list.id,
       templateId: template.id,
+      fromEmail: 'placeholder@example.com', // Placeholder for drafts
+      fromName: 'Draft Campaign',
+      replyTo: '',
     },
   });
 
