@@ -30,7 +30,7 @@ class SSEManager {
     setInterval(() => this.cleanupConnections(), 60000);
     
     // Send heartbeat to maintain connections
-    setInterval(() => this.sendHeartbeat(), this.HEARTBEAT_INTERVAL);
+    // setInterval(() => this.sendHeartbeat(), this.HEARTBEAT_INTERVAL);
   }
 
   /**
@@ -39,7 +39,7 @@ class SSEManager {
   createConnection(campaignId: string, lastEventId?: string): NextResponse {
     const clientId = this.generateClientId();
     const connectionStartTime = Date.now();
-    console.log(`🆕 SSE Manager: Creating connection ${clientId} for campaign ${campaignId}`);
+    // console.log(`🆕 SSE Manager: Creating connection ${clientId} for campaign ${campaignId}`);
     
     const stream = new ReadableStream({
       start: (controller) => {
@@ -58,7 +58,7 @@ class SSEManager {
         // Send any buffered events since lastEventId
         this.sendBufferedEvents(campaignId, controller, lastEventId);
         
-        console.log(`✅ SSE Manager: Connection ${clientId} established for campaign ${campaignId}`);
+        // console.log(`✅ SSE Manager: Connection ${clientId} established for campaign ${campaignId}`);
       },
       cancel: (reason) => {
         const duration = Date.now() - connectionStartTime;
@@ -76,7 +76,7 @@ class SSEManager {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
         'Connection': 'keep-alive',
-        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Origin': `${process.env.NEXT_PUBLIC_APP_URL}`,
         'Access-Control-Allow-Headers': 'Cache-Control'
       }
     });
@@ -97,7 +97,7 @@ class SSEManager {
 
     // Get connections for this campaign
     const connections = this.connections.get(campaignId) || [];
-    console.log(`🔗 SSE Manager: Found ${connections.length} connections for campaign ${campaignId}`);
+    // console.log(`🔗 SSE Manager: Found ${connections.length} connections for campaign ${campaignId}`);
     
     // Broadcast to all active connections
     const activeConnections = connections.filter(conn => {
@@ -121,7 +121,7 @@ class SSEManager {
       this.connections.set(campaignId, activeConnections);
     }
 
-    console.log(`📊 SSE Manager: ${activeConnections.length}/${connections.length} connections reached for campaign ${campaignId}`);
+    // console.log(`📊 SSE Manager: ${activeConnections.length}/${connections.length} connections reached for campaign ${campaignId}`);
     return activeConnections.length;
   }
 
@@ -161,7 +161,7 @@ class SSEManager {
 
   private addConnection(campaignId: string, controller: ReadableStreamDefaultController, clientId: string, lastEventId?: string) {
     const connections = this.connections.get(campaignId) || [];
-    console.log(`📊 SSE Manager: Adding connection ${clientId}. Current connections for campaign ${campaignId}: ${connections.length}`);
+    // console.log(`📊 SSE Manager: Adding connection ${clientId}. Current connections for campaign ${campaignId}: ${connections.length}`);
     
     // Limit connections per campaign to prevent memory issues
     if (connections.length >= this.MAX_CONNECTIONS_PER_CAMPAIGN) {
@@ -185,17 +185,17 @@ class SSEManager {
     });
 
     this.connections.set(campaignId, connections);
-    console.log(`✅ SSE Manager: Connection ${clientId} added. Total connections for campaign ${campaignId}: ${connections.length}`);
+    // console.log(`✅ SSE Manager: Connection ${clientId} added. Total connections for campaign ${campaignId}: ${connections.length}`);
   }
 
   private removeConnection(campaignId: string, clientId: string) {
     const connections = this.connections.get(campaignId) || [];
     const filtered = connections.filter(conn => conn.clientId !== clientId);
     
-    console.log(`➖ SSE Manager: Removing connection ${clientId} from campaign ${campaignId}. Before: ${connections.length}, After: ${filtered.length}`);
+    // console.log(`➖ SSE Manager: Removing connection ${clientId} from campaign ${campaignId}. Before: ${connections.length}, After: ${filtered.length}`);
     
     if (filtered.length === 0) {
-      console.log(`🗑️ SSE Manager: No more connections for campaign ${campaignId}, removing from map`);
+      // console.log(`🗑️ SSE Manager: No more connections for campaign ${campaignId}, removing from map`);
       this.connections.delete(campaignId);
     } else {
       this.connections.set(campaignId, filtered);

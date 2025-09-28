@@ -14,8 +14,8 @@ export class GlobalRateLimiter {
 
   constructor(
     key: string = 'ses:global-rate-limit',
-    limit: number = parseInt(process.env.SES_RATE_LIMIT || '7'),
-    windowMs: number = 1000
+    limit: number = parseInt(process.env.AWS_SES_RATE_LIMIT || '5'),
+    windowMs: number = 2000
   ) {
     this.key = key;
     this.limit = limit;

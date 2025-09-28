@@ -136,7 +136,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
-      <SheetContent className="w-[400px] sm:w-[540px] flex flex-col">
+      <SheetContent className="w-[400px] sm:w-[540px] flex flex-col p-6">
         <SheetHeader className="space-y-3">
           <SheetTitle className="text-xl font-semibold">Send Campaign Now</SheetTitle>
           <SheetDescription className="text-muted-foreground">

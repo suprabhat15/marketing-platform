@@ -50,8 +50,10 @@ class GlobalSSEManager {
           console.log(`📞 Notifying ${connection!.subscribers.size} subscribers`);
           
           // Notify all subscribers
-          connection!.subscribers.forEach((callback, index) => {
-            console.log(`📞 Calling subscriber ${index + 1}`);
+          let subscriberIndex = 0;
+          connection!.subscribers.forEach((callback) => {
+            subscriberIndex++;
+            console.log(`📞 Calling subscriber ${subscriberIndex}`);
             callback(data);
           });
         } catch (error) {

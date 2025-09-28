@@ -211,6 +211,9 @@ export default function NewCampaignPage() {
         templateId: selectedTemplate || undefined,
         scheduledAt: sendNow ? undefined : `${scheduleDate}T${scheduleTime}`,
         subscriberIds: selectedSubscribers,
+        fromEmail: 'placeholder@example.com', // Placeholder for drafts
+        fromName: 'Draft Campaign',
+        replyTo: '',
       };
 
       const response = await fetch('/api/campaigns', {

@@ -359,8 +359,8 @@ export default function CampaignDetailPage() {
           </Card>
 
           {/* Campaign Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <Card>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            {/* <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <Badge className={getStatusColor(campaign.status)} variant="outline">
@@ -375,15 +375,17 @@ export default function CampaignDetailPage() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
 
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <UsersIcon className="h-8 w-8 text-green-600" />
                   <div>
-                    <div className="text-2xl font-bold">{campaign.subscriberCount.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Recipients</p>
+                    <div className="text-2xl font-bold">
+                      {campaign.subscriberCount.toLocaleString()}
+                    </div>
+                    <p className="text-muted-foreground text-xs">Recipients</p>
                   </div>
                 </div>
               </CardContent>
@@ -394,14 +396,18 @@ export default function CampaignDetailPage() {
                 <div className="flex items-center gap-3">
                   <Activity className="h-8 w-8 text-blue-600" />
                   <div>
-                    <div className="text-2xl font-bold">{campaign.totalEvents.toLocaleString()}</div>
-                    <p className="text-xs text-muted-foreground">Total Events</p>
+                    <div className="text-2xl font-bold">
+                      {campaign.totalEvents.toLocaleString()}
+                    </div>
+                    <p className="text-muted-foreground text-xs">
+                      Total Events
+                    </p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card>
+            {/* <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">
                   <CalendarIcon className="h-8 w-8 text-purple-600" />
@@ -413,7 +419,7 @@ export default function CampaignDetailPage() {
                   </div>
                 </div>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
 
           {/* Event Statistics */}
@@ -426,8 +432,13 @@ export default function CampaignDetailPage() {
               <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                 {Object.entries(campaign.eventsByType).map(([type, count]) => (
                   <div key={type} className="text-center">
-                    <div className="text-2xl font-bold">{count.toLocaleString()}</div>
-                    <Badge className={getEventStatusColor(type as Event['type'])} variant="secondary">
+                    <div className="text-2xl font-bold">
+                      {count.toLocaleString()}
+                    </div>
+                    <Badge
+                      className={getEventStatusColor(type as Event['type'])}
+                      variant="secondary"
+                    >
                       {type}
                     </Badge>
                   </div>
@@ -470,7 +481,10 @@ export default function CampaignDetailPage() {
                         className="pl-8"
                       />
                     </div>
-                    <Select value={statusFilter} onValueChange={handleStatusFilterChange}>
+                    <Select
+                      value={statusFilter}
+                      onValueChange={handleStatusFilterChange}
+                    >
                       <SelectTrigger className="w-40">
                         <SelectValue />
                       </SelectTrigger>
@@ -501,16 +515,21 @@ export default function CampaignDetailPage() {
                   <TableBody>
                     {loading ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8">
-                          <Loader2 className="h-6 w-6 animate-spin mx-auto" />
-                          <p className="text-muted-foreground mt-2">Loading events...</p>
+                        <TableCell colSpan={4} className="py-8 text-center">
+                          <Loader2 className="mx-auto h-6 w-6 animate-spin" />
+                          <p className="text-muted-foreground mt-2">
+                            Loading events...
+                          </p>
                         </TableCell>
                       </TableRow>
                     ) : events.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
-                          {searchTerm || statusFilter !== 'all' 
-                            ? 'No events match your filters' 
+                        <TableCell
+                          colSpan={4}
+                          className="text-muted-foreground py-8 text-center"
+                        >
+                          {searchTerm || statusFilter !== 'all'
+                            ? 'No events match your filters'
                             : 'No events yet'}
                         </TableCell>
                       </TableRow>
@@ -518,7 +537,10 @@ export default function CampaignDetailPage() {
                       events.map((event) => (
                         <TableRow key={event.id}>
                           <TableCell>
-                            <Badge className={getEventStatusColor(event.type)} variant="secondary">
+                            <Badge
+                              className={getEventStatusColor(event.type)}
+                              variant="secondary"
+                            >
                               {event.type}
                             </Badge>
                           </TableCell>
@@ -526,19 +548,23 @@ export default function CampaignDetailPage() {
                             {event.subscriber?.email || 'Unknown'}
                           </TableCell>
                           <TableCell>
-                            {event.subscriber?.firstName || event.subscriber?.lastName
+                            {event.subscriber?.firstName ||
+                            event.subscriber?.lastName
                               ? `${event.subscriber.firstName || ''} ${event.subscriber.lastName || ''}`.trim()
                               : '-'}
                           </TableCell>
                           <TableCell>
-                            {format(new Date(event.createdAt), 'MMM d, yyyy HH:mm')}
+                            {format(
+                              new Date(event.createdAt),
+                              'MMM d, yyyy HH:mm'
+                            )}
                           </TableCell>
                         </TableRow>
                       ))
                     )}
                   </TableBody>
                 </Table>
-                
+
                 {/* Pagination and Page Size Controls */}
                 {!loading && (
                   <div className="flex items-center justify-between mt-4">
@@ -546,7 +572,9 @@ export default function CampaignDetailPage() {
                       <span className="text-sm text-muted-foreground">Rows per page:</span>
                       <Select
                         value={pageSize.toString()}
-                        onValueChange={(value) => handlePageSizeChange(parseInt(value))}
+                        onValueChange={(value) =>
+                          handlePageSizeChange(parseInt(value))
+                        }
                       >
                         <SelectTrigger className="w-20">
                           <SelectValue />
@@ -558,7 +586,7 @@ export default function CampaignDetailPage() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
+
                     {pagination.totalPages > 1 && (
                       <Pagination
                         currentPage={pagination.page}
