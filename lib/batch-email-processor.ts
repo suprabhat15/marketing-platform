@@ -180,6 +180,38 @@ export class BatchEmailProcessor {
           messageId
         });
 
+        // Create SENT event in database
+        try {
+          const sentEvent = await prisma.event.create({
+            data: {
+              type: 'SENT',
+              data: {
+                email: subscriber.email,
+                messageId,
+                timestamp: new Date().toISOString(),
+                subject: personalizedSubject,
+                fromEmail,
+                fromName,
+              },
+              subscriberId: subscriber.id,
+              campaignId,
+            },
+            include: {
+              subscriber: {
+                select: {
+                  email: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+          });
+
+          await broadcastEvent(campaignId, sentEvent);
+        } catch (eventError) {
+          console.error('Error creating SENT event:', eventError);
+        }
+
         // Increment sent count
         await CampaignProgressTracker.incrementSent(campaignId, 1);
 
