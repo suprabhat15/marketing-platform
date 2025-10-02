@@ -41,7 +41,7 @@ function addClickTracking(html: string, campaignId: string, messageId?: string):
   );
 }
 
-const sesClient = new SESClient({
+export const sesClient = new SESClient({
   region: process.env.AWS_REGION!,
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,

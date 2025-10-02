@@ -87,7 +87,12 @@ export async function GET(request: NextRequest) {
             console.error('Error broadcasting open event:', error);
           }
 
-          console.log(`✓ Email open tracked for ${email} in campaign ${campaignId}`);
+          console.log(`✓ Email open tracked for ${email} in campaign ${campaignId}`, {
+            eventId: newEvent.id,
+            eventType: newEvent.type,
+            subscriberId: newEvent.subscriberId,
+            campaignId: newEvent.campaignId
+          });
         }
       }
     }

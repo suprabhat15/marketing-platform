@@ -10,13 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, X, Users, UserPlus, Edit } from 'lucide-react';
-import { z } from 'zod';
-
-const editListSchema = z.object({
-  name: z.string().min(1, 'List name is required'),
-  description: z.string().optional(),
-});
-
+import { editListSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 interface List {
   id: string;
   name: string;
@@ -38,7 +33,12 @@ interface EditListDialogProps {
   onListUpdated: () => void;
 }
 
-export function EditListDialog({ open, onOpenChange, list, onListUpdated }: EditListDialogProps) {
+export function EditListDialog({
+  open,
+  onOpenChange,
+  list,
+  onListUpdated,
+}: EditListDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
@@ -81,7 +81,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
     }
 
     // Check if email already exists
-    if (subscribers.some(sub => sub.email === newSubscriber.email)) {
+    if (subscribers.some((sub) => sub.email === newSubscriber.email)) {
       return;
     }
 
@@ -98,7 +98,10 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
     setSubscribers(subscribers.filter((_, i) => i !== index));
   };
 
-  const handleUpdateSubscriberStatus = (index: number, status: Subscriber['status']) => {
+  const handleUpdateSubscriberStatus = (
+    index: number,
+    status: Subscriber['status']
+  ) => {
     const updatedSubscribers = [...subscribers];
     updatedSubscribers[index].status = status;
     setSubscribers(updatedSubscribers);
@@ -110,7 +113,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
       setErrors({});
       return true;
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof ZodError) {
         const newErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
           const field = err.path[0] as string;
@@ -191,7 +194,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="max-w-4xl">
           <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900"></div>
           </div>
         </DialogContent>
       </Dialog>
@@ -200,12 +203,12 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit List</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
+        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-2">
           {/* List Details */}
           <Card>
             <CardHeader>
@@ -222,7 +225,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                   className={errors.name ? 'border-red-500' : ''}
                 />
                 {errors.name && (
-                  <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+                  <p className="mt-1 text-sm text-red-500">{errors.name}</p>
                 )}
               </div>
 
@@ -257,7 +260,12 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                     id="email"
                     type="email"
                     value={newSubscriber.email}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        email: e.target.value,
+                      }))
+                    }
                     placeholder="email@example.com"
                     onKeyPress={handleKeyPress}
                   />
@@ -267,7 +275,12 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                   <Input
                     id="firstName"
                     value={newSubscriber.firstName}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, firstName: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        firstName: e.target.value,
+                      }))
+                    }
                     placeholder="John"
                     onKeyPress={handleKeyPress}
                   />
@@ -280,7 +293,12 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                   <Input
                     id="lastName"
                     value={newSubscriber.lastName}
-                    onChange={(e) => setNewSubscriber(prev => ({ ...prev, lastName: e.target.value }))}
+                    onChange={(e) =>
+                      setNewSubscriber((prev) => ({
+                        ...prev,
+                        lastName: e.target.value,
+                      }))
+                    }
                     placeholder="Doe"
                     onKeyPress={handleKeyPress}
                   />
@@ -289,8 +307,8 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                   <Label htmlFor="status">Status</Label>
                   <Select
                     value={newSubscriber.status}
-                    onValueChange={(value: 'ACTIVE' | 'UNSUBSCRIBED') => 
-                      setNewSubscriber(prev => ({ ...prev, status: value }))
+                    onValueChange={(value: 'ACTIVE' | 'UNSUBSCRIBED') =>
+                      setNewSubscriber((prev) => ({ ...prev, status: value }))
                     }
                   >
                     <SelectTrigger>
@@ -311,7 +329,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                 className="w-full"
                 variant="outline"
               >
-                <UserPlus className="h-4 w-4 mr-2" />
+                <UserPlus className="mr-2 h-4 w-4" />
                 Add Subscriber
               </Button>
             </CardContent>
@@ -321,13 +339,18 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
           {subscribers.length > 0 && (
             <Card className="lg:col-span-2">
               <CardHeader>
-                <CardTitle className="text-lg">Subscribers ({subscribers.length})</CardTitle>
+                <CardTitle className="text-lg">
+                  Subscribers ({subscribers.length})
+                </CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+                <div className="max-h-60 space-y-2 overflow-y-auto">
                   {subscribers.map((subscriber, index) => (
-                    <div key={subscriber.id || index} className="flex items-center justify-between p-3 border rounded-lg">
-                      <div className="flex items-center gap-3 flex-1">
+                    <div
+                      key={subscriber.id || index}
+                      className="flex items-center justify-between rounded-lg border p-3"
+                    >
+                      <div className="flex flex-1 items-center gap-3">
                         <div className="flex-1">
                           <div className="font-medium">{subscriber.email}</div>
                           <div className="text-sm text-gray-500">
@@ -336,7 +359,7 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                         </div>
                         <Select
                           value={subscriber.status}
-                          onValueChange={(value: Subscriber['status']) => 
+                          onValueChange={(value: Subscriber['status']) =>
                             handleUpdateSubscriberStatus(index, value)
                           }
                         >
@@ -345,9 +368,13 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
                           </SelectTrigger>
                           <SelectContent>
                             <SelectItem value="ACTIVE">Subscribed</SelectItem>
-                            <SelectItem value="UNSUBSCRIBED">Unsubscribed</SelectItem>
+                            <SelectItem value="UNSUBSCRIBED">
+                              Unsubscribed
+                            </SelectItem>
                             <SelectItem value="BOUNCED">Bounced</SelectItem>
-                            <SelectItem value="COMPLAINED">Complained</SelectItem>
+                            <SelectItem value="COMPLAINED">
+                              Complained
+                            </SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -367,12 +394,12 @@ export function EditListDialog({ open, onOpenChange, list, onListUpdated }: Edit
           )}
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
+        <div className="mt-6 flex justify-end gap-3">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={saving}>
-            <Edit className="h-4 w-4 mr-2" />
+            <Edit className="mr-2 h-4 w-4" />
             {saving ? 'Updating...' : 'Update List'}
           </Button>
         </div>

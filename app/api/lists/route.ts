@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
-import { auth } from '@/lib/auth';
-import { z } from 'zod';
+import { createListSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 
-const createListSchema = z.object({
-  name: z.string().min(1, 'List name is required'),
-  description: z.string().optional(),
-  subscribers: z.array(z.object({
-    email: z.string().email('Invalid email address'),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    status: z.enum(['ACTIVE', 'UNSUBSCRIBED']).optional(),
-  })).optional(),
-});
+// Lazy load heavy dependencies
+async function getPrisma() {
+  const { prisma } = await import('@/lib/prisma');
+  return prisma;
+}
+
+async function getAuth() {
+  const { auth } = await import('@/lib/auth');
+  return auth;
+}
 
 // GET /api/lists - Get all lists for the authenticated user
 export async function GET(request: NextRequest) {
   try {
+    const auth = await getAuth();
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
+    const prisma = await getPrisma();
     const lists = await prisma.list.findMany({
       where: { userId: session?.user.id },
       include: {
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { name, description, subscribers } = createListSchema.parse(body);
     
+    const auth = await getAuth();
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -62,6 +64,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
     
+    const prisma = await getPrisma();
     const list = await prisma.list.create({
       data: {
         name,
@@ -85,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ list }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }

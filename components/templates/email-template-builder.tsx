@@ -9,25 +9,18 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Eye, Code, Save, Type } from 'lucide-react';
-import { z } from 'zod';
+import { templateSchema, Template } from '@/lib/validators';
+import { ZodError } from 'zod';
 
-{/* <EmailTemplateBuilder 
+{
+  /* <EmailTemplateBuilder 
   template={existingTemplate} // optional
   onSave={(template) => {
     // Save template to database or state
     console.log('Saving template:', template);
   }}
-/> */}
-
-const templateSchema = z.object({
-  id: z.string().optional(),
-  name: z.string().min(1, 'Template name is required'),
-  subject: z.string().min(1, 'Subject is required'),
-  htmlContent: z.string().min(1, 'HTML content is required'),
-  textContent: z.string().optional(),
-});
-
-type Template = z.infer<typeof templateSchema>;
+/> */
+}
 
 interface TemplateBuilderProps {
   template?: Partial<Template>;
@@ -69,11 +62,11 @@ export function EmailTemplateBuilder({
         htmlContent,
         textContent,
       });
-      
+
       setErrors({});
       onSave(templateData);
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof ZodError) {
         const newErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
           if (err.path[0]) {
@@ -95,7 +88,10 @@ export function EmailTemplateBuilder({
 
     let content = activeTab === 'html' ? htmlContent : textContent;
     Object.entries(sampleData).forEach(([key, value]) => {
-      content = content.replace(new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'), value);
+      content = content.replace(
+        new RegExp(key.replace(/[{}]/g, '\\$&'), 'g'),
+        value
+      );
     });
 
     return content;
@@ -118,7 +114,7 @@ export function EmailTemplateBuilder({
               className={errors.name ? 'border-red-500' : ''}
             />
             {errors.name && (
-              <p className="text-sm text-red-500 mt-1">{errors.name}</p>
+              <p className="mt-1 text-sm text-red-500">{errors.name}</p>
             )}
           </div>
 
@@ -132,19 +128,23 @@ export function EmailTemplateBuilder({
               className={errors.subject ? 'border-red-500' : ''}
             />
             {errors.subject && (
-              <p className="text-sm text-red-500 mt-1">{errors.subject}</p>
+              <p className="mt-1 text-sm text-red-500">{errors.subject}</p>
             )}
           </div>
         </CardContent>
       </Card>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-4">
         <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>Email Content</CardTitle>
           </CardHeader>
           <CardContent>
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <Tabs
+              value={activeTab}
+              onValueChange={setActiveTab}
+              className="w-full"
+            >
               <TabsList className="grid w-full grid-cols-3">
                 <TabsTrigger value="html" className="flex items-center gap-2">
                   <Code className="h-4 w-4" />
@@ -154,7 +154,10 @@ export function EmailTemplateBuilder({
                   <Type className="h-4 w-4" />
                   Text
                 </TabsTrigger>
-                <TabsTrigger value="preview" className="flex items-center gap-2">
+                <TabsTrigger
+                  value="preview"
+                  className="flex items-center gap-2"
+                >
                   <Eye className="h-4 w-4" />
                   Preview
                 </TabsTrigger>
@@ -173,7 +176,9 @@ export function EmailTemplateBuilder({
                     }`}
                   />
                   {errors.htmlContent && (
-                    <p className="text-sm text-red-500 mt-1">{errors.htmlContent}</p>
+                    <p className="mt-1 text-sm text-red-500">
+                      {errors.htmlContent}
+                    </p>
                   )}
                 </div>
               </TabsContent>
@@ -189,18 +194,22 @@ export function EmailTemplateBuilder({
                     className="min-h-[400px] font-mono text-sm"
                   />
                   <p className="text-sm text-gray-600">
-                    Plain text version is optional but recommended for better email deliverability.
+                    Plain text version is optional but recommended for better
+                    email deliverability.
                   </p>
                 </div>
               </TabsContent>
 
               <TabsContent value="preview" className="mt-4">
                 <div className="space-y-4">
-                  <div className="border rounded-lg p-4 bg-gray-50">
-                    <h4 className="font-medium mb-2">Preview with Sample Data</h4>
+                  <div className="rounded-lg border bg-gray-50 p-4">
+                    <h4 className="mb-2 font-medium">
+                      Preview with Sample Data
+                    </h4>
                     <div className="space-y-2">
                       <div className="text-sm">
-                        <strong>Subject:</strong> {subject.replace(/{{(\w+)}}/g, (match, key) => {
+                        <strong>Subject:</strong>{' '}
+                        {subject.replace(/{{(\w+)}}/g, (match, key) => {
                           const sampleData: Record<string, string> = {
                             firstName: 'John',
                             lastName: 'Doe',
@@ -211,15 +220,15 @@ export function EmailTemplateBuilder({
                       </div>
                     </div>
                   </div>
-                  
-                  <div className="border rounded-lg p-4 bg-white">
+
+                  <div className="rounded-lg border bg-white p-4">
                     {activeTab === 'html' ? (
-                      <div 
+                      <div
                         className="prose max-w-none"
                         dangerouslySetInnerHTML={{ __html: generatePreview() }}
                       />
                     ) : (
-                      <pre className="whitespace-pre-wrap text-sm">
+                      <pre className="text-sm whitespace-pre-wrap">
                         {generatePreview()}
                       </pre>
                     )}
@@ -237,15 +246,16 @@ export function EmailTemplateBuilder({
           <CardContent className="space-y-4">
             <div>
               <Label className="text-sm font-medium">Available Variables</Label>
-              <p className="text-sm text-gray-600 mb-3">
-                Click to insert into your {activeTab === 'html' ? 'HTML' : 'text'} content:
+              <p className="mb-3 text-sm text-gray-600">
+                Click to insert into your{' '}
+                {activeTab === 'html' ? 'HTML' : 'text'} content:
               </p>
               <div className="space-y-2">
                 {availableVariables.map((variable) => (
                   <Badge
                     key={variable}
                     variant="outline"
-                    className="cursor-pointer hover:bg-blue-50 hover:border-blue-300 w-full justify-center py-2"
+                    className="w-full cursor-pointer justify-center py-2 hover:border-blue-300 hover:bg-blue-50"
                     onClick={() => insertVariable(variable)}
                   >
                     {variable}
@@ -254,10 +264,10 @@ export function EmailTemplateBuilder({
               </div>
             </div>
 
-            <div className="pt-4 border-t">
+            <div className="border-t pt-4">
               <Button
                 onClick={handleSave}
-                className="w-full flex items-center gap-2"
+                className="flex w-full items-center gap-2"
                 size="sm"
               >
                 <Save className="h-4 w-4" />

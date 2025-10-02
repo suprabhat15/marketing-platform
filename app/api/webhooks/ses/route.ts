@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { CampaignProgressTracker } from '@/lib/campaign-progress';
 import crypto from 'crypto';
 
 interface SESEventRecord {
@@ -385,6 +386,20 @@ async function processEventForRecipient(
         where: { id: subscriber.id },
         data: { status: 'COMPLAINED' },
       });
+    }
+
+    // Update progress tracking in Redis
+    try {
+      if (eventType === 'SENT') {
+        await CampaignProgressTracker.incrementSent(campaignId);
+      } else if (eventType === 'BOUNCED') {
+        await CampaignProgressTracker.incrementBounced(campaignId);
+      }
+      
+      // Check if campaign is now complete
+      await CampaignProgressTracker.checkAndMarkComplete(campaignId);
+    } catch (progressError) {
+      console.error('Error updating campaign progress:', progressError);
     }
 
     // Broadcast the event to real-time listeners

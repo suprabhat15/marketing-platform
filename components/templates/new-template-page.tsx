@@ -39,7 +39,8 @@ import {
   Palette
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { z } from 'zod';
+import { createTemplateSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
 import dynamic from 'next/dynamic';
 
 const TiptapEditor = dynamic(
@@ -59,20 +60,6 @@ const TiptapEditor = dynamic(
   }
 );
 
-const templateCreateSchema = z.object({
-  name: z.string().min(1, 'Template name is required'),
-  subject: z.string().min(1, 'Subject is required'),
-  content: z.string().min(1, 'Content is required'),
-  attachments: z.array(z.object({
-    name: z.string(),
-    size: z.number(),
-    type: z.string(),
-    url: z.string(),
-  })).optional(),
-});
-
-type Template = z.infer<typeof templateCreateSchema>;
-
 interface Attachment {
   name: string;
   size: number;
@@ -86,9 +73,9 @@ export function NewTemplatePage() {
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const [activeTab, setActiveTab] = useState('code');
-  
+
   const [editorMode, setEditorMode] = useState<'notion' | 'code'>('notion');
-  
+
   const [showModeSwitch, setShowModeSwitch] = useState(false);
   const [pendingMode, setPendingMode] = useState<'notion' | 'code'>('notion');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -104,11 +91,12 @@ export function NewTemplatePage() {
     '{{unsubscribeUrl}}',
   ];
 
-
   // Load default editor mode from localStorage on mount
   useEffect(() => {
     try {
-      const editorModes = JSON.parse(localStorage.getItem('template-editor-modes') || '{}');
+      const editorModes = JSON.parse(
+        localStorage.getItem('template-editor-modes') || '{}'
+      );
       const savedMode = editorModes['new-template-default'];
       if (savedMode === 'notion' || savedMode === 'code') {
         setEditorMode(savedMode);
@@ -182,7 +170,7 @@ export function NewTemplatePage() {
         const end = textarea.selectionEnd;
         const currentContent = textarea.value;
         const scrollTop = textarea.scrollTop;
-        
+
         const newContent =
           currentContent.substring(0, start) +
           variable +
@@ -220,11 +208,11 @@ export function NewTemplatePage() {
         })),
       };
 
-      templateCreateSchema.parse(templateData);
+      createTemplateSchema.parse(templateData);
       setErrors({});
       return true;
     } catch (error) {
-      if (error instanceof z.ZodError) {
+      if (error instanceof ZodError) {
         const newErrors: Record<string, string> = {};
         error.errors.forEach((err) => {
           const field = err.path[0] as string;
@@ -262,15 +250,20 @@ export function NewTemplatePage() {
       if (response.ok) {
         const data = await response.json();
         const templateId = data.template?.id;
-        
+
         // Save editor mode for this template and as default for new templates
         if (templateId) {
-          const editorModes = JSON.parse(localStorage.getItem('template-editor-modes') || '{}');
+          const editorModes = JSON.parse(
+            localStorage.getItem('template-editor-modes') || '{}'
+          );
           editorModes[templateId] = editorMode;
           editorModes['new-template-default'] = editorMode;
-          localStorage.setItem('template-editor-modes', JSON.stringify(editorModes));
+          localStorage.setItem(
+            'template-editor-modes',
+            JSON.stringify(editorModes)
+          );
         }
-        
+
         router.push('/templates');
       } else {
         const error = await response.json();
@@ -296,7 +289,6 @@ export function NewTemplatePage() {
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
-
 
   return (
     <div className="space-y-6">
@@ -414,10 +406,10 @@ export function NewTemplatePage() {
                           transparent 1ch,
                           transparent 1ch,
                           transparent 2ch
-                        )`
+                        )`,
                     }}
                   />
-                  
+
                   <div className="mt-2 flex flex-wrap gap-1">
                     <p className="mr-2 text-xs text-gray-600">
                       Insert variables:

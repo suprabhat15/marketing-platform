@@ -1,23 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const updateListSchema = z.object({
-  name: z.string().min(1, 'List name is required'),
-  description: z.string().optional(),
-  subscribers: z.array(z.object({
-    id: z.string().optional(),
-    email: z.string().email('Invalid email address'),
-    firstName: z.string().optional(),
-    lastName: z.string().optional(),
-    status: z.enum(['ACTIVE', 'UNSUBSCRIBED', 'BOUNCED', 'COMPLAINED']),
-  })).optional(),
-});
-
-const updateListBasicSchema = z.object({
-  name: z.string().min(1, 'List name is required'),
-  description: z.string().optional(),
-});
+import { updateListSchema, updateListBasicSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 // GET /api/lists/[listId] - Get specific list details
 export async function GET(
@@ -163,7 +148,7 @@ export async function PUT(
       return NextResponse.json(updatedList);
     }
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }
@@ -180,11 +165,19 @@ export async function PUT(
 
 // DELETE /api/lists/[listId] - Delete list
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
     const { listId } = await params;
+
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Check if list exists
     const existingList = await prisma.list.findUnique({
@@ -203,7 +196,7 @@ export async function DELETE(
       where: { id: listId },
     });
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ message: 'List deleted successfully' });
   } catch (error) {
     console.error('Error deleting list:', error);
     return NextResponse.json(

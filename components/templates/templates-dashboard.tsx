@@ -11,14 +11,14 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { 
-  Plus, 
-  Search, 
-  FileText, 
-  MoreHorizontal, 
-  Edit, 
-  Trash2, 
+import {
+  Plus,
+  Search,
+  FileText,
+  MoreHorizontal,
+  Trash2,
   Copy,
+  Edit,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { format } from 'date-fns';
@@ -58,9 +58,10 @@ export function TemplatesDashboard() {
     }
   };
 
-  const filteredTemplates = templates.filter(template =>
-    template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    template.subject.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredTemplates = templates.filter(
+    (template) =>
+      template.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      template.subject.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   const handleEdit = (templateId: string) => {
@@ -106,7 +107,7 @@ export function TemplatesDashboard() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900"></div>
+        <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-gray-900"></div>
       </div>
     );
   }
@@ -202,7 +203,7 @@ export function TemplatesDashboard() {
               filteredTemplates.map((template) => (
                 <div
                   key={template.id}
-                  className="hover:bg-background rounded-lg border p-4 transition-colors"
+                  className="hover:bg-background rounded-lg border p-4 transition-colors cursor-pointer"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 space-y-2">
@@ -210,9 +211,6 @@ export function TemplatesDashboard() {
                         <h3 className="text-lg font-semibold">
                           {template.name}
                         </h3>
-                        <Badge variant="outline" className="text-xs">
-                          Template
-                        </Badge>
                       </div>
 
                       <p className="text-muted-foreground text-sm">
@@ -249,12 +247,6 @@ export function TemplatesDashboard() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent>
-                          <DropdownMenuItem
-                            onClick={() => handleEdit(template.id)}
-                          >
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
                           <DropdownMenuItem
                             onClick={() => handleDuplicate(template)}
                           >

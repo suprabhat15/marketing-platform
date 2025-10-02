@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const createTemplateSchema = z.object({
-  name: z.string().min(1).max(100),
-  subject: z.string().min(1).max(200),
-  content: z.string().min(1),
-  attachments: z.array(z.object({
-    name: z.string(),
-    size: z.number(),
-    type: z.string(),
-    url: z.string(),
-  })).optional(),
-});
+import { createTemplateSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 export async function GET(request: NextRequest) {
   try {
@@ -61,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ template }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     console.error('API Error:', error);

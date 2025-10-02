@@ -1,4 +1,4 @@
-import Redis from 'ioredis';
+import Redis, { type RedisOptions} from 'ioredis';
 
 class RedisConnection {
   private static instance: any | null = null;
@@ -46,4 +46,5 @@ class RedisConnection {
 }
 
 export const redis = RedisConnection.getInstance();
+export type redisOptions = RedisOptions;
 export default RedisConnection;

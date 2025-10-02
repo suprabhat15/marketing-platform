@@ -13,9 +13,10 @@ export function Sidebar() {
     { id: "campaigns", label: "Campaigns", icon: "📧", path: "/campaigns" },
     { id: "subscribers", label: "Subscribers", icon: "👥", path: "/subscribers" },
     { id: "templates", label: "Templates", icon: "📝", path: "/templates" },
+    { id: "lists", label: "Lists", icon: "📋", path: "/lists" },
+    { id: "domains", label: "Domains", icon: "🌐", path: "/domains" },
     { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
     { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
-    { id: "lists", label: "Lists", icon: "📋", path: "/lists" },
   ];
 
   const handleNavigation = (path: string) => {

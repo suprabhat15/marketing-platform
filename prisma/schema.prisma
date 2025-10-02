@@ -11,6 +11,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -25,6 +26,7 @@ model User {
   lists      List[]
   campaigns  Campaign[]
   templates  Template[]
+  domains    Domain[]
   sessions   Session[]
   accounts   Account[]
   
@@ -82,11 +84,15 @@ model Campaign {
   user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   listId     String
-  list       List   @relation(fields: [listId], references: [id], onDelete: Cascade)
+  list       List   @relation(fields: [listId], references: [id], onDelete: Restrict)
   
   templateId String?
   template   Template? @relation(fields: [templateId], references: [id])
   
+  fromEmail String
+  fromName String?
+  replyTo String?
+
   events     Event[]
   
   @@map("campaign")
@@ -120,9 +126,41 @@ model Event {
   subscriber   Subscriber? @relation(fields: [subscriberId], references: [id])
   
   campaignId   String?
-  campaign     Campaign? @relation(fields: [campaignId], references: [id])
-  
+  campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade) 
+  // Cascade:deletion of campaign will delete all 
+  // the events associated with deleted campaign
   @@map("event")
+}
+
+model Domain {
+  id         String   @id @default(cuid())
+  domain     String
+  status     DomainStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  verifiedAt DateTime?
+
+  // DNS Records for verification
+  txtRecord    String?
+  mxRecord     String?
+  cnameKey1    String?
+  cnameValue1  String?
+  cnameKey2    String?
+  cnameValue2  String?
+  cnameKey3    String?
+  cnameValue3  String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([domain, userId])
+  @@map("domain")
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
 }
 
 enum SubscriberStatus {

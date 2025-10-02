@@ -4,7 +4,8 @@
  * Saves compute resources and bandwidth when idle
  */
 
-import { campaignQueue, batchQueue, emailQueue, campaignWorker, batchWorker, emailWorker } from './queue';
+import { campaignQueue, batchQueue, campaignWorker, batchWorker } from './queue';
+import { initializeWorkerRecovery, workerRecovery } from './worker-recovery';
 
 let isWorkerRunning = false;
 let workerTimeout: NodeJS.Timeout | null = null;
@@ -45,6 +46,9 @@ export async function startOnDemandWorker(): Promise<void> {
     // Start processors
     startProcessors();
     
+    // Initialize worker recovery system
+    await initializeWorkerRecovery();
+    
     // Register shutdown handlers
     registerShutdownHandlers();
     
@@ -53,7 +57,7 @@ export async function startOnDemandWorker(): Promise<void> {
     // Set up monitoring and auto-shutdown
     setupWorkerMonitoring();
     
-    console.log('✅ On-demand queue worker started successfully');
+    console.log('✅ On-demand queue worker started successfully with recovery system');
     
   } catch (error) {
     console.error('❌ Failed to start on-demand worker:', error);
@@ -71,6 +75,9 @@ async function stopWorker(): Promise<void> {
   console.log('🛑 Stopping idle queue worker...');
   
   try {
+    // Shutdown worker recovery system
+    await workerRecovery.shutdown();
+    
     // Don't actually close the queues, just mark as not running
     // The processors will remain available but we stop monitoring
     isWorkerRunning = false;
@@ -113,16 +120,14 @@ function resetIdleTimer(): void {
  */
 async function checkForActiveJobs(): Promise<boolean> {
   try {
-    const [campaignCounts, batchCounts, emailCounts] = await Promise.all([
+    const [campaignCounts, batchCounts] = await Promise.all([
       campaignQueue.getJobCounts(),
-      batchQueue.getJobCounts(), 
-      emailQueue.getJobCounts()
+      batchQueue.getJobCounts()
     ]);
 
     const totalActiveJobs = 
       (campaignCounts.waiting || 0) + (campaignCounts.active || 0) +
-      (batchCounts.waiting || 0) + (batchCounts.active || 0) +
-      (emailCounts.waiting || 0) + (emailCounts.active || 0);
+      (batchCounts.waiting || 0) + (batchCounts.active || 0);
 
     return totalActiveJobs > 0;
   } catch (error) {
@@ -138,7 +143,6 @@ function setupWorkerMonitoring(): void {
   // Reset idle timer on any worker activity
   campaignWorker.on('active', () => resetIdleTimer());
   batchWorker.on('active', () => resetIdleTimer());
-  emailWorker.on('active', () => resetIdleTimer());
   
   // Log significant events
   campaignWorker.on('completed', (job) => {
@@ -149,13 +153,13 @@ function setupWorkerMonitoring(): void {
     console.log(`✅ [Batch] Completed: ${job.data.batchNumber}/${job.data.totalBatches} for campaign ${job.data.campaignId}`);
   });
 
-  emailWorker.on('completed', (job) => {
-    console.log(`📧 [Email] Sent: ${job.data.email}`);
-  });
-
   // Handle failures
   campaignWorker.on('failed', (job, err) => {
     console.error(`❌ [Campaign] Failed: ${job?.data?.campaignId} - ${err.message}`);
+  });
+
+  batchWorker.on('failed', (job, err) => {
+    console.error(`❌ [Batch] Failed: ${job?.data?.campaignId} batch ${job?.data?.batchNumber} - ${err.message}`);
   });
 
   // Set up periodic health check
@@ -188,12 +192,14 @@ export function isWorkerActive(): boolean {
  */
 export async function getWorkerStatus() {
   const hasActiveJobs = isWorkerRunning ? await checkForActiveJobs() : false;
+  const recoveryStats = isWorkerRunning ? await workerRecovery.getRecoveryStats() : null;
   
   return {
     running: isWorkerRunning,
     processorsStarted,
     hasActiveJobs,
     idleTimeoutMinutes: WORKER_IDLE_TIMEOUT / (60 * 1000),
+    recovery: recoveryStats
   };
 }
 

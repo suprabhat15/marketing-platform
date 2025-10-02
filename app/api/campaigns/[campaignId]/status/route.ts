@@ -84,11 +84,15 @@ export async function GET(
       },
       progress: {
         totalEmails: campaign.list.subscribers.length,
-        emailsQueued: queueStatus.emails.total,
-        emailsSent: eventCounts.sent || 0,
-        emailsFailed: queueStatus.emails.failed,
+        batchesTotal: queueStatus.batches.total,
+        batchesCompleted: queueStatus.batches.completed,
+        batchesFailed: queueStatus.batches.failed,
+        emailsSent: queueStatus.progress.sentCount || 0,
+        emailsBounced: queueStatus.progress.bouncedCount || 0,
+        emailsFailed: queueStatus.progress.failedCount || 0,
+        emailsProcessed: queueStatus.progress.processedCount || 0,
         percentComplete: campaign.list.subscribers.length > 0 
-          ? Math.round(((eventCounts.sent || 0) / campaign.list.subscribers.length) * 100) 
+          ? Math.round((queueStatus.progress.processedCount / campaign.list.subscribers.length) * 100) 
           : 0
       }
     });
