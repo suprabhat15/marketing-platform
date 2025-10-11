@@ -15,20 +15,23 @@ datasource db {
 }
 
 model User {
-  id            String   @id @default(cuid())
-  name          String
-  email         String   @unique
-  emailVerified Boolean  @default(false)
-  image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  emailVerified   Boolean  @default(false)
+  image           String?
+  polarCustomerId String?  @unique // Polar customer ID
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  lists      List[]
-  campaigns  Campaign[]
-  templates  Template[]
-  domains    Domain[]
-  sessions   Session[]
-  accounts   Account[]
+  lists         List[]
+  campaigns     Campaign[]
+  templates     Template[]
+  domains       Domain[]
+  sessions      Session[]
+  accounts      Account[]
+  subscriptions Subscription[]
+  orders        Order[]
   
   @@map("user")
 }
@@ -244,4 +247,60 @@ model Verification {
   updatedAt  DateTime  @updatedAt
 
   @@map("verification")
+}
+
+model Subscription {
+  id                String   @id @default(cuid())
+  polarSubscriptionId String @unique // Polar's subscription ID
+  customerId        String   // Polar customer ID
+  productId         String   // Polar product ID
+  status            SubscriptionStatus @default(ACTIVE)
+  totalCredits      Int      @default(0)
+  usedCredits       Int      @default(0)
+  remainingCredits  Int      @default(0)
+  meterId           String?  // Polar meter ID for usage tracking
+  meterName         String?  @default("credits")
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscription")
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  polarOrderId  String   @unique // Polar's order ID
+  customerId    String   // Polar customer ID
+  productId     String   // Polar product ID
+  amount        Int      // Amount in cents
+  currency      String   @default("USD")
+  status        OrderStatus @default(PENDING)
+  credits       Int      @default(0) // Credits purchased
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("order")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  UNPAID
+  INCOMPLETE
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
 }

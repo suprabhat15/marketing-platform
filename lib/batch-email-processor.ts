@@ -2,9 +2,10 @@ import { redis } from './redis';
 import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { globalRateLimiter } from './global-rate-limiter';
-import { CampaignProgressTracker } from './campaign-progress';
+// import { CampaignProgressTracker } from './campaign-progress';
 import { broadcastEvent } from './event-broadcast';
 import { dlqQueue } from './queue';
+import { ingestEvent } from './polar';
 
 export interface BatchEmailData {
   campaignId: string;
@@ -18,6 +19,33 @@ export interface BatchEmailData {
   replyTo: string;
   startIndex: number;
   endIndex: number;
+  userId?: string; // Add userId to track credit usage
+}
+
+// Ingest credit usage to Polar when email is sent
+async function ingestCreditUsage(
+  userId: string,
+  campaignId: string,
+  subscriberEmail: string
+): Promise<void> {
+  try {
+    await ingestEvent({
+      name: 'credits',
+      externalCustomerId: userId,
+      metadata: {
+        campaignId,
+        subscriberEmail,
+        source: 'email_campaign',
+        timestamp: new Date().toISOString(),
+      },
+    });
+    console.log(
+      `💰 Credit ingested for user ${userId} (campaign: ${campaignId}, email: ${subscriberEmail})`
+    );
+  } catch (error) {
+    console.error(`❌ Failed to ingest credit for user ${userId}:`, error);
+    // Don't throw error to avoid failing the email send
+  }
 }
 
 // Template variable replacement function
@@ -61,25 +89,36 @@ export class BatchEmailProcessor {
       subject,
       fromEmail,
       fromName,
-      replyTo
+      replyTo,
+      userId
     } = batchData;
 
     console.log(`📦 Processing batch ${batchNumber}/${totalBatches} for campaign ${campaignId} (${subscriberIds.length} emails)`);
 
     try {
+      // Get userId from campaign if not provided
+      let campaignUserId = userId;
+      if (!campaignUserId) {
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+          select: { userId: true },
+        });
+        campaignUserId = campaign?.userId;
+      }
+
       // Get subscriber details
       const subscribers = await prisma.subscriber.findMany({
         where: {
           id: { in: subscriberIds },
-          status: 'ACTIVE'
-        }
+          status: 'ACTIVE',
+        },
       });
 
-      if (subscribers.length === 0) {
-        console.log(`⚠️ No active subscribers found for batch ${batchNumber}`);
-        await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
-        return;
-      }
+      // if (subscribers.length === 0) {
+      //   console.log(`⚠️ No active subscribers found for batch ${batchNumber}`);
+      //   await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
+      //   return;
+      // }
 
       // Create a semaphore for batch-level concurrency
       const semaphore = new Semaphore(this.concurrency);
@@ -95,7 +134,8 @@ export class BatchEmailProcessor {
             subject,
             fromEmail,
             fromName,
-            replyTo
+            replyTo,
+            userId: campaignUserId,
           });
         });
 
@@ -103,7 +143,9 @@ export class BatchEmailProcessor {
 
         // Add small delay between initiating sends to avoid thundering herd
         if (this.batchDelayMs > 0) {
-          await new Promise(resolve => setTimeout(resolve, this.batchDelayMs));
+          await new Promise((resolve) =>
+            setTimeout(resolve, this.batchDelayMs)
+          );
         }
       }
 
@@ -111,15 +153,16 @@ export class BatchEmailProcessor {
       await Promise.allSettled(emailPromises);
 
       // Mark batch as completed
-      await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
-      
-      console.log(`✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`);
+      // await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
 
+      console.log(
+        `✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`
+      );
     } catch (error) {
       console.error(`❌ Error processing batch ${batchNumber} for campaign ${campaignId}:`, error);
       
       // Mark failed emails
-      await CampaignProgressTracker.incrementFailed(campaignId, subscriberIds.length);
+      // await CampaignProgressTracker.incrementFailed(campaignId, subscriberIds.length);
       throw error;
     }
   }
@@ -134,7 +177,8 @@ export class BatchEmailProcessor {
     subject,
     fromEmail,
     fromName,
-    replyTo
+    replyTo,
+    userId
   }: {
     campaignId: string;
     subscriber: any;
@@ -143,6 +187,7 @@ export class BatchEmailProcessor {
     fromEmail: string;
     fromName: string;
     replyTo: string;
+    userId?: string;
   }): Promise<void> {
     const maxRetries = 3;
     let lastError: Error | null = null;
@@ -153,15 +198,24 @@ export class BatchEmailProcessor {
       try {
         // Acquire rate limit permit
         const rateLimitResult = await globalRateLimiter.acquire();
-        
+
         if (!rateLimitResult.allowed) {
           if (attempt === maxRetries) {
-            await this.handleFinalFailure(campaignId, subscriber, templateHtml, subject, fromEmail, fromName, replyTo, 'Rate limit exceeded');
+            await this.handleFinalFailure(
+              campaignId,
+              subscriber,
+              templateHtml,
+              subject,
+              fromEmail,
+              fromName,
+              replyTo,
+              'Rate limit exceeded'
+            );
             return;
           }
-          
+
           const backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
-          await new Promise(resolve => setTimeout(resolve, backoffDelay));
+          await new Promise((resolve) => setTimeout(resolve, backoffDelay));
           continue;
         }
 
@@ -177,7 +231,7 @@ export class BatchEmailProcessor {
           from: `${fromName} <${fromEmail}>`,
           replyTo,
           campaignId,
-          messageId
+          messageId,
         });
 
         // Create SENT event in database
@@ -213,15 +267,28 @@ export class BatchEmailProcessor {
         }
 
         // Increment sent count
-        await CampaignProgressTracker.incrementSent(campaignId, 1);
+        // await CampaignProgressTracker.incrementSent(campaignId, 1);
+
+        // Ingest credit usage to Polar
+        if (userId) {
+          await ingestCreditUsage(userId, campaignId, subscriber.email);
+        } else {
+          console.warn(
+            `⚠️ No userId available for credit ingestion (campaign: ${campaignId}, subscriber: ${subscriber.email})`
+          );
+        }
 
         // Apply pacing hint from rate limiter
-        if (rateLimitResult.nextRequestDelay && rateLimitResult.nextRequestDelay > 0) {
-          await new Promise(resolve => setTimeout(resolve, rateLimitResult.nextRequestDelay));
+        if (
+          rateLimitResult.nextRequestDelay &&
+          rateLimitResult.nextRequestDelay > 0
+        ) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, rateLimitResult.nextRequestDelay)
+          );
         }
 
         return; // Success
-
       } catch (error) {
         lastError = error instanceof Error ? error : new Error(String(error));
         
@@ -296,7 +363,7 @@ export class BatchEmailProcessor {
     }
 
     // Update campaign progress
-    await CampaignProgressTracker.incrementFailed(campaignId, 1);
+    // await CampaignProgressTracker.incrementFailed(campaignId, 1);
 
     // Create failed event
     try {

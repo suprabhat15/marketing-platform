@@ -1,50 +1,124 @@
-import Redis, { type RedisOptions} from 'ioredis';
+import Redis, { type RedisOptions } from 'ioredis';
 
-class RedisConnection {
-  private static instance: any | null = null;
+// ✅ Optimized Redis config with connection pooling
+const redisConfig: RedisOptions = {
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT || '6379', 10),
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD,
 
-  public static getInstance(): any {
-    if (!RedisConnection.instance) {
-      const REDIS_HOST = process.env.REDIS_HOST || 'localhost';
-      const REDIS_PORT = parseInt(process.env.REDIS_PORT || '6379');
-      const REDIS_PASSWORD = process.env.REDIS_PASSWORD;
-      const REDIS_USERNAME = process.env.REDIS_USERNAME;
-      
-      RedisConnection.instance = new Redis({
-        host: REDIS_HOST,
-        port: REDIS_PORT,
-        username: REDIS_USERNAME,
-        password: REDIS_PASSWORD,
-      });
+  // Connection pooling settings
+  maxRetriesPerRequest: null,
+  enableReadyCheck: true,
+  // lazyConnect: true, // Connect only when needed
+  keepAlive: 30000, // Keep connections alive for 30 seconds
 
-      RedisConnection.instance.on('error', (error: any) => {
-        console.error('Redis connection error:', error);
-      });
+  // Connection limits
+  connectTimeout: 10000,
+  commandTimeout: 5000,
 
-      RedisConnection.instance.on('connect', () => {
-        console.log('Connected to Redis');
-      });
+  reconnectOnError: (err) => {
+    const targetErrors = ['READONLY', 'ECONNRESET', 'ETIMEDOUT'];
+    if (targetErrors.some((msg) => err.message.includes(msg))) {
+      console.warn('🔄 Reconnecting due to error:', err.message);
+      return true;
+    }
+    return false;
+  },
 
-      RedisConnection.instance.on('ready', () => {
-        console.log('Redis connection ready');
-      });
+  tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
+};
 
-      RedisConnection.instance.on('close', () => {
-        console.log('Redis connection closed');
-      });
+class RedisConnectionManager {
+  private static instances: Map<string, Redis> = new Map();
+  private static isShuttingDown = false;
+
+  public static getInstance(
+    type: 'default' | 'queue' | 'worker' | 'dlq' = 'default'
+  ): Redis {
+    if (this.isShuttingDown) {
+      throw new Error('Redis connection manager is shutting down');
     }
 
-    return RedisConnection.instance;
+    if (!this.instances.has(type)) {
+      const instance = new Redis(redisConfig);
+
+      instance.on('error', (error: any) => {
+        console.error(`Redis connection error (${type}):`, error);
+      });
+
+      instance.on('connect', () => {
+        console.log(`✅ Connected to Redis (${type})`);
+      });
+
+      instance.on('ready', () => {
+        console.log(`🚀 Redis connection ready (${type})`);
+      });
+
+      instance.on('close', () => {
+        console.log(`❌ Redis connection closed (${type})`);
+        // Remove from instances map when closed
+        this.instances.delete(type);
+      });
+
+      instance.on('reconnecting', () => {
+        console.log(`🔄 Redis reconnecting (${type})`);
+      });
+
+      this.instances.set(type, instance);
+    }
+
+    return this.instances.get(type)!;
   }
 
-  public static async disconnect(): Promise<void> {
-    if (RedisConnection.instance) {
-      await RedisConnection.instance.quit();
-      RedisConnection.instance = null;
-    }
+  public static async disconnectAll(): Promise<void> {
+    this.isShuttingDown = true;
+    console.log('🛑 Shutting down all Redis connections...');
+
+    const disconnectPromises = Array.from(this.instances.entries()).map(
+      async ([type, instance]) => {
+        try {
+          console.log(`📴 Disconnecting Redis (${type})`);
+          await instance.quit();
+        } catch (error) {
+          console.error(`Error disconnecting Redis (${type}):`, error);
+        }
+      }
+    );
+
+    await Promise.allSettled(disconnectPromises);
+    this.instances.clear();
+    console.log('✅ All Redis connections closed');
+  }
+
+  public static getConnectionCount(): number {
+    return this.instances.size;
+  }
+
+  public static getConnectionTypes(): string[] {
+    return Array.from(this.instances.keys());
   }
 }
 
-export const redis = RedisConnection.getInstance();
+// Register cleanup handlers
+process.on('SIGTERM', async () => {
+  await RedisConnectionManager.disconnectAll();
+});
+
+process.on('SIGINT', async () => {
+  await RedisConnectionManager.disconnectAll();
+});
+
+process.on('beforeExit', async () => {
+  await RedisConnectionManager.disconnectAll();
+});
+
+// Export instances
+export const redis = RedisConnectionManager.getInstance('default');
+export const getRedisInstance = (
+  type: 'default' | 'queue' | 'worker' | 'dlq' = 'default'
+) => RedisConnectionManager.getInstance(type);
+
 export type redisOptions = RedisOptions;
-export default RedisConnection;
+export { RedisConnectionManager };
+export default RedisConnectionManager;

@@ -1,5 +1,5 @@
 import { redis } from './redis';
-import { CampaignProgressTracker } from './campaign-progress';
+// import { CampaignProgressTracker } from './campaign-progress';
 import { batchQueue } from './queue';
 
 export class WorkerRecoveryManager {

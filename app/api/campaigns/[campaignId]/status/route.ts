@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { getCampaignQueueStatus, getQueueStats } from '@/lib/queue';
 
 export async function GET(
   request: NextRequest,
@@ -44,9 +43,6 @@ export async function GET(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    // Get queue status for this campaign
-    const queueStatus = await getCampaignQueueStatus(campaignId);
-
     // Get event statistics from database
     const eventStats = await prisma.event.groupBy({
       by: ['type'],
@@ -72,7 +68,6 @@ export async function GET(
         sentAt: campaign.sentAt,
         totalSubscribers: campaign.list.subscribers.length,
       },
-      queue: queueStatus,
       events: {
         sent: eventCounts.sent || 0,
         delivered: eventCounts.delivered || 0,
@@ -81,19 +76,6 @@ export async function GET(
         bounced: eventCounts.bounced || 0,
         complained: eventCounts.complained || 0,
         unsubscribed: eventCounts.unsubscribed || 0,
-      },
-      progress: {
-        totalEmails: campaign.list.subscribers.length,
-        batchesTotal: queueStatus.batches.total,
-        batchesCompleted: queueStatus.batches.completed,
-        batchesFailed: queueStatus.batches.failed,
-        emailsSent: queueStatus.progress.sentCount || 0,
-        emailsBounced: queueStatus.progress.bouncedCount || 0,
-        emailsFailed: queueStatus.progress.failedCount || 0,
-        emailsProcessed: queueStatus.progress.processedCount || 0,
-        percentComplete: campaign.list.subscribers.length > 0 
-          ? Math.round((queueStatus.progress.processedCount / campaign.list.subscribers.length) * 100) 
-          : 0
       }
     });
 

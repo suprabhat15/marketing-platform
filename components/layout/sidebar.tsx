@@ -17,6 +17,7 @@ export function Sidebar() {
     { id: "domains", label: "Domains", icon: "🌐", path: "/domains" },
     { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
     { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
+    { id: "billing", label: "Billing", icon: "💳", path: "/billing" },
   ];
 
   const handleNavigation = (path: string) => {

@@ -6,28 +6,14 @@
  * Run this script to start processing queued campaigns
  */
 
-import { campaignQueue, batchQueue, emailQueue, campaignWorker, batchWorker, emailWorker, getQueueStats } from '../lib/queue.js';
+import { campaignQueue, batchQueue, emailQueue, campaignWorker, batchWorker, emailWorker } from '../lib/queue.js';
 
 console.log('🚀 Starting MailPackr Queue Worker...');
 
-// Display queue stats on startup
-async function displayStats() {
-  try {
-    const stats = await getQueueStats();
-    console.log('📊 Queue Statistics:');
-    console.log('├── Campaign Queue:', stats.campaign);
-    console.log('├── Batch Queue:', stats.batch);
-    console.log('└── Email Queue:', stats.email);
-  } catch (error) {
-    console.error('Error getting queue stats:', error.message);
-  }
-}
 
 // Initialize worker
 async function startWorker() {
   try {
-    // Display initial stats
-    await displayStats();
 
     console.log('\n✅ Queue Worker is ready and processing jobs...');
     console.log('📧 Email Queue: Processing up to 5 concurrent jobs');
@@ -72,12 +58,6 @@ async function startWorker() {
       console.log(`❌ [Email] Failed: ${job?.data?.email} - ${err.message}`);
     });
 
-    // Display stats every 30 seconds
-    setInterval(async () => {
-      console.log('\n📊 Current Queue Status:');
-      await displayStats();
-      console.log('');
-    }, 30000);
 
   } catch (error) {
     console.error('❌ Failed to start queue worker:', error);

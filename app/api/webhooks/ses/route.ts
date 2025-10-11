@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { CampaignProgressTracker } from '@/lib/campaign-progress';
+// import { CampaignProgressTracker } from '@/lib/campaign-progress';
 import crypto from 'crypto';
 
 interface SESEventRecord {
@@ -290,20 +290,29 @@ async function processEventForRecipient(
       where: {
         campaignId,
         subscriberId: subscriber.id,
-        type: eventType as 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED' | 'SENT',
+        type: eventType as
+          | 'DELIVERED'
+          | 'OPENED'
+          | 'CLICKED'
+          | 'BOUNCED'
+          | 'COMPLAINED'
+          | 'UNSUBSCRIBED'
+          | 'SENT',
         createdAt: {
-          gte: new Date(Date.now() - 10 * 60 * 1000) // Within last 10 minutes
+          gte: new Date(Date.now() - 10 * 60 * 1000), // Within last 10 minutes
         },
         // Also check if the event data contains the same messageId
         data: {
           path: ['messageId'],
-          equals: sesEvent.mail.messageId
-        }
-      }
+          equals: sesEvent.mail.messageId,
+        },
+      },
     });
 
     if (existingEvent) {
-      console.log(`Skipping duplicate event: ${eventType} for ${recipientEmail} in campaign ${campaignId} (messageId: ${sesEvent.mail.messageId})`);
+      console.log(
+        `Skipping duplicate event: ${eventType} for ${recipientEmail} in campaign ${campaignId} (messageId: ${sesEvent.mail.messageId})`
+      );
       return;
     }
 
@@ -320,7 +329,7 @@ async function processEventForRecipient(
           eventData.bounceType = sesEvent.bounce.bounceType;
           eventData.bounceSubType = sesEvent.bounce.bounceSubType;
           const bouncedRecipient = sesEvent.bounce.bouncedRecipients.find(
-            r => r.emailAddress === recipientEmail
+            (r) => r.emailAddress === recipientEmail
           );
           if (bouncedRecipient) {
             eventData.diagnosticCode = bouncedRecipient.diagnosticCode;
@@ -330,7 +339,8 @@ async function processEventForRecipient(
 
       case 'complaint':
         if (sesEvent.complaint) {
-          eventData.complaintFeedbackType = sesEvent.complaint.complaintFeedbackType;
+          eventData.complaintFeedbackType =
+            sesEvent.complaint.complaintFeedbackType;
         }
         break;
 
@@ -350,7 +360,8 @@ async function processEventForRecipient(
 
       case 'delivery':
         if (sesEvent.delivery) {
-          eventData.processingTimeMillis = sesEvent.delivery.processingTimeMillis;
+          eventData.processingTimeMillis =
+            sesEvent.delivery.processingTimeMillis;
         }
         break;
     }
@@ -358,7 +369,14 @@ async function processEventForRecipient(
     // Create the event record
     const newEvent = await prisma.event.create({
       data: {
-        type: eventType as 'DELIVERED' | 'OPENED' | 'CLICKED' | 'BOUNCED' | 'COMPLAINED' | 'UNSUBSCRIBED' | 'SENT',
+        type: eventType as
+          | 'DELIVERED'
+          | 'OPENED'
+          | 'CLICKED'
+          | 'BOUNCED'
+          | 'COMPLAINED'
+          | 'UNSUBSCRIBED'
+          | 'SENT',
         data: eventData,
         subscriberId: subscriber.id,
         campaignId: campaignId,
@@ -376,7 +394,10 @@ async function processEventForRecipient(
     });
 
     // Update subscriber status for certain events
-    if (sesEvent.eventType === 'bounce' && sesEvent.bounce?.bounceType === 'Permanent') {
+    if (
+      sesEvent.eventType === 'bounce' &&
+      sesEvent.bounce?.bounceType === 'Permanent'
+    ) {
       await prisma.subscriber.update({
         where: { id: subscriber.id },
         data: { status: 'BOUNCED' },
@@ -388,19 +409,19 @@ async function processEventForRecipient(
       });
     }
 
-    // Update progress tracking in Redis
-    try {
-      if (eventType === 'SENT') {
-        await CampaignProgressTracker.incrementSent(campaignId);
-      } else if (eventType === 'BOUNCED') {
-        await CampaignProgressTracker.incrementBounced(campaignId);
-      }
-      
-      // Check if campaign is now complete
-      await CampaignProgressTracker.checkAndMarkComplete(campaignId);
-    } catch (progressError) {
-      console.error('Error updating campaign progress:', progressError);
-    }
+    // // Update progress tracking in Redis
+    // try {
+    //   if (eventType === 'SENT') {
+    //     await CampaignProgressTracker.incrementSent(campaignId);
+    //   } else if (eventType === 'BOUNCED') {
+    //     await CampaignProgressTracker.incrementBounced(campaignId);
+    //   }
+
+    //   // Check if campaign is now complete
+    //   await CampaignProgressTracker.checkAndMarkComplete(campaignId);
+    // } catch (progressError) {
+    //   console.error('Error updating campaign progress:', progressError);
+    // }
 
     // Broadcast the event to real-time listeners
     try {
@@ -410,8 +431,9 @@ async function processEventForRecipient(
       console.error('Error broadcasting event:', error);
     }
 
-    console.log(`Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`);
-
+    console.log(
+      `Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`
+    );
   } catch (error) {
     console.error(`Error processing event for ${recipientEmail}:`, error);
   }
