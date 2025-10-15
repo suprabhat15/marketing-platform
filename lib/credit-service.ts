@@ -21,7 +21,9 @@ export class CreditService {
     if (!this.CREDIT_CONSUMING_EVENTS.includes(eventType)) {
       return;
     }
-
+    console.log(
+      '------------------------------------------------ POLAR EVENTS INGESTINO ---------------------------------------'
+    );
     try {
       // Get user's active subscription
       const subscription = await prisma.subscription.findFirst({
@@ -38,13 +40,17 @@ export class CreditService {
       });
 
       if (!subscription) {
-        console.warn(`No active subscription found for user ${userId}`);
+        console.warn(
+          `-------------------------No active subscription found for user ${userId}-------------------------`
+        );
         return;
       }
 
       // Check if user has enough credits
       if (subscription.remainingCredits <= 0) {
-        console.warn(`User ${userId} has no remaining credits`);
+        console.warn(
+          `-------------------------User ${userId} has no remaining credits-------------------------`
+        );
         return;
       }
 
@@ -64,12 +70,12 @@ export class CreditService {
       // Ingest event to Polar for usage tracking (if meter is configured)
       if (subscription.meterId) {
         await ingestEvent({
-          name: 'credits',
+          name: 'SENT',
           externalCustomerId: userId, // Use userId as external customer ID
           timestamp: new Date(),
           metadata: {
-            route: "/api/metered-route",
-            method: "GET",
+            route: '/api/metered-route',
+            method: 'GET',
             event_type: eventType,
             campaign_id: eventData.campaignId,
             subscriber_id: eventData.subscriberId,
@@ -83,11 +89,13 @@ export class CreditService {
 
       console.log(
         `Credit deducted for user ${userId}: ${eventType} event. ` +
-        `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
+          `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
       );
-
     } catch (error) {
-      console.error('Error processing email event for credit deduction:', error);
+      console.error(
+        'Error processing email event for credit deduction:',
+        error
+      );
       throw error;
     }
   }
@@ -187,12 +195,12 @@ export class CreditService {
       // Ingest bulk event to Polar
       if (subscription.meterId) {
         await ingestEvent({
-          name: 'credits',
+          name: 'SENT',
           externalCustomerId: userId,
           timestamp: new Date(),
           metadata: {
-            route: "/api/metered-route",
-            method: "GET",
+            route: '/api/metered-route',
+            method: 'GET',
             event_type: eventType,
             credits_consumed: count,
             user_id: userId,

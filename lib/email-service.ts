@@ -1,45 +1,86 @@
 import { CreditService } from './credit-service';
 import { prisma } from './prisma';
 import { EventType } from '@prisma/client';
+import { trackEmailCreditUsage, checkCreditAvailability } from './polar';
 
 export class EmailService {
-  // Pre-flight check before sending campaign
+  // Pre-flight check before sending campaign (enhanced with Polar integration)
   static async checkCreditsBeforeSending(
     userId: string,
     recipientCount: number
   ): Promise<{ canSend: boolean; creditsRequired: number; creditsAvailable: number }> {
-    const balance = await CreditService.getUserCreditBalance(userId);
-    
-    return {
-      canSend: balance.remainingCredits >= recipientCount,
-      creditsRequired: recipientCount,
-      creditsAvailable: balance.remainingCredits,
-    };
+    try {
+      // Check Polar credit availability first
+      const polarCheck = await checkCreditAvailability(userId, recipientCount);
+      
+      if (polarCheck.hasEnoughCredits) {
+        return {
+          canSend: true,
+          creditsRequired: recipientCount,
+          creditsAvailable: polarCheck.availableCredits,
+        };
+      }
+
+      // Fallback to local credit service if Polar fails
+      const balance = await CreditService.getUserCreditBalance(userId);
+      
+      return {
+        canSend: balance.remainingCredits >= recipientCount,
+        creditsRequired: recipientCount,
+        creditsAvailable: balance.remainingCredits,
+      };
+    } catch (error) {
+      console.error('Error checking credits before sending:', error);
+      
+      // Fallback to local credit service
+      const balance = await CreditService.getUserCreditBalance(userId);
+      
+      return {
+        canSend: balance.remainingCredits >= recipientCount,
+        creditsRequired: recipientCount,
+        creditsAvailable: balance.remainingCredits,
+      };
+    }
   }
 
-  // Reserve credits before sending (to prevent concurrent sends from oversending)
+  // Reserve credits before sending (enhanced with Polar tracking)
   static async reserveCreditsForCampaign(
     userId: string,
     campaignId: string,
     recipientCount: number
   ): Promise<boolean> {
     try {
-      // Check if user has enough credits
-      const hasEnough = await CreditService.hasEnoughCredits(userId, recipientCount);
-      if (!hasEnough) {
+      // Check if user has enough credits using Polar first
+      const creditCheck = await checkCreditAvailability(userId, recipientCount);
+      if (!creditCheck.hasEnoughCredits) {
+        console.log(`Insufficient credits for campaign ${campaignId}: need ${recipientCount}, have ${creditCheck.availableCredits}`);
         return false;
       }
 
-      // Deduct credits upfront for the entire campaign
-      await CreditService.bulkDeductCredits(
-        userId,
-        'SENT',
-        recipientCount,
-        {
-          campaign_id: campaignId,
-          operation: 'campaign_send_reservation',
+      // Track the credit usage with Polar
+      try {
+        await trackEmailCreditUsage(userId, recipientCount);
+        console.log(`Reserved ${recipientCount} credits via Polar for campaign ${campaignId}`);
+      } catch (polarError) {
+        console.error('Polar tracking failed, falling back to local credit service:', polarError);
+        
+        // Fallback to local credit service
+        const hasEnough = await CreditService.hasEnoughCredits(userId, recipientCount);
+        if (!hasEnough) {
+          return false;
         }
-      );
+
+        // Deduct credits upfront for the entire campaign
+        await CreditService.bulkDeductCredits(
+          userId,
+          'SENT',
+          recipientCount,
+          {
+            campaign_id: campaignId,
+            operation: 'campaign_send_reservation',
+          }
+        );
+      }
 
       return true;
     } catch (error) {
@@ -197,5 +238,17 @@ export class EmailService {
         ? (subscription.usedCredits / subscription.totalCredits) * 100 
         : 0,
     };
+  }
+
+  // Track individual email send with Polar (use this for single email sends)
+  static async trackSingleEmailSend(userId: string, emailData?: Record<string, any>) {
+    try {
+      const result = await trackEmailCreditUsage(userId, 1);
+      console.log(`Tracked single email send for user ${userId}. Remaining credits: ${result.remainingCredits}`);
+      return result;
+    } catch (error) {
+      console.error('Error tracking single email send:', error);
+      throw error;
+    }
   }
 }

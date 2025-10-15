@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getProducts, getProduct } from '@/lib/polar';
+import { getProducts, getProduct, initializeAllProductMeters } from '@/lib/polar';
 
 export async function GET(request: NextRequest) {
   try {

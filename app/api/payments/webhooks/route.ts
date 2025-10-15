@@ -1,33 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyWebhookSignature, type PolarWebhookEvent } from '@/lib/polar';
+import {
+  verifyWebhookSignature,
+  type PolarWebhookEvent,
+  createMeter,
+  getOrCreateMeterForProduct,
+  getCustomerState,
+  extractCreditsFromCustomerState,
+} from '@/lib/polar';
 import { prisma } from '@/lib/prisma';
 
 // Credit package pricing mapping (should match pricing page)
 const CREDIT_PRICING = {
-  10000: 10.00,
-  20000: 20.00,
-  50000: 50.00,
-  100000: 100.00,
-  500000: 500.00,
+  10000: 10.0,
+  // 20000: 20.00,
+  // 50000: 50.00,
+  // 100000: 100.00,
+  // 500000: 500.00,
 } as const;
 
 // Product ID to credit mapping (matching auth.ts products)
 const PRODUCT_CREDIT_MAPPING = {
-  '21f0fc55-39e4-4bd8-9f68-99858cc613a4': 10000,   // 10k-Credits
-  '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000,   // 20k-Credits
-  '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000,   // 50k-Credits
-  'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000,  // 100k-Credits
-  'e2d782da-6fae-45da-af5d-8975af1a258a': 500000,  // 500k-Credits
+  'ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c': 10000, // 10k-Credits
+  // '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000,   // 20k-Credits
+  // '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000,   // 50k-Credits
+  // 'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000,  // 100k-Credits
+  // 'e2d782da-6fae-45da-af5d-8975af1a258a': 500000,  // 500k-Credits
 } as const;
 
 // Helper function to get credits and price from product ID
 function getCreditsPricing(data: any): { credits: number; price: number } {
   // Get credits from productId mapping
-  const credits = PRODUCT_CREDIT_MAPPING[data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING] || 0;
-  
+  const credits =
+    PRODUCT_CREDIT_MAPPING[
+      data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING
+    ] || 0;
+
   // Get the corresponding price from our pricing table
   const price = CREDIT_PRICING[credits as keyof typeof CREDIT_PRICING] || 0;
-  
+
   return { credits, price };
 }
 
@@ -62,7 +72,6 @@ export async function POST(request: NextRequest) {
     await handleWebhookEvent(event);
 
     return NextResponse.json({ success: true });
-
   } catch (error) {
     console.error('Error processing Polar webhook:', error);
     return NextResponse.json(
@@ -77,23 +86,23 @@ async function handleWebhookEvent(event: PolarWebhookEvent) {
     case 'checkout.created':
       await handleCheckoutCreated(event.data);
       break;
-    
+
     case 'checkout.updated':
       await handleCheckoutUpdated(event.data);
       break;
-    
+
     case 'customer.created':
       await handleCustomerCreated(event.data);
       break;
-    
+
     case 'customer.updated':
       await handleCustomerUpdated(event.data);
       break;
-    
+
     case 'customer.deleted':
       await handleCustomerDeleted(event.data);
       break;
-    
+
     case 'customer.state_changed':
       await handleCustomerStateChanged(event.data);
       break;
@@ -101,51 +110,51 @@ async function handleWebhookEvent(event: PolarWebhookEvent) {
     case 'subscription.created':
       await handleSubscriptionCreated(event.data);
       break;
-    
+
     case 'subscription.updated':
       await handleSubscriptionUpdated(event.data);
       break;
-    
+
     case 'subscription.active':
       await handleSubscriptionActive(event.data);
       break;
-    
+
     case 'subscription.canceled':
       await handleSubscriptionCanceled(event.data);
       break;
-    
+
     case 'subscription.uncanceled':
       await handleSubscriptionUncanceled(event.data);
       break;
-    
+
     case 'subscription.revoked':
       await handleSubscriptionRevoked(event.data);
       break;
-    
+
     case 'order.created':
       await handleOrderCreated(event.data);
       break;
-    
+
     case 'order.updated':
       await handleOrderUpdated(event.data);
       break;
-    
+
     case 'order.paid':
       await handleOrderPaid(event.data);
       break;
-    
+
     case 'order.refunded':
       await handleOrderRefunded(event.data);
       break;
-    
+
     case 'refund.created':
       await handleRefundCreated(event.data);
       break;
-    
+
     case 'refund.updated':
       await handleRefundUpdated(event.data);
       break;
-    
+
     default:
       console.log('Unhandled webhook event type:', event.type);
   }
@@ -153,14 +162,13 @@ async function handleWebhookEvent(event: PolarWebhookEvent) {
 
 async function handleCheckoutCreated(data: any) {
   // console.log('Processing checkout.created:', data);
-  
   // Store checkout information if needed
   // You might want to track checkout sessions in your database
 }
 
 async function handleCheckoutUpdated(data: any) {
   // console.log('Processing checkout.updated:', data);
-  
+
   // Handle checkout status updates
   if (data.status === 'completed') {
     // Checkout was completed successfully
@@ -171,16 +179,16 @@ async function handleCheckoutUpdated(data: any) {
 // Customer event handlers
 async function handleCustomerCreated(data: any) {
   console.log('Processing customer.created:', data);
-  
+
   try {
     const externalId = data.externalId;
-    
+
     if (externalId) {
       // Update user with Polar customer ID
       await prisma.user.update({
         where: { id: externalId },
-        data: { 
-          polarCustomerId: data.id 
+        data: {
+          polarCustomerId: data.id,
         },
       });
       console.log(`Customer created and linked to user ${externalId}`);
@@ -192,10 +200,10 @@ async function handleCustomerCreated(data: any) {
 
 async function handleCustomerUpdated(data: any) {
   console.log('Processing customer.updated:', data);
-  
+
   try {
     const externalId = data.externalId;
-    
+
     if (externalId) {
       // Sync any customer updates if needed
       console.log(`Customer ${data.id} updated for user ${externalId}`);
@@ -207,16 +215,16 @@ async function handleCustomerUpdated(data: any) {
 
 async function handleCustomerDeleted(data: any) {
   console.log('Processing customer.deleted:', data);
-  
+
   try {
     const externalId = data.externalId;
-    
+
     if (externalId) {
       // Remove Polar customer ID from user
       await prisma.user.update({
         where: { id: externalId },
-        data: { 
-          polarCustomerId: null 
+        data: {
+          polarCustomerId: null,
         },
       });
       console.log(`Customer deleted and unlinked from user ${externalId}`);
@@ -228,10 +236,10 @@ async function handleCustomerDeleted(data: any) {
 
 async function handleCustomerStateChanged(data: any) {
   console.log('Processing customer.state_changed:', data);
-  
+
   try {
     const externalId = data.externalId;
-    
+
     if (externalId) {
       console.log(`Customer state changed for user ${externalId}:`, data.state);
     }
@@ -243,12 +251,12 @@ async function handleCustomerStateChanged(data: any) {
 // Order event handlers
 async function handleOrderCreated(data: any) {
   console.log('Processing order.created:', data);
-  
+
   try {
     // Extract user information from metadata
     const userId = data.metadata?.userId;
     const userEmail = data.metadata?.userEmail || data.customer?.email;
-    
+
     if (!userId) {
       console.error('No userId found in order metadata');
       return;
@@ -257,19 +265,20 @@ async function handleOrderCreated(data: any) {
     // Wait 100ms for subscription to be created, then check if it exists
     let subscriptionId = null;
     if (data.subscription_id) {
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
+      await new Promise((resolve) => setTimeout(resolve, 100));
+
       const existingSubscription = await prisma.subscription.findFirst({
-        where: { polarSubscriptionId: data.subscription_id, status: 'ACTIVE' }
+        where: { polarSubscriptionId: data.subscription_id, status: 'ACTIVE' },
       });
-      
+
       if (existingSubscription) {
         subscriptionId = existingSubscription.id;
       }
     }
 
     // Get credits and price from pricing table
-    const { credits: totalCredits, price: calculatedAmount } = getCreditsPricing(data);
+    const { credits: totalCredits, price: calculatedAmount } =
+      getCreditsPricing(data);
 
     // Create order record in database
     await prisma.order.create({
@@ -295,7 +304,6 @@ async function handleOrderCreated(data: any) {
     });
 
     console.log(`Order processed successfully for user ${userId}`);
-    
   } catch (error) {
     console.error('Error handling order.created:', error);
   }
@@ -303,7 +311,7 @@ async function handleOrderCreated(data: any) {
 
 async function handleOrderUpdated(data: any) {
   // console.log('Processing order.updated:', data);
-  
+
   try {
     await prisma.order.update({
       where: { polarOrderId: data.id },
@@ -321,10 +329,10 @@ async function handleOrderUpdated(data: any) {
 
 async function handleOrderPaid(data: any) {
   console.log('Processing order.paid:', data);
-  
+
   try {
     const userId = data.metadata?.userId;
-    
+
     // Update order status to paid
     await prisma.order.update({
       where: { polarOrderId: data.id },
@@ -343,7 +351,7 @@ async function handleOrderPaid(data: any) {
         status: 'paid',
       });
     }
-    
+
     console.log(`Order ${data.id} marked as paid`);
   } catch (error) {
     console.error('Error handling order.paid:', error);
@@ -352,7 +360,7 @@ async function handleOrderPaid(data: any) {
 
 async function handleOrderRefunded(data: any) {
   console.log('Processing order.refunded:', data);
-  
+
   try {
     await prisma.order.update({
       where: { polarOrderId: data.id },
@@ -360,13 +368,13 @@ async function handleOrderRefunded(data: any) {
         status: 'REFUNDED',
       },
     });
-    
+
     const userId = data.metadata?.userId;
     if (userId) {
       // Handle refund logic - remove access, downgrade plan, etc.
       console.log(`Processing refund for user ${userId}, order ${data.id}`);
     }
-    
+
     console.log(`Order ${data.id} refunded`);
   } catch (error) {
     console.error('Error handling order.refunded:', error);
@@ -376,37 +384,72 @@ async function handleOrderRefunded(data: any) {
 // Subscription event handlers
 async function handleSubscriptionCreated(data: any) {
   console.log('Processing subscription.created:', data);
-  
+
   try {
     const userId = data.customer?.external_id;
-    
+
     if (!userId) {
       console.error('No external_id found in customer data for subscription');
       return;
     }
 
-    // Extract credit information from meters or get from pricing table
+    // Get real-time credit information from customer state
     let totalCredits = 0;
     let usedCredits = 0;
     let meterId = null;
     let meterName = null;
+    let remainingCredits = 0;
 
-    if (data.meters && data.meters.length > 0) {
-      const firstMeter = data.meters[0];
-      totalCredits = firstMeter.creditedUnits || firstMeter.credited_units || 0;
-      usedCredits = firstMeter.consumedUnits || firstMeter.consumed_units || 0;
-      meterId = firstMeter.meterId || firstMeter.meter_id;
-      meterName = firstMeter.meter?.name;
-      
-      console.log(`Credit tracking: ${usedCredits}/${totalCredits} credits used`);
-    } else {
-      // Get credits from pricing table if meters are not available
+    try {
+      // Fetch customer state to get active meters with real credit data
+      const customerState = await getCustomerState(userId);
+      const creditInfo = extractCreditsFromCustomerState(customerState);
+      console.log(
+        '---------extractCreditsFromCustomerState---------- ',
+        creditInfo
+      );
+
+      totalCredits = creditInfo.totalCredits;
+      usedCredits = creditInfo.usedCredits;
+      remainingCredits = creditInfo.remainingCredits;
+      meterId = creditInfo.meterId;
+
+      // Get meter name from benefits if available
+      const benefits = data.product?.benefits;
+      if (benefits && benefits.length > 0) {
+        meterName = benefits[0].properties?.description;
+      }
+
+      console.log(
+        `✅ Credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
+      );
+    } catch (customerStateError) {
+      console.warn(
+        '⚠️ Failed to fetch customer state, falling back to pricing table:',
+        customerStateError
+      );
+
+      // Fallback to pricing table if customer state fetch fails
       const { credits } = getCreditsPricing(data);
       totalCredits = credits;
       usedCredits = 0; // Start with 0 used credits
+      remainingCredits = totalCredits - usedCredits;
     }
 
-    const remainingCredits = totalCredits - usedCredits;
+    // Ensure meter exists for the subscription product
+    let createdMeter = null;
+    if (!meterId && data.product?.id) {
+      try {
+        // Use the new getOrCreateMeterForProduct function for better integration
+        createdMeter = await getOrCreateMeterForProduct(data.product.id);
+        meterId = createdMeter.id;
+        meterName = createdMeter.name;
+        console.log(`✅ Using meter ${meterId} for subscription ${data.id}`);
+      } catch (meterError) {
+        console.error('⚠️ Failed to get/create meter:', meterError);
+        // Continue without meter for now
+      }
+    }
 
     // Create subscription record in database
     await prisma.subscription.create({
@@ -420,8 +463,12 @@ async function handleSubscriptionCreated(data: any) {
         remainingCredits,
         meterId,
         meterName,
-        currentPeriodStart: data.current_period_start ? new Date(data.current_period_start) : new Date(),
-        currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end) : new Date(),
+        currentPeriodStart: data.current_period_start
+          ? new Date(data.current_period_start)
+          : new Date(),
+        currentPeriodEnd: data.current_period_end
+          ? new Date(data.current_period_end)
+          : new Date(),
         canceledAt: data.canceled_at ? new Date(data.canceled_at) : null,
         userId,
       },
@@ -435,8 +482,9 @@ async function handleSubscriptionCreated(data: any) {
       },
     });
 
-    console.log(`Subscription created for user ${userId} with ${remainingCredits} remaining credits`);
-    
+    console.log(
+      `Subscription created for user ${userId} with ${remainingCredits} remaining credits`
+    );
   } catch (error) {
     console.error('Error handling subscription.created:', error);
   }
@@ -444,32 +492,56 @@ async function handleSubscriptionCreated(data: any) {
 
 async function handleSubscriptionUpdated(data: any) {
   // console.log('Processing subscription.updated:', data);
-  
+
   try {
     const userId = data.customer?.external_id;
-    
+
     if (!userId) {
-      console.error('No external_id found in customer data for subscription update');
+      console.error(
+        'No external_id found in customer data for subscription update'
+      );
       return;
     }
 
-    // Extract updated credit information from meters
+    // Get updated credit information from customer state
     let totalCredits = 0;
     let usedCredits = 0;
     let meterId = null;
     let meterName = null;
+    let remainingCredits = 0;
 
-    if (data.meters && data.meters.length > 0) {
-      const firstMeter = data.meters[0];
-      totalCredits = firstMeter.creditedUnits || firstMeter.credited_units || 0;
-      usedCredits = firstMeter.consumedUnits || firstMeter.consumed_units || 0;
-      meterId = firstMeter.meterId || firstMeter.meter_id;
-      meterName = firstMeter.meter?.name;
-      
-      console.log(`Updated credit tracking: ${usedCredits}/${totalCredits} credits used`);
+    try {
+      // Fetch customer state to get latest active meters data
+      const customerState = await getCustomerState(userId);
+      const creditInfo = extractCreditsFromCustomerState(customerState);
+
+      totalCredits = creditInfo.totalCredits;
+      usedCredits = creditInfo.usedCredits;
+      remainingCredits = creditInfo.remainingCredits;
+      meterId = creditInfo.meterId;
+
+      console.log(
+        `✅ Updated credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
+      );
+    } catch (customerStateError) {
+      console.warn(
+        '⚠️ Failed to fetch customer state for subscription update:',
+        customerStateError
+      );
+
+      // Keep existing values or use fallback
+      const existingSubscription = await prisma.subscription.findUnique({
+        where: { polarSubscriptionId: data.id },
+      });
+
+      if (existingSubscription) {
+        totalCredits = existingSubscription.totalCredits;
+        usedCredits = existingSubscription.usedCredits;
+        remainingCredits = existingSubscription.remainingCredits;
+        meterId = existingSubscription.meterId;
+        meterName = existingSubscription.meterName;
+      }
     }
-
-    const remainingCredits = totalCredits - usedCredits;
 
     // Update subscription in database
     await prisma.subscription.update({
@@ -482,14 +554,19 @@ async function handleSubscriptionUpdated(data: any) {
         remainingCredits,
         meterId,
         meterName,
-        currentPeriodStart: data.current_period_start ? new Date(data.current_period_start) : undefined,
-        currentPeriodEnd: data.current_period_end ? new Date(data.current_period_end) : undefined,
+        currentPeriodStart: data.current_period_start
+          ? new Date(data.current_period_start)
+          : undefined,
+        currentPeriodEnd: data.current_period_end
+          ? new Date(data.current_period_end)
+          : undefined,
         canceledAt: data.canceled_at ? new Date(data.canceled_at) : undefined,
       },
     });
 
-    console.log(`Subscription updated for user ${userId} with ${remainingCredits} remaining credits`);
-    
+    console.log(
+      `Subscription updated for user ${userId} with ${remainingCredits} remaining credits`
+    );
   } catch (error) {
     console.error('Error handling subscription.updated:', error);
   }
