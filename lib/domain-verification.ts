@@ -135,8 +135,9 @@ async function verifyCnameRecord(domain: string, recordKey: string, expectedValu
  */
 export async function getUserDomains(userId: string) {
   const { prisma } = await import('./prisma');
+  const { GetIdentityVerificationAttributesCommand } = await import('@aws-sdk/client-ses');
   
-  return await prisma.domain.findMany({
+  const domains = await prisma.domain.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
     select: {
@@ -147,4 +148,49 @@ export async function getUserDomains(userId: string) {
       verifiedAt: true,
     },
   });
+
+  // Check SES status for all domains to get real-time verification status
+  try {
+    const domainNames = domains.map(d => d.domain);
+    if (domainNames.length > 0) {
+      const sesResponse = await sesClient.send(
+        new GetIdentityVerificationAttributesCommand({ Identities: domainNames })
+      );
+      
+      // Update domains with real-time SES status
+      const updatedDomains = await Promise.all(domains.map(async (domain) => {
+        const sesVerification = sesResponse.VerificationAttributes?.[domain.domain];
+        const sesStatus = sesVerification?.VerificationStatus;
+        
+        // If SES shows verified but DB shows pending, update DB
+        if (sesStatus === 'Success' && domain.status === 'PENDING') {
+          await prisma.domain.update({
+            where: { id: domain.id },
+            data: { status: 'VERIFIED', verifiedAt: new Date() },
+          });
+          
+          return {
+            ...domain,
+            status: 'VERIFIED' as const,
+            verifiedAt: new Date(),
+          };
+        }
+        
+        // Return status based on SES if available, otherwise use DB
+        return {
+          ...domain,
+          status: (sesStatus === 'Success' ? 'VERIFIED' : 
+                  sesStatus === 'Failed' ? 'FAILED' : 
+                  domain.status) as 'PENDING' | 'VERIFIED' | 'FAILED',
+        };
+      }));
+      
+      return updatedDomains;
+    }
+  } catch (error) {
+    console.error('Error fetching SES verification status:', error);
+    // Fall back to database status if SES check fails
+  }
+  
+  return domains;
 }

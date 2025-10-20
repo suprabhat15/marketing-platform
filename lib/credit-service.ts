@@ -25,11 +25,17 @@ export class CreditService {
       '------------------------------------------------ POLAR EVENTS INGESTINO ---------------------------------------'
     );
     try {
-      // Get user's active subscription
+      // Get user's active subscription or canceled subscription with remaining credits
       const subscription = await prisma.subscription.findFirst({
         where: {
           userId,
-          status: 'ACTIVE',
+          OR: [
+            { status: 'ACTIVE' },
+            { 
+              status: 'CANCELED',
+              remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
+            }
+          ],
         },
         orderBy: {
           createdAt: 'desc',
@@ -41,7 +47,7 @@ export class CreditService {
 
       if (!subscription) {
         console.warn(
-          `-------------------------No active subscription found for user ${userId}-------------------------`
+          `-------------------------No active subscription or canceled subscription with credits found for user ${userId}-------------------------`
         );
         return;
       }
@@ -111,7 +117,13 @@ export class CreditService {
     const subscription = await prisma.subscription.findFirst({
       where: {
         userId,
-        status: 'ACTIVE',
+        OR: [
+          { status: 'ACTIVE' },
+          { 
+            status: 'CANCELED',
+            remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
+          }
+        ],
       },
       orderBy: {
         createdAt: 'desc',
@@ -160,7 +172,13 @@ export class CreditService {
       const subscription = await prisma.subscription.findFirst({
         where: {
           userId,
-          status: 'ACTIVE',
+          OR: [
+            { status: 'ACTIVE' },
+            { 
+              status: 'CANCELED',
+              remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
+            }
+          ],
         },
         orderBy: {
           createdAt: 'desc',
@@ -171,7 +189,7 @@ export class CreditService {
       });
 
       if (!subscription) {
-        throw new Error(`No active subscription found for user ${userId}`);
+        throw new Error(`No active subscription or canceled subscription with credits found for user ${userId}`);
       }
 
       if (subscription.remainingCredits < count) {

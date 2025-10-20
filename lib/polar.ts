@@ -85,18 +85,46 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
 
     // Automatically ensure meter exists for the product before creating checkout
     try {
-      const benefits = await getOrCreateMeterForProduct(productId);
-      console.log('METER INFOssss ', benefits);
-      console.log(
-        `✅ Checkout session will use meter ${benefits.properties.meterId} for product ${productId}`
-      );
+      const meterOrBenefit = await getOrCreateMeterForProduct(productId);
+      console.log('METER INFOssss ', meterOrBenefit);
 
-      // Add meter reference to metadata for tracking
+      // Extract meter ID from the returned object (could be meter or benefit)
+      let meterId = null;
+      
+      // If it's a meter object, use its id
+      if (meterOrBenefit?.id && meterOrBenefit?.name) {
+        meterId = meterOrBenefit.id;
+      }
+      // If it's a benefit with meter properties, extract meter_id
+      else if (meterOrBenefit?.properties?.meter_id) {
+        meterId = meterOrBenefit.properties.meter_id;
+      }
+      // If it's a benefit with meterId property
+      else if (meterOrBenefit?.properties?.meterId) {
+        meterId = meterOrBenefit.properties.meterId;
+      }
+
+      if (meterId) {
+        console.log(
+          `✅ Checkout session will use meter ${meterId} for product ${productId}`
+        );
+      } else {
+        console.warn(
+          `⚠️ No meter ID found for product ${productId}, proceeding without meter tracking`
+        );
+      }
+
+      // Add meter reference to metadata for tracking (only if meterId exists)
       const meterMetadata = {
-        meterId: benefits.properties.meterId,
         productId: productId,
         ...(data.metadata || {}),
       };
+      
+      // Only add meterId if it's defined
+      if (meterId) {
+        meterMetadata.meterId = meterId;
+      }
+      
       checkoutData.metadata = meterMetadata;
     } catch (meterError) {
       console.warn(
@@ -622,7 +650,7 @@ export async function trackEmailCreditUsage(
 
     // Ingest event to Polar for usage tracking
     await ingestEvent({
-      name: 'email_sent',
+      name: 'SENT',
       externalCustomerId: userId,
       metadata: {
         emailsSent: emailsSent,
@@ -746,22 +774,30 @@ export async function getOrCreateMeterForProduct(productId: string) {
   try {
     // First, try to find existing meter for this product
     const product = await polar.products.get({ id: productId });
-    const existingMeter = product.benefits[0];
+    const benefit = product.benefits[0];
 
-    return existingMeter;
+    if (!benefit) {
+      throw new Error(`No benefits found for product ${productId}`);
+    }
 
-    // if (existingMeter) {
-    //   console.log(
-    //     `Found existing meter ${existingMeter.id} for product ${productId}`
-    //   );
-    //   return existingMeter;
-    // }
+    // If the benefit has a meter_id in properties, fetch the actual meter
+    if (benefit.properties?.meterId) {
+      const meter = await polar.meters.get({ id: benefit.properties.meterId });
+      return meter;
+    }
 
-    // Create new meter if not found
-    // console.log(
-    //   `No existing meter found for product ${productId}, creating new one`
-    // );
-    // return await createMeterForProduct(productId);
+    // If the benefit has an id that refers to a meter, use that
+    if (benefit.id) {
+      try {
+        const meter = await polar.meters.get({ id: benefit.id });
+        return meter;
+      } catch {
+        // If benefit.id is not a meter, return the benefit as fallback
+        return benefit;
+      }
+    }
+
+    return benefit;
   } catch (error) {
     console.error('Error getting or creating meter for product:', error);
     throw new Error(`Failed to get or create meter for product ${productId}`);

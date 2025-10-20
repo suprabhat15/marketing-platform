@@ -43,18 +43,61 @@ export async function updateSubscription(
     productId?: string;
     priceId?: string;
     metadata?: Record<string, string>;
+    prorationBehavior?: 'invoice' | 'prorate' | 'create_prorations' | 'none';
+    discountId?: string;
+    trialEnd?: string;
+    cancelAtPeriodEnd?: boolean;
+    customerCancellationReason?: string;
+    customerCancellationComment?: string;
+    revoke?: boolean;
   }
 ) {
   try {
-    // Filter out undefined values for Polar API
-    const filteredUpdateData = Object.fromEntries(
-      Object.entries(updateData).filter(([_, value]) => value !== undefined)
-    );
+    // Map our updateData to Polar API format
+    const subscriptionUpdate: any = {};
+    
+    if (updateData.productId) {
+      subscriptionUpdate.product_id = updateData.productId;
+    }
+    
+    if (updateData.prorationBehavior) {
+      subscriptionUpdate.proration_behavior = updateData.prorationBehavior;
+    }
+    
+    if (updateData.discountId) {
+      subscriptionUpdate.discount_id = updateData.discountId;
+    }
+    
+    if (updateData.trialEnd) {
+      subscriptionUpdate.trial_end = updateData.trialEnd;
+    }
+    
+    if (updateData.cancelAtPeriodEnd !== undefined) {
+      subscriptionUpdate.cancel_at_period_end = updateData.cancelAtPeriodEnd;
+    }
+    
+    if (updateData.customerCancellationReason) {
+      subscriptionUpdate.customer_cancellation_reason = updateData.customerCancellationReason;
+    }
+    
+    if (updateData.customerCancellationComment) {
+      subscriptionUpdate.customer_cancellation_comment = updateData.customerCancellationComment;
+    }
+    
+    if (updateData.revoke !== undefined) {
+      subscriptionUpdate.revoke = updateData.revoke;
+    }
+    
+    // Only proceed if we have data to update
+    if (Object.keys(subscriptionUpdate).length === 0) {
+      throw new Error('No valid update data provided');
+    }
     
     const response = await polar.subscriptions.update({
       id: subscriptionId,
-      ...filteredUpdateData,
-    } as any);
+      subscriptionUpdate,
+    });
+    
     return response;
   } catch (error) {
     console.error('Error updating subscription:', error);

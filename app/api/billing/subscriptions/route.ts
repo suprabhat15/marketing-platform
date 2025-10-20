@@ -1,13 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
-import { getUserSubscriptions, getSubscription, cancelSubscription, updateSubscription } from '@/lib/polar-subscriptions';
-import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
+
+// Optimize with dynamic imports and caching
+async function getAuth() {
+  const { auth } = await import('@/lib/auth');
+  return auth;
+}
+
+async function getPolarSubscriptions() {
+  const { getUserSubscriptions, getSubscription, cancelSubscription, updateSubscription } = 
+    await import('@/lib/polar-subscriptions');
+  return { getUserSubscriptions, getSubscription, cancelSubscription, updateSubscription };
+}
+
+async function getPrisma() {
+  const { prisma } = await import('@/lib/prisma');
+  return prisma;
+}
+
+// Cache for subscription data
+const subscriptionCache = new Map<string, { data: any; timestamp: number }>();
+const CACHE_TTL = 2 * 60 * 1000; // 2 minutes
 
 // Get user's subscriptions
 export async function GET(request: NextRequest) {
   try {
-    // Get user session
+    const auth = await getAuth();
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -21,9 +39,21 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const subscriptionId = searchParams.get('subscriptionId');
+    
+    // Check cache
+    const cacheKey = `sub_${session.user.id}_${subscriptionId || 'all'}`;
+    const cached = subscriptionCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      return NextResponse.json({
+        ...cached.data,
+        fromCache: true,
+      });
+    }
+
+    const prisma = await getPrisma();
 
     if (subscriptionId) {
-      // Get specific subscription from database
+      // Get specific subscription from database with optimized query
       const subscription = await prisma.subscription.findFirst({
         where: {
           polarSubscriptionId: subscriptionId,
@@ -38,12 +68,28 @@ export async function GET(request: NextRequest) {
         );
       }
       
-      return NextResponse.json({ subscription });
+      const result = { subscription };
+      subscriptionCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return NextResponse.json(result);
     } else {
-      // Get all user subscriptions from database
+      // Get all user subscriptions from database with optimized query
       const subscriptions = await prisma.subscription.findMany({
         where: { userId: session.user.id },
         orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          polarSubscriptionId: true,
+          status: true,
+          productId: true,
+          totalCredits: true,
+          usedCredits: true,
+          remainingCredits: true,
+          currentPeriodStart: true,
+          currentPeriodEnd: true,
+          canceledAt: true,
+          meterId: true,
+          meterName: true,
+        },
       });
 
       // Transform subscriptions to match SubscriptionCard interface
@@ -72,7 +118,9 @@ export async function GET(request: NextRequest) {
         meterName: sub.meterName,
       }));
       
-      return NextResponse.json({ subscriptions: transformedSubscriptions });
+      const result = { subscriptions: transformedSubscriptions };
+      subscriptionCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      return NextResponse.json(result);
     }
 
   } catch (error) {
@@ -94,7 +142,7 @@ const updateSubscriptionSchema = z.object({
 // Update subscription
 export async function PUT(request: NextRequest) {
   try {
-    // Get user session
+    const auth = await getAuth();
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -109,6 +157,7 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const validatedData = updateSubscriptionSchema.parse(body);
 
+    const { updateSubscription } = await getPolarSubscriptions();
     // Update the subscription
     const updatedSubscription = await updateSubscription(
       validatedData.subscriptionId,
@@ -148,7 +197,7 @@ const cancelSubscriptionSchema = z.object({
 // Cancel subscription
 export async function DELETE(request: NextRequest) {
   try {
-    // Get user session
+    const auth = await getAuth();
     const session = await auth.api.getSession({
       headers: request.headers,
     });
@@ -163,6 +212,7 @@ export async function DELETE(request: NextRequest) {
     const body = await request.json();
     const validatedData = cancelSubscriptionSchema.parse(body);
 
+    const { cancelSubscription } = await getPolarSubscriptions();
     // Cancel the subscription
     const canceledSubscription = await cancelSubscription(validatedData.subscriptionId);
 

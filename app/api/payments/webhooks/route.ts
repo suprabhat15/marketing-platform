@@ -44,26 +44,69 @@ function getCreditsPricing(data: any): { credits: number; price: number } {
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.text();
-    // Check WEBHOOK SIGNATURE LATER
-    // const signature = request.headers.get('polar-webhook-signature');
+    const signature = request.headers.get('polar-webhook-signature');
+    const userAgent = request.headers.get('user-agent');
+    const host = request.headers.get('host');
+    const contentType = request.headers.get('content-type');
+    
+    // Log request details for debugging
+    console.log('Webhook request details:', {
+      hasPayload: !!payload,
+      payloadLength: payload.length,
+      hasSignature: !!signature,
+      userAgent,
+      host,
+      contentType,
+      headers: Object.fromEntries(request.headers.entries()),
+    });
 
-    // if (!signature) {
-    //   console.error('Missing Polar webhook signature');
-    //   return NextResponse.json(
-    //     { error: 'Missing webhook signature' },
-    //     { status: 400 }
-    //   );
-    // }
+    if (!signature) {
+      console.error('Missing Polar webhook signature. Request details:', {
+        userAgent,
+        host,
+        contentType,
+        payloadPreview: payload.substring(0, 200),
+      });
+      
+      // For development: Allow testing without signature if payload looks like a test
+      const isDevelopment = process.env.NODE_ENV === 'development';
+      const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1') || host?.includes('ngrok');
+      
+      if (isDevelopment || isLocalhost) {
+        console.warn('⚠️ DEVELOPMENT MODE: Processing webhook without signature verification');
+        // Continue processing below
+      } else {
+        return NextResponse.json(
+          { error: 'Missing webhook signature' },
+          { status: 400 }
+        );
+      }
+    }
 
-    // Verify webhook signature
-    // const isValid = verifyWebhookSignature(payload, signature);
-    // if (!isValid) {
-    //   console.error('Invalid Polar webhook signature');
-    //   return NextResponse.json(
-    //     { error: 'Invalid webhook signature' },
-    //     { status: 401 }
-    //   );
-    // }
+    // Verify webhook signature using sandbox secret (skip in development mode without signature)
+    if (signature) {
+      const webhookSecret = process.env.POLAR_WEBHOOK_SECRET_SANDBOX;
+      if (!webhookSecret) {
+        console.error('POLAR_WEBHOOK_SECRET_SANDBOX environment variable not set');
+        return NextResponse.json(
+          { error: 'Webhook secret not configured' },
+          { status: 500 }
+        );
+      }
+
+      const isValid = verifyWebhookSignature(payload, signature, webhookSecret);
+      if (!isValid) {
+        console.error('Invalid Polar webhook signature');
+        return NextResponse.json(
+          { error: 'Invalid webhook signature' },
+          { status: 401 }
+        );
+      }
+      
+      console.log('✅ Webhook signature verified successfully');
+    } else {
+      console.warn('⚠️ Processing webhook without signature verification (development mode)');
+    }
 
     const event: PolarWebhookEvent = JSON.parse(payload);
     console.log('Received Polar webhook:', event.type);
@@ -576,23 +619,36 @@ async function handleSubscriptionCanceled(data: any) {
   console.log('Processing subscription.canceled:', data);
   
   try {
-    const userId = data.metadata?.userId;
+    const userId = data.customer?.external_id || data.metadata?.userId;
     
     if (!userId) {
       console.error('No userId found in subscription metadata');
       return;
     }
 
-    // Update subscription status to canceled
+    // Get current subscription to preserve credit information
+    const currentSubscription = await prisma.subscription.findUnique({
+      where: { polarSubscriptionId: data.id },
+    });
+
+    if (!currentSubscription) {
+      console.error(`Subscription ${data.id} not found in database`);
+      return;
+    }
+
+    // Update subscription status to canceled BUT preserve remaining credits
+    // This allows users to continue using their existing credits until they run out
     await prisma.subscription.update({
       where: { polarSubscriptionId: data.id },
       data: {
         status: 'CANCELED',
         canceledAt: data.canceled_at ? new Date(data.canceled_at) : new Date(),
+        // Keep totalCredits, usedCredits, and remainingCredits unchanged
+        // This allows users to continue using remaining credits
       },
     });
 
-    console.log(`Subscription canceled for user ${userId}`);
+    console.log(`Subscription canceled for user ${userId}. User retains ${currentSubscription.remainingCredits} remaining credits.`);
     
   } catch (error) {
     console.error('Error handling subscription.canceled:', error);
@@ -644,17 +700,27 @@ async function handleSubscriptionRevoked(data: any) {
   console.log('Processing subscription.revoked:', data);
   
   try {
+    const userId = data.customer?.external_id || data.metadata?.userId;
+    
+    // Get current subscription to log revocation details
+    const currentSubscription = await prisma.subscription.findUnique({
+      where: { polarSubscriptionId: data.id },
+    });
+
+    // Revoke subscription - this completely removes access
+    // Set remaining credits to 0 to immediately stop service
     await prisma.subscription.update({
       where: { polarSubscriptionId: data.id },
       data: {
         status: 'CANCELED',
         canceledAt: new Date(),
+        // Revocation removes all remaining credits immediately
+        remainingCredits: 0,
       },
     });
     
-    const userId = data.metadata?.userId;
     if (userId) {
-      console.log(`Subscription revoked for user ${userId}`);
+      console.log(`Subscription revoked for user ${userId}. All remaining credits removed. Previous remaining: ${currentSubscription?.remainingCredits || 0}`);
     }
   } catch (error) {
     console.error('Error handling subscription.revoked:', error);
