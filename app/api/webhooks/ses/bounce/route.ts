@@ -48,25 +48,40 @@ export async function POST(request: NextRequest) {
       for (const recipient of bounceData.bounce.bouncedRecipients) {
         const email = recipient.emailAddress;
         
-        // Update subscriber status
-        await prisma.subscriber.updateMany({
-          where: { email },
-          data: { status: 'BOUNCED' },
+        // Use transaction to ensure consistency
+        const result = await prisma.$transaction(async (tx) => {
+          // Update subscriber status
+          await tx.subscriber.updateMany({
+            where: { email },
+            data: { status: 'BOUNCED' },
+          });
+
+          // Log bounce event
+          const newEvent = await tx.event.create({
+            data: {
+              type: 'BOUNCED',
+              data: {
+                email,
+                bounceType: bounceData.bounce.bounceType,
+                bounceSubType: bounceData.bounce.bounceSubType,
+                diagnosticCode: recipient.diagnosticCode,
+                messageId: bounceData.mail.messageId,
+              },
+            },
+          });
+
+          return newEvent;
         });
 
-        // Log bounce event
-        await prisma.event.create({
-          data: {
-            type: 'BOUNCED',
-            data: {
-              email,
-              bounceType: bounceData.bounce.bounceType,
-              bounceSubType: bounceData.bounce.bounceSubType,
-              diagnosticCode: recipient.diagnosticCode,
-              messageId: bounceData.mail.messageId,
-            },
-          },
-        });
+        // Only broadcast after successful database commit
+        try {
+          const { broadcastEvent } = await import('@/lib/event-broadcast');
+          // Note: We don't have campaignId in bounce webhook, so we skip broadcast
+          // or you could extract it from headers/tags if available
+          console.log(`✅ Bounce event processed for ${email}`);
+        } catch (broadcastError) {
+          console.error('❌ Error broadcasting bounce event (DB operation succeeded):', broadcastError);
+        }
       }
     }
 

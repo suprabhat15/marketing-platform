@@ -37,24 +37,39 @@ export async function POST(request: NextRequest) {
       for (const recipient of complaintData.complaint.complainedRecipients) {
         const email = recipient.emailAddress;
         
-        // Update subscriber status
-        await prisma.subscriber.updateMany({
-          where: { email },
-          data: { status: 'COMPLAINED' },
+        // Use transaction to ensure consistency
+        const result = await prisma.$transaction(async (tx) => {
+          // Update subscriber status
+          await tx.subscriber.updateMany({
+            where: { email },
+            data: { status: 'COMPLAINED' },
+          });
+
+          // Log complaint event
+          const newEvent = await tx.event.create({
+            data: {
+              type: 'COMPLAINED',
+              data: {
+                email,
+                feedbackId: complaintData.complaint.feedbackId,
+                complaintFeedbackType: complaintData.complaint.complaintFeedbackType,
+                messageId: complaintData.mail.messageId,
+              },
+            },
+          });
+
+          return newEvent;
         });
 
-        // Log complaint event
-        await prisma.event.create({
-          data: {
-            type: 'COMPLAINED',
-            data: {
-              email,
-              feedbackId: complaintData.complaint.feedbackId,
-              complaintFeedbackType: complaintData.complaint.complaintFeedbackType,
-              messageId: complaintData.mail.messageId,
-            },
-          },
-        });
+        // Only broadcast after successful database commit
+        try {
+          const { broadcastEvent } = await import('@/lib/event-broadcast');
+          // Note: We don't have campaignId in complaint webhook, so we skip broadcast
+          // or you could extract it from headers/tags if available
+          console.log(`✅ Complaint event processed for ${email}`);
+        } catch (broadcastError) {
+          console.error('❌ Error broadcasting complaint event (DB operation succeeded):', broadcastError);
+        }
       }
     }
 

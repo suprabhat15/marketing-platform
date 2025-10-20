@@ -140,74 +140,97 @@ export async function POST(request: NextRequest) {
 
     // Verify SNS signature (in production)
     // if (process.env.NODE_ENV === 'production') {
-      const isValid = await verifySNSSignature(headers, body);
-      if (!isValid) {
-        console.error('Invalid SNS signature');
-        return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-      }
+    const isValid = await verifySNSSignature(headers, body);
+    if (!isValid) {
+      console.error('Invalid SNS signature');
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
     // }
 
     const snsMessage: SNSMessage = JSON.parse(body);
-    // console.log("snsMessage Details: ", snsMessage) // " sesEvent Detailss: ", JSON.parse(snsMessage.Message)
+    console.log('snsMessage Details: ', snsMessage); // " sesEvent Detailss: ", JSON.parse(snsMessage.Message)
     // Handle SNS subscription confirmation
     if (snsMessage.Type === 'SubscriptionConfirmation') {
-      // console.log('SNS Subscription confirmation received for topic:', snsMessage.TopicArn);
-      // console.log('Token:', snsMessage.Token);
-      // console.log('SubscribeURL:', snsMessage.SubscribeURL);
-      
+      console.log(
+        'SNS Subscription confirmation received for topic:',
+        snsMessage.TopicArn
+      );
+      console.log('Token:', snsMessage.Token);
+      console.log('SubscribeURL:', snsMessage.SubscribeURL);
+
       // Automatically confirm the subscription by making a GET request to the SubscribeURL
       if (snsMessage.SubscribeURL) {
         try {
           // console.log('Confirming subscription...');
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 10000);
-          
+
           const response = await fetch(snsMessage.SubscribeURL, {
             method: 'GET',
             signal: controller.signal,
           });
-          
+
           clearTimeout(timeoutId);
-          
+
           if (response.ok) {
             const responseText = await response.text();
-            // console.log('✅ Subscription confirmed successfully:', response.status);
-            // console.log('Response snippet:', responseText.substring(0, 200));
-            
-            return NextResponse.json({ 
+            console.log(
+              '✅ Subscription confirmed successfully:',
+              response.status
+            );
+            console.log('Response snippet:', responseText.substring(0, 200));
+
+            return NextResponse.json({
               message: 'Subscription confirmed successfully',
               topicArn: snsMessage.TopicArn,
-              subscriptionArn: responseText.includes('SubscriptionArn') ? 'Extracted from response' : 'Not available'
+              subscriptionArn: responseText.includes('SubscriptionArn')
+                ? 'Extracted from response'
+                : 'Not available',
             });
           } else {
-            console.error('❌ Failed to confirm subscription - HTTP error:', response.status);
-            return NextResponse.json({ 
-              error: 'Failed to confirm subscription',
-              status: response.status,
-              topicArn: snsMessage.TopicArn
-            }, { status: 500 });
+            console.error(
+              '❌ Failed to confirm subscription - HTTP error:',
+              response.status
+            );
+            return NextResponse.json(
+              {
+                error: 'Failed to confirm subscription',
+                status: response.status,
+                topicArn: snsMessage.TopicArn,
+              },
+              { status: 500 }
+            );
           }
         } catch (error) {
-          console.error('❌ Failed to confirm subscription - Network error:', error);
-          return NextResponse.json({ 
-            error: 'Failed to confirm subscription',
-            details: error instanceof Error ? error.message : 'Unknown error',
-            topicArn: snsMessage.TopicArn
-          }, { status: 500 });
+          console.error(
+            '❌ Failed to confirm subscription - Network error:',
+            error
+          );
+          return NextResponse.json(
+            {
+              error: 'Failed to confirm subscription',
+              details: error instanceof Error ? error.message : 'Unknown error',
+              topicArn: snsMessage.TopicArn,
+            },
+            { status: 500 }
+          );
         }
       } else {
         console.error('❌ No SubscribeURL provided in confirmation message');
-        return NextResponse.json({ 
-          error: 'No SubscribeURL provided',
-          topicArn: snsMessage.TopicArn
-        }, { status: 400 });
+        return NextResponse.json(
+          {
+            error: 'No SubscribeURL provided',
+            topicArn: snsMessage.TopicArn,
+          },
+          { status: 400 }
+        );
       }
     }
 
     // Handle notification messages
     if (snsMessage.Type === 'Notification') {
       const sesEvent: SESEventRecord = JSON.parse(snsMessage.Message);
-      
+
       console.log('Received SES event:', {
         eventType: sesEvent.eventType,
         messageId: sesEvent.mail.messageId,
@@ -216,7 +239,7 @@ export async function POST(request: NextRequest) {
 
       // Extract campaign ID from email headers or tags
       const campaignId = extractCampaignId(sesEvent);
-      
+
       if (!campaignId) {
         console.warn('No campaign ID found in SES event, skipping');
         return NextResponse.json({ message: 'No campaign ID found' });
@@ -231,7 +254,6 @@ export async function POST(request: NextRequest) {
     }
 
     return NextResponse.json({ message: 'Unknown message type' });
-
   } catch (error) {
     console.error('Error processing SES webhook:', error);
     return NextResponse.json(
@@ -366,69 +388,64 @@ async function processEventForRecipient(
         break;
     }
 
-    // Create the event record
-    const newEvent = await prisma.event.create({
-      data: {
-        type: eventType as
-          | 'DELIVERED'
-          | 'OPENED'
-          | 'CLICKED'
-          | 'BOUNCED'
-          | 'COMPLAINED'
-          | 'UNSUBSCRIBED'
-          | 'SENT',
-        data: eventData,
-        subscriberId: subscriber.id,
-        campaignId: campaignId,
-        createdAt: new Date(sesEvent.mail.timestamp),
-      },
-      include: {
-        subscriber: {
-          select: {
-            email: true,
-            firstName: true,
-            lastName: true,
+    // Use transaction to ensure consistency
+    const result = await prisma.$transaction(async (tx) => {
+      // Create the event record
+      const newEvent = await tx.event.create({
+        data: {
+          type: eventType as
+            | 'DELIVERED'
+            | 'OPENED'
+            | 'CLICKED'
+            | 'BOUNCED'
+            | 'COMPLAINED'
+            | 'UNSUBSCRIBED'
+            | 'SENT',
+          data: eventData,
+          subscriberId: subscriber.id,
+          campaignId: campaignId,
+          createdAt: new Date(sesEvent.mail.timestamp),
+        },
+        include: {
+          subscriber: {
+            select: {
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
           },
         },
-      },
+      });
+
+      // Update subscriber status for certain events
+      if (
+        sesEvent.eventType === 'bounce' &&
+        sesEvent.bounce?.bounceType === 'Permanent'
+      ) {
+        await tx.subscriber.update({
+          where: { id: subscriber.id },
+          data: { status: 'BOUNCED' },
+        });
+      } else if (sesEvent.eventType === 'complaint') {
+        await tx.subscriber.update({
+          where: { id: subscriber.id },
+          data: { status: 'COMPLAINED' },
+        });
+      }
+
+      return newEvent;
     });
 
-    // Update subscriber status for certain events
-    if (
-      sesEvent.eventType === 'bounce' &&
-      sesEvent.bounce?.bounceType === 'Permanent'
-    ) {
-      await prisma.subscriber.update({
-        where: { id: subscriber.id },
-        data: { status: 'BOUNCED' },
-      });
-    } else if (sesEvent.eventType === 'complaint') {
-      await prisma.subscriber.update({
-        where: { id: subscriber.id },
-        data: { status: 'COMPLAINED' },
-      });
-    }
-
-    // // Update progress tracking in Redis
-    // try {
-    //   if (eventType === 'SENT') {
-    //     await CampaignProgressTracker.incrementSent(campaignId);
-    //   } else if (eventType === 'BOUNCED') {
-    //     await CampaignProgressTracker.incrementBounced(campaignId);
-    //   }
-
-    //   // Check if campaign is now complete
-    //   await CampaignProgressTracker.checkAndMarkComplete(campaignId);
-    // } catch (progressError) {
-    //   console.error('Error updating campaign progress:', progressError);
-    // }
-
-    // Broadcast the event to real-time listeners
+    // Only broadcast after successful database commit
     try {
       const { broadcastEvent } = await import('@/lib/event-broadcast');
-      await broadcastEvent(campaignId, newEvent);
-    } catch (error) {
-      console.error('Error broadcasting event:', error);
+      await broadcastEvent(campaignId, result);
+      console.log(
+        `✅ Event ${eventType} processed and broadcast for ${recipientEmail} in campaign ${campaignId}`
+      );
+    } catch (broadcastError) {
+      // Log broadcast error but don't fail the webhook since DB operation succeeded
+      console.error('❌ Error broadcasting event (DB operation succeeded):', broadcastError);
     }
 
     console.log(
