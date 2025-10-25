@@ -92,7 +92,10 @@ const mapEventType = (sesEventType: string): string => {
 };
 
 // Verify SNS signature for production
-async function verifySNSSignature(headers: Headers, body: string): Promise<boolean> {
+async function verifySNSSignature(
+  headers: Headers,
+  body: string
+): Promise<boolean> {
   try {
     const messageId = headers.get('x-amz-sns-message-id');
     const messageType = headers.get('x-amz-sns-message-type');
@@ -124,9 +127,8 @@ async function verifySNSSignature(headers: Headers, body: string): Promise<boole
     // For production, you should implement full signature verification
     // This requires downloading the cert and verifying the signature
     // For now, we'll validate the basic structure and headers
-    console.log('SNS signature validation passed basic checks');
+    // console.log('SNS signature validation passed basic checks');
     return true;
-    
   } catch (error) {
     console.error('SNS signature verification failed:', error);
     return false;
@@ -174,11 +176,11 @@ export async function POST(request: NextRequest) {
 
           if (response.ok) {
             const responseText = await response.text();
-            console.log(
-              '✅ Subscription confirmed successfully:',
-              response.status
-            );
-            console.log('Response snippet:', responseText.substring(0, 200));
+            // console.log(
+            //   '✅ Subscription confirmed successfully:',
+            //   response.status
+            // );
+            // console.log('Response snippet:', responseText.substring(0, 200));
 
             return NextResponse.json({
               message: 'Subscription confirmed successfully',
@@ -229,19 +231,62 @@ export async function POST(request: NextRequest) {
 
     // Handle notification messages
     if (snsMessage.Type === 'Notification') {
-      const sesEvent: SESEventRecord = JSON.parse(snsMessage.Message);
+      let sesEvent: SESEventRecord;
 
-      console.log('Received SES event:', {
-        eventType: sesEvent.eventType,
-        messageId: sesEvent.mail.messageId,
-        destination: sesEvent.mail.destination,
-      });
+      try {
+        sesEvent = JSON.parse(snsMessage.Message);
+      } catch (parseError) {
+        console.error('❌ Failed to parse SES event JSON:', parseError);
+        console.error('❌ Raw message:', snsMessage.Message);
+        return NextResponse.json(
+          { error: 'Invalid SES event format' },
+          { status: 400 }
+        );
+      }
+
+      // Validate required fields
+      if (!sesEvent.eventType || !sesEvent.mail) {
+        console.error('❌ Invalid SES event structure:', {
+          hasEventType: !!sesEvent.eventType,
+          hasMail: !!sesEvent.mail,
+          eventKeys: Object.keys(sesEvent),
+        });
+        return NextResponse.json(
+          { error: 'Missing required SES event fields' },
+          { status: 400 }
+        );
+      }
+
+      // console.log('✅ Received SES event:', {
+      //   eventType: sesEvent.eventType,
+      //   messageId: sesEvent.mail?.messageId,
+      //   destination: sesEvent.mail?.destination,
+      //   hasDelivery: !!sesEvent.delivery,
+      //   hasBounce: !!sesEvent.bounce,
+      //   hasComplaint: !!sesEvent.complaint,
+      // });
 
       // Extract campaign ID from email headers or tags
       const campaignId = extractCampaignId(sesEvent);
+      // console.log('🔍 Campaign ID extraction:', {
+      //   campaignId,
+      //   hasTags: !!sesEvent.mail.tags,
+      //   tags: sesEvent.mail.tags,
+      //   hasHeaders: !!sesEvent.mail.headers,
+      // });
 
       if (!campaignId) {
-        console.warn('No campaign ID found in SES event, skipping');
+        console.warn('❌ No campaign ID found in SES event, skipping');
+        console.warn('❌ SES event details:', {
+          eventType: sesEvent.eventType,
+          mail: {
+            tags: sesEvent.mail.tags,
+            headers: sesEvent.mail.headers?.map((h) => ({
+              name: h.name,
+              value: h.value,
+            })),
+          },
+        });
         return NextResponse.json({ message: 'No campaign ID found' });
       }
 
@@ -290,18 +335,46 @@ async function processEventForRecipient(
   recipientEmail: string,
   campaignId: string
 ) {
+  console.log(
+    `🔄 Processing event for recipient: ${recipientEmail}, campaign: ${campaignId}`
+  );
   try {
-    // Find the subscriber
+    // Find the subscriber - should check if they belong to the campaign's list
     const subscriber = await prisma.subscriber.findFirst({
       where: {
         email: recipientEmail,
       },
+      // include: { // TODO: Think if same subscriber can be part of many lists?
+      //     include: {
+      //       campaigns: {
+      //         where: { id: campaignId },
+      //         select: { id: true },
+      //       },
+      //     },
+      //   },
+      // },
     });
 
+    // console.log(`🔍 Subscriber lookup result:`, {
+    //   found: !!subscriber,
+    //   email: recipientEmail,
+    //   subscriberId: subscriber?.id,
+    //   listId: subscriber?.listId,
+    //   belongsToCampaign: subscriber?.list?.campaigns?.length > 0
+    // });
+
     if (!subscriber) {
-      console.warn(`Subscriber not found for email: ${recipientEmail}`);
+      console.warn(`❌ Subscriber not found for email: ${recipientEmail}`);
       return;
     }
+
+    // Verify the subscriber belongs to the campaign's list
+    // if (subscriber.list?.campaigns?.length === 0) {
+    //   console.warn(
+    //     `❌ Subscriber ${recipientEmail} doesn't belong to campaign ${campaignId}'s list`
+    //   );
+    //   return;
+    // }
 
     // Map the event type
     const eventType = mapEventType(sesEvent.eventType);
@@ -436,6 +509,39 @@ async function processEventForRecipient(
       return newEvent;
     });
 
+    // Process credit deduction and Polar ingestion for SENT events
+    if (eventType === 'SENT') {
+      try {
+        // Get campaign to find userId
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+          select: { userId: true },
+        });
+
+        if (campaign?.userId) {
+          const { CreditService } = await import('@/lib/credit-service');
+          await CreditService.processEmailEvent(campaign.userId, 'SENT', {
+            campaignId: campaignId,
+            subscriberId: subscriber.id,
+            metadata: {
+              messageId: sesEvent.mail.messageId,
+              recipientEmail: recipientEmail,
+              timestamp: sesEvent.mail.timestamp,
+            },
+          });
+          console.log(
+            `📊 Credit processed and SENT event ingested to Polar for user ${campaign.userId}`
+          );
+        }
+      } catch (creditError) {
+        console.error(
+          '❌ Error processing credit/Polar ingestion:',
+          creditError
+        );
+        // Don't fail webhook - event was created successfully
+      }
+    }
+
     // Only broadcast after successful database commit
     try {
       const { broadcastEvent } = await import('@/lib/event-broadcast');
@@ -445,12 +551,11 @@ async function processEventForRecipient(
       );
     } catch (broadcastError) {
       // Log broadcast error but don't fail the webhook since DB operation succeeded
-      console.error('❌ Error broadcasting event (DB operation succeeded):', broadcastError);
+      console.error(
+        '❌ Error broadcasting event (DB operation succeeded):',
+        broadcastError
+      );
     }
-
-    console.log(
-      `Event ${eventType} processed for ${recipientEmail} in campaign ${campaignId}`
-    );
   } catch (error) {
     console.error(`Error processing event for ${recipientEmail}:`, error);
   }
