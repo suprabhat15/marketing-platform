@@ -31,10 +31,10 @@ export class CreditService {
           userId,
           OR: [
             { status: 'ACTIVE' },
-            { 
+            {
               status: 'CANCELED',
-              remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
-            }
+              remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
+            },
           ],
         },
         orderBy: {
@@ -47,24 +47,23 @@ export class CreditService {
 
       if (!subscription) {
         console.warn(
-          `-------------------------No active subscription or canceled subscription with credits found for user ${userId}-------------------------`
+          `-----------No active subscription or canceled subscription with credits found for user ${userId}-----------`
         );
-        return;
+        throw 'No active subscription';
       }
 
       // Check if user has enough credits
       if (subscription.remainingCredits <= 0) {
         console.warn(
-          `-------------------------User ${userId} has no remaining credits-------------------------`
+          `-----------User ${userId} has no remaining credits-----------`
         );
-        return;
+        throw 'No remaining credits';
       }
 
       // Deduct 1 credit for the event
       const newUsedCredits = subscription.usedCredits + 1;
       const newRemainingCredits = subscription.totalCredits - newUsedCredits;
 
-      // Update subscription in database
       await prisma.subscription.update({
         where: { id: subscription.id },
         data: {
@@ -78,16 +77,13 @@ export class CreditService {
         await ingestEvent({
           name: 'SENT',
           externalCustomerId: userId, // Use userId as external customer ID
-          timestamp: new Date(),
           metadata: {
-            route: '/api/metered-route',
-            method: 'GET',
+            source: 'process email events',
             event_type: eventType,
             campaign_id: eventData.campaignId,
             subscriber_id: eventData.subscriberId,
             user_id: userId,
             subscription_id: subscription.id,
-            credits_consumed: 1,
             ...eventData.metadata,
           },
         });
@@ -107,7 +103,10 @@ export class CreditService {
   }
 
   // Get user's credit balance (optionally sync from Polar)
-  static async getUserCreditBalance(userId: string, syncFromPolar: boolean = false) {
+  static async getUserCreditBalance(
+    userId: string,
+    syncFromPolar: boolean = false
+  ) {
     if (syncFromPolar) {
       // Import here to avoid circular dependency
       const { getUserCreditBalance } = await import('./polar');
@@ -119,10 +118,10 @@ export class CreditService {
         userId,
         OR: [
           { status: 'ACTIVE' },
-          { 
+          {
             status: 'CANCELED',
-            remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
-          }
+            remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
+          },
         ],
       },
       orderBy: {
@@ -152,13 +151,17 @@ export class CreditService {
   }
 
   // Check if user has enough credits for an operation
-  static async hasEnoughCredits(userId: string, requiredCredits: number = 1): Promise<boolean> {
+  static async hasEnoughCredits(
+    userId: string,
+    requiredCredits: number = 1
+  ): Promise<boolean> {
     const balance = await this.getUserCreditBalance(userId);
     return balance.remainingCredits >= requiredCredits;
   }
 
   // Bulk deduct credits for multiple events (e.g., campaign sending)
   static async bulkDeductCredits(
+    // TODO: On sending campaign, this func shud be executed but we're using single email sending pattern
     userId: string,
     eventType: EventType,
     count: number,
@@ -174,10 +177,10 @@ export class CreditService {
           userId,
           OR: [
             { status: 'ACTIVE' },
-            { 
+            {
               status: 'CANCELED',
-              remainingCredits: { gt: 0 } // Allow canceled subscriptions with remaining credits
-            }
+              remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
+            },
           ],
         },
         orderBy: {
@@ -189,7 +192,9 @@ export class CreditService {
       });
 
       if (!subscription) {
-        throw new Error(`No active subscription or canceled subscription with credits found for user ${userId}`);
+        throw new Error(
+          `No active subscription or canceled subscription with credits found for user ${userId}`
+        );
       }
 
       if (subscription.remainingCredits < count) {
@@ -217,8 +222,7 @@ export class CreditService {
           externalCustomerId: userId,
           timestamp: new Date(),
           metadata: {
-            route: '/api/metered-route',
-            method: 'GET',
+            source: 'bulk deduct credit',
             event_type: eventType,
             credits_consumed: count,
             user_id: userId,
@@ -230,9 +234,8 @@ export class CreditService {
 
       console.log(
         `Bulk credit deduction for user ${userId}: ${count} credits for ${eventType}. ` +
-        `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
+          `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
       );
-
     } catch (error) {
       console.error('Error in bulk credit deduction:', error);
       throw error;

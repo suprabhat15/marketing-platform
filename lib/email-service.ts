@@ -59,8 +59,11 @@ export class EmailService {
 
       // Track the credit usage with Polar
       try {
-        await trackEmailCreditUsage(userId, recipientCount);
-        console.log(`Reserved ${recipientCount} credits via Polar for campaign ${campaignId}`);
+        // await trackEmailCreditUsage(userId, recipientCount); // NOT NEEDED COZ ON SES SENT WEBHOOK, ingestion to Polar is taking place.
+        // Also, we are already checing the credit availability.
+        console.log(
+          `Reserved ${recipientCount} credits via Polar for campaign ${campaignId}`
+        );
       } catch (polarError) {
         console.error('Polar tracking failed, falling back to local credit service:', polarError);
         
