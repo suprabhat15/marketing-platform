@@ -18,9 +18,11 @@ const CREDIT_PRICING = {
   // 500000: 500.00,
 } as const;
 
+const PRODUCT_ID_10000 = process.env.POLAR_PRODUCT_ID_SANDBOX || '';
+
 // Product ID to credit mapping (matching auth.ts products)
 const PRODUCT_CREDIT_MAPPING = {
-  'ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c': 10000, // 10k-Credits
+  [PRODUCT_ID_10000]: 10000, // 10k-Credits
   // '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000,   // 20k-Credits
   // '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000,   // 50k-Credits
   // 'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000,  // 100k-Credits
@@ -48,7 +50,7 @@ export async function POST(request: NextRequest) {
     const userAgent = request.headers.get('user-agent');
     const host = request.headers.get('host');
     const contentType = request.headers.get('content-type');
-    
+
     // Log request details for debugging
     console.log('Webhook request details:', {
       hasPayload: !!payload,
@@ -67,13 +69,18 @@ export async function POST(request: NextRequest) {
         contentType,
         payloadPreview: payload.substring(0, 200),
       });
-      
+
       // For development: Allow testing without signature if payload looks like a test
       const isDevelopment = process.env.NODE_ENV === 'development';
-      const isLocalhost = host?.includes('localhost') || host?.includes('127.0.0.1') || host?.includes('ngrok');
-      
+      const isLocalhost =
+        host?.includes('localhost') ||
+        host?.includes('127.0.0.1') ||
+        host?.includes('ngrok');
+
       if (isDevelopment || isLocalhost) {
-        console.warn('⚠️ DEVELOPMENT MODE: Processing webhook without signature verification');
+        console.warn(
+          '⚠️ DEVELOPMENT MODE: Processing webhook without signature verification'
+        );
         // Continue processing below
       } else {
         return NextResponse.json(
@@ -87,7 +94,9 @@ export async function POST(request: NextRequest) {
     if (signature) {
       const webhookSecret = process.env.POLAR_WEBHOOK_SECRET_SANDBOX;
       if (!webhookSecret) {
-        console.error('POLAR_WEBHOOK_SECRET_SANDBOX environment variable not set');
+        console.error(
+          'POLAR_WEBHOOK_SECRET_SANDBOX environment variable not set'
+        );
         return NextResponse.json(
           { error: 'Webhook secret not configured' },
           { status: 500 }
@@ -102,10 +111,12 @@ export async function POST(request: NextRequest) {
           { status: 401 }
         );
       }
-      
+
       console.log('✅ Webhook signature verified successfully');
     } else {
-      console.warn('⚠️ Processing webhook without signature verification (development mode)');
+      console.warn(
+        '⚠️ Processing webhook without signature verification (development mode)'
+      );
     }
 
     const event: PolarWebhookEvent = JSON.parse(payload);
@@ -221,23 +232,11 @@ async function handleCheckoutUpdated(data: any) {
 
 // Customer event handlers
 async function handleCustomerCreated(data: any) {
-  console.log('Processing customer.created:', data);
+  console.log('🎯 [POLAR WEBHOOK] Processing customer.created:', data);
 
   try {
-    const externalId = data.externalId;
-
-    if (externalId) {
-      // Update user with Polar customer ID
-      await prisma.user.update({
-        where: { id: externalId },
-        data: {
-          polarCustomerId: data.id,
-        },
-      });
-      console.log(`Customer created and linked to user ${externalId}`);
-    }
   } catch (error) {
-    console.error('Error handling customer.created:', error);
+    console.error('❌ [POLAR WEBHOOK] Error handling customer.created:', error);
   }
 }
 
@@ -245,11 +244,25 @@ async function handleCustomerUpdated(data: any) {
   console.log('Processing customer.updated:', data);
 
   try {
-    const externalId = data.externalId;
+    const externalId = data.external_id;
 
     if (externalId) {
+      await prisma.user.update({
+        where: { id: externalId },
+        data: {
+          polarCustomerId: externalId,
+        },
+      });
       // Sync any customer updates if needed
       console.log(`Customer ${data.id} updated for user ${externalId}`);
+
+      const { assignOnboardingCredits } = await import('@/lib/polar');
+      const result = await assignOnboardingCredits(externalId);
+
+      console.log(
+        `✅ [POLAR WEBHOOK] Customer ${data.id} created, linked to user ${externalId}, and onboarding credits processed:`,
+        result
+      );
     }
   } catch (error) {
     console.error('Error handling customer.updated:', error);
@@ -260,7 +273,7 @@ async function handleCustomerDeleted(data: any) {
   console.log('Processing customer.deleted:', data);
 
   try {
-    const externalId = data.externalId;
+    const externalId = data.external_id;
 
     if (externalId) {
       // Remove Polar customer ID from user
@@ -281,7 +294,7 @@ async function handleCustomerStateChanged(data: any) {
   console.log('Processing customer.state_changed:', data);
 
   try {
-    const externalId = data.externalId;
+    const externalId = data.external_id;
 
     if (externalId) {
       console.log(`Customer state changed for user ${externalId}:`, data.state);
@@ -292,7 +305,7 @@ async function handleCustomerStateChanged(data: any) {
 }
 
 // Order event handlers
-async function handleOrderCreated(data: any) {
+export async function handleOrderCreated(data: any) {
   console.log('Processing order.created:', data);
 
   try {
@@ -327,7 +340,7 @@ async function handleOrderCreated(data: any) {
     await prisma.order.create({
       data: {
         polarOrderId: data.id,
-        customerId: data.customer?.id || data.customerId,
+        customerId: data.customer?.id || data.customerId, // maybe it would be data.subscription.customer_id
         status: 'PAID',
         productId: data.product?.id,
         amount: calculatedAmount,
@@ -425,14 +438,18 @@ async function handleOrderRefunded(data: any) {
 }
 
 // Subscription event handlers
-async function handleSubscriptionCreated(data: any) {
+export async function handleSubscriptionCreated(data: any) {
   console.log('Processing subscription.created:', data);
 
   try {
-    const userId = data.customer?.external_id;
+    // Try multiple ways to get the user ID
+    const userId = data.customer?.external_id || data.metadata?.userId;
 
     if (!userId) {
-      console.error('No external_id found in customer data for subscription');
+      console.error(
+        '❌ No external_id, externalId, or userId found in subscription data:',
+        data
+      );
       return;
     }
 
@@ -518,12 +535,18 @@ async function handleSubscriptionCreated(data: any) {
     });
 
     // Update user's Polar customer ID if not set
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        polarCustomerId: data.customer?.id || data.customer_id,
-      },
-    });
+    const customerId = data.customer?.id || data.customer_id;
+    if (customerId) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: {
+          polarCustomerId: customerId,
+        },
+      });
+      console.log(
+        `✅ Updated user ${userId} with Polar customer ID: ${customerId}`
+      );
+    }
 
     console.log(
       `Subscription created for user ${userId} with ${remainingCredits} remaining credits`
@@ -537,11 +560,16 @@ async function handleSubscriptionUpdated(data: any) {
   // console.log('Processing subscription.updated:', data);
 
   try {
-    const userId = data.customer?.external_id;
+    // Try multiple ways to get the user ID
+    const userId =
+      data.customer?.external_id ||
+      data.customer?.externalId ||
+      data.metadata?.userId;
 
     if (!userId) {
       console.error(
-        'No external_id found in customer data for subscription update'
+        '❌ No external_id, externalId, or userId found in subscription update:',
+        data
       );
       return;
     }
@@ -617,10 +645,10 @@ async function handleSubscriptionUpdated(data: any) {
 
 async function handleSubscriptionCanceled(data: any) {
   console.log('Processing subscription.canceled:', data);
-  
+
   try {
     const userId = data.customer?.external_id || data.metadata?.userId;
-    
+
     if (!userId) {
       console.error('No userId found in subscription metadata');
       return;
@@ -643,13 +671,12 @@ async function handleSubscriptionCanceled(data: any) {
       data: {
         status: 'CANCELED',
         canceledAt: data.canceled_at ? new Date(data.canceled_at) : new Date(),
-        // Keep totalCredits, usedCredits, and remainingCredits unchanged
-        // This allows users to continue using remaining credits
       },
     });
 
-    console.log(`Subscription canceled for user ${userId}. User retains ${currentSubscription.remainingCredits} remaining credits.`);
-    
+    console.log(
+      `Subscription canceled for user ${userId}. User retains ${currentSubscription.remainingCredits} remaining credits.`
+    );
   } catch (error) {
     console.error('Error handling subscription.canceled:', error);
   }

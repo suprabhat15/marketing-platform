@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-// import { CampaignProgressTracker } from '@/lib/campaign-progress';
 import crypto from 'crypto';
 
 interface SESEventRecord {
@@ -78,16 +77,16 @@ interface SNSMessage {
 // Map SES event types to our database enum
 const mapEventType = (sesEventType: string): string => {
   const mapping: Record<string, string> = {
-    'send': 'SENT',
-    'delivery': 'DELIVERED',
-    'open': 'OPENED',
-    'click': 'CLICKED',
-    'bounce': 'BOUNCED',
-    'complaint': 'COMPLAINED',
-    'reject': 'BOUNCED', // Treat rejects as bounces
-    'renderingFailure': 'BOUNCED', // Treat rendering failures as bounces
+    send: 'SENT',
+    delivery: 'DELIVERED',
+    open: 'OPENED',
+    click: 'CLICKED',
+    bounce: 'BOUNCED',
+    complaint: 'COMPLAINED',
+    reject: 'BOUNCED', // Treat rejects as bounces
+    renderingFailure: 'BOUNCED', // Treat rendering failures as bounces
   };
-  
+
   return mapping[sesEventType.toLowerCase()] || sesEventType.toUpperCase();
 };
 
@@ -100,7 +99,7 @@ async function verifySNSSignature(
     const messageId = headers.get('x-amz-sns-message-id');
     const messageType = headers.get('x-amz-sns-message-type');
     const topicArn = headers.get('x-amz-sns-topic-arn');
-    
+
     // Basic header validation
     if (!messageId || !messageType || !topicArn) {
       console.error('Missing required SNS headers');
@@ -111,7 +110,7 @@ async function verifySNSSignature(
     const message = JSON.parse(body);
     const signature = message.Signature;
     const signingCertURL = message.SigningCertURL;
-    
+
     if (!signature || !signingCertURL) {
       console.error('Missing signature or signing cert URL');
       return false;
@@ -150,8 +149,7 @@ export async function POST(request: NextRequest) {
     // }
 
     const snsMessage: SNSMessage = JSON.parse(body);
-    console.log('snsMessage Details: ', snsMessage); // " sesEvent Detailss: ", JSON.parse(snsMessage.Message)
-    // Handle SNS subscription confirmation
+    // console.log('snsMessage Details: ', snsMessage); // " sesEvent Detailss: ", JSON.parse(snsMessage.Message)
     if (snsMessage.Type === 'SubscriptionConfirmation') {
       console.log(
         'SNS Subscription confirmation received for topic:',

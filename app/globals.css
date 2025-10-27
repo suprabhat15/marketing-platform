@@ -119,4 +119,26 @@
   body {
     @apply bg-background text-foreground;
   }
+  
+  
+  /* Layout optimization to prevent shifts */
+  .page-container {
+    min-height: 100vh;
+    contain: layout style;
+  }
+  
+  
+  /* Reduce animation jank */
+  .loading-spinner {
+    will-change: transform;
+    contain: layout style paint;
+  }
+  
+  /* Improve text rendering */
+  .text-content {
+    text-rendering: optimizeSpeed;
+    font-smooth: always;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }

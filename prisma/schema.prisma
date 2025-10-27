@@ -4,14 +4,15 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -132,6 +133,9 @@ model Event {
   campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade) 
   // Cascade:deletion of campaign will delete all 
   // the events associated with deleted campaign
+  
+  // Prevent duplicate events for same subscriber/campaign/type/messageId
+  @@unique([subscriberId, campaignId, type, data])
   @@map("event")
 }
 
@@ -277,7 +281,7 @@ model Order {
   polarOrderId  String   @unique // Polar's order ID
   customerId    String   // Polar customer ID
   productId     String   // Polar product ID
-  amount        Int      // Amount in cents
+  amount        Float      // Amount in cents
   currency      String   @default("USD")
   status        OrderStatus @default(PENDING)
   credits       Int      @default(0) // Credits purchased

@@ -47,6 +47,13 @@ export const sesClient = new SESClient({
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
   },
+  // Add timeout configuration
+  requestHandler: {
+    requestTimeout: 30000, // 30 seconds
+    connectionTimeout: 10000, // 10 seconds
+  },
+  maxAttempts: 3,
+  retryMode: 'adaptive',
 });
 
 export interface SendEmailParams {
@@ -71,10 +78,18 @@ export async function sendEmail({
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
   campaignId,
   messageId,
-}: SendEmailParams) {
+}: SendEmailParams): Promise<{
+  success: boolean;
+  error?: { code: string; message: string };
+}> {
+  // Add timeout wrapper
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('SES request timeout')), 25000); // 25 second timeout
+  });
+
   // Get the recipient email for tracking
   const recipientEmail = to[0]; // Assuming single recipient per call
-  
+
   // Always ensure we have HTML content - wrap text in full HTML if needed
   let fullHtml = html;
   if (!html && text) {
@@ -87,30 +102,43 @@ export async function sendEmail({
     // Fallback to empty HTML structure
     fullHtml = wrapInFullHtml('', false);
   }
-  
+
   // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
-  const trackingData = campaignId ? Buffer.from(JSON.stringify({
-    email: recipientEmail,
-    campaignId,
-    messageId: messageId || Date.now().toString()
-  })).toString('base64') : '';
-  
-  const trackingPixel = campaignId ? 
-    `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />` : '';
-  
+  const trackingData = campaignId
+    ? Buffer.from(
+        JSON.stringify({
+          email: recipientEmail,
+          campaignId,
+          messageId: messageId || Date.now().toString(),
+        })
+      ).toString('base64')
+    : '';
+
+  const trackingPixel = campaignId
+    ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
+    : '';
+
   // Process HTML to add click tracking
-  let processedHtml = campaignId ? addClickTracking(fullHtml, campaignId, messageId) : fullHtml;
-  
+  let processedHtml = campaignId
+    ? addClickTracking(fullHtml, campaignId, messageId)
+    : fullHtml;
+
   // Replace {{email}} placeholder in tracking URLs with actual email
   if (campaignId) {
-    processedHtml = processedHtml.replace(/{{email}}/g, encodeURIComponent(recipientEmail));
+    processedHtml = processedHtml.replace(
+      /{{email}}/g,
+      encodeURIComponent(recipientEmail)
+    );
   }
-  
+
   // Add tracking pixel before closing body tag
   if (trackingPixel) {
-    processedHtml = processedHtml.replace('</body>', `  ${trackingPixel}\n</body>`);
+    processedHtml = processedHtml.replace(
+      '</body>',
+      `  ${trackingPixel}\n</body>`
+    );
   }
-  
+
   // Use the original subject without campaign metadata (tracking is done via SES tags)
   const trackedSubject = subject;
 
@@ -134,19 +162,53 @@ export async function sendEmail({
     },
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,
-    Tags: campaignId ? [
-      {
-        Name: 'campaignId',
-        Value: campaignId,
-      },
-      ...(messageId ? [{
-        Name: 'messageId',
-        Value: messageId,
-      }] : []),
-    ] : undefined,
+    Tags: campaignId
+      ? [
+          {
+            Name: 'campaignId',
+            Value: campaignId,
+          },
+          ...(messageId
+            ? [
+                {
+                  Name: 'messageId',
+                  Value: messageId,
+                },
+              ]
+            : []),
+        ]
+      : undefined,
   });
 
-  return await sesClient.send(command);
+  try {
+    // Race between SES call and timeout
+    const result = await Promise.race([
+      sesClient.send(command),
+      timeoutPromise,
+    ]);
+
+    return { success: true };
+  } catch (error: any) {
+    // Handle timeout specifically
+    if (error.message === 'SES request timeout') {
+      return {
+        success: false,
+        error: {
+          code: 'TimeoutError',
+          message: 'SES request timed out after 25 seconds',
+        },
+      };
+    }
+
+    // Return structured error instead of throwing
+    return {
+      success: false,
+      error: {
+        code: error.code || error.name || 'UnknownError',
+        message: error.message || 'Unknown SES error',
+      },
+    };
+  }
 }
 
 export interface BulkEmailDestination {

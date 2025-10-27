@@ -67,17 +67,6 @@ export default function CampaignDetailPage() {
   const router = useRouter();
   const campaignId = params?.campaignId as string;
   const { data: session } = useSession();
-  
-  // Debug logging for SSE connection issues
-  useEffect(() => {
-    console.log(`📋 Campaign page state changed:`, {
-      campaignId,
-      userId: session?.user?.id,
-      hasSession: !!session,
-      hasUserId: !!session?.user?.id
-    });
-  }, [campaignId, session?.user?.id, session]);
-
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [events, setEvents] = useState<Event[]>([]);
   const [pagination, setPagination] = useState({
@@ -189,11 +178,19 @@ export default function CampaignDetailPage() {
   }, [campaignId, pageSize]);
 
   // Debounced fetch function with 500ms delay
-  const fetchEvents = useCallback((page: number = 1, search: string = '', status: string = 'all', limit: number = pageSize, immediate: boolean = false, showLoader: boolean = false) => {
-    // Clear existing timeout
-    if (fetchTimeoutRef.current) {
-      clearTimeout(fetchTimeoutRef.current);
-    }
+  const fetchEvents = useCallback(
+    (
+      page: number = 1,
+      search: string = '',
+      status: string = 'all',
+      limit: number = pageSize,
+      immediate: boolean = false,
+      showLoader: boolean = false
+    ) => {
+      // Clear existing timeout
+      if (fetchTimeoutRef.current) {
+        clearTimeout(fetchTimeoutRef.current);
+      }
 
     if (immediate) {
       // Fetch immediately for certain operations
@@ -360,23 +357,6 @@ export default function CampaignDetailPage() {
 
           {/* Campaign Stats */}
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            {/* <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center gap-3">
-                  <Badge className={getStatusColor(campaign.status)} variant="outline">
-                    <div className="w-2 h-2 rounded-full mr-2" />
-                    Status
-                  </Badge>
-                  <div>
-                    <div className="text-2xl font-bold">
-                      {campaign.status === 'SENT' ? 'Completed' : campaign.status}
-                    </div>
-                    <p className="text-xs text-muted-foreground">Campaign Status</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card> */}
-
             <Card>
               <CardContent className="pt-6">
                 <div className="flex items-center gap-3">

@@ -116,14 +116,17 @@ export async function POST(
       });
     } else {
       // Check if there are active subscribers
-      if (campaign.list.subscribers.length === 0) {
+      const activeSubscribersCount = campaign.list.subscribers.length;
+      if (activeSubscribersCount === 0) {
         return NextResponse.json(
           { error: 'No active subscribers found in the selected list' },
           { status: 400 }
         );
       }
 
-      console.log(`🚀 Queuing campaign ${campaignId} with ${campaign.list.subscribers.length} subscribers`);
+      console.log(
+        `🚀 Queuing campaign ${campaignId} with ${activeSubscribersCount} subscribers`
+      );
 
       // Update campaign status to queued first
       await prisma.campaign.update({
@@ -145,10 +148,10 @@ export async function POST(
         message: 'Campaign queued for sending',
         status: 'QUEUED',
         jobId: job.id,
-        subscriberCount: campaign.list.subscribers.length,
+        subscriberCount: activeSubscribersCount,
         batchSize,
-        estimatedBatches: Math.ceil(campaign.list.subscribers.length / batchSize),
-        queuedAt: new Date().toISOString()
+        estimatedBatches: Math.ceil(activeSubscribersCount / batchSize),
+        queuedAt: new Date().toISOString(),
       });
     }
   } catch (error) {
