@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sesClient } from "@/lib/ses";
+import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
 
 // Lazy import getUserDomains to reduce initial bundle
 async function getUserDomains(userId: string) {
@@ -28,9 +29,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const domains = await getUserDomains(session.user.id);
+    // Check cache first
+    const cacheKey = generateUserCacheKey(session.user.id, 'domains');
+    const cachedData = await RedisCache.get(cacheKey);
+    
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
 
-    return NextResponse.json({ domains });
+    const domains = await getUserDomains(session.user.id);
+    const responseData = { domains };
+
+    // Cache the response for 1 minute
+    await RedisCache.set(cacheKey, responseData, { ttl: 60 });
+
+    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('Error fetching user domains:', error);
@@ -93,6 +106,9 @@ export async function DELETE(request: NextRequest) {
     if (deletedDomain.count === 0) {
       return NextResponse.json({ error: 'Domain not found' }, { status: 404 });
     }
+
+    // Invalidate domains cache for this user
+    await invalidateUserCache(session.user.id, 'domains');
 
     return NextResponse.json({ message: 'Domain unlinked successfully' });
 

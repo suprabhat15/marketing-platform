@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { emailQueue, batchQueue } from '@/lib/queue';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 export async function GET(
   request: NextRequest,
@@ -135,6 +136,9 @@ export async function DELETE(
         userId: session?.user.id,
       },
     });
+
+    // Invalidate campaigns cache for this user
+    await invalidateUserCache(session.user.id, 'campaigns');
 
     return NextResponse.json({ message: 'Campaign deleted successfully' });
   } catch (error) {

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { addCampaignToQueue } from '@/lib/queue';
 import { z } from 'zod';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 const sendCampaignSchema = z.object({
   scheduleAt: z.string().datetime().optional(),
@@ -110,6 +111,9 @@ export async function POST(
         },
       });
 
+      // Invalidate campaigns cache
+      await invalidateUserCache(session.user.id, 'campaigns');
+
       return NextResponse.json({
         message: 'Campaign scheduled successfully',
         scheduledAt: scheduledDate,
@@ -141,6 +145,9 @@ export async function POST(
       const job = await addCampaignToQueue(campaign.id, session.user.id, {
         batchSize
       });
+
+      // Invalidate campaigns cache
+      await invalidateUserCache(session.user.id, 'campaigns');
 
       console.log(`✅ Campaign ${campaignId} queued successfully with job ID: ${job.id}`);
 

@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { createCampaignSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
+import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,6 +13,14 @@ export async function GET(request: NextRequest) {
 
     if (!session) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Try to get from cache first
+    const cacheKey = generateUserCacheKey(session.user.id, 'campaigns');
+    const cachedData = await RedisCache.get(cacheKey);
+    
+    if (cachedData) {
+      return NextResponse.json(cachedData);
     }
 
     const campaigns = await prisma.campaign.findMany({
@@ -119,11 +128,16 @@ export async function GET(request: NextRequest) {
     // Available event types for frontend filtering
     const availableEventTypes = ['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED'];
 
-    return NextResponse.json({ 
+    const responseData = { 
       campaigns: groupedCampaigns, 
       stats,
       availableEventTypes
-    });
+    };
+
+    // Cache the response for 1 minute
+    await RedisCache.set(cacheKey, responseData, { ttl: 60 });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('API Error:', error);
     return NextResponse.json(
@@ -174,6 +188,9 @@ export async function POST(request: NextRequest) { // Created first campaign via
         replyTo
       },
     });
+
+    // Invalidate campaigns cache for this user
+    await invalidateUserCache(session.user.id, 'campaigns');
 
     return NextResponse.json({ campaign }, { status: 201 });
   } catch (error) {
