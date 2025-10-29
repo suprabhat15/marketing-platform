@@ -6,35 +6,11 @@ import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const creditOptions = [
-  { 
-    credits: 10000, 
-    price: 10.00,
-    productId: '21f0fc55-39e4-4bd8-9f68-99858cc613a4',
-    slug: '10k-Credits'
-  },
-  { 
-    credits: 20000, 
-    price: 20.00,
-    productId: '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11',
-    slug: '20k-Credits'
-  },
-  { 
-    credits: 50000, 
-    price: 50.00,
-    productId: '9ffd8b08-bb25-43f3-aa32-d4f3257a7862',
-    slug: '50k-Credits'
-  },
-  { 
-    credits: 100000, 
-    price: 100.00,
-    productId: 'c474152d-b7ba-4083-b1f1-63f23b08e57b',
-    slug: '100k-Credits'
-  },
-  { 
-    credits: 500000, 
-    price: 500.00,
-    productId: 'e2d782da-6fae-45da-af5d-8975af1a258a',
-    slug: '500k-Credits'
+  {
+    credits: 10000,
+    price: 10.0,
+    productId: process.env.POLAR_PRODUCT_ID_SANDBOX, // ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c
+    slug: '10k-Credits',
   },
 ];
 

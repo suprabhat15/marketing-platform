@@ -35,3 +35,11 @@ export const updateListBasicSchema = z.object({
 
 export type CreateListData = z.infer<typeof createListSchema>;
 export type UpdateListData = z.infer<typeof updateListSchema>;
+
+// Pagination schema
+export const paginationSchema = z.object({
+  page: z.coerce.number().int().min(1).catch(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).catch(25).default(25),
+});
+
+export type PaginationParams = z.infer<typeof paginationSchema>;

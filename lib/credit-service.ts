@@ -109,10 +109,14 @@ export class CreditService {
   ) {
     if (syncFromPolar) {
       // Import here to avoid circular dependency
-      const { getUserCreditBalance } = await import('./polar');
-      return await getUserCreditBalance(userId, true);
+      const { getUserCreditBalanceWithSync } = await import('./polar');
+      return await getUserCreditBalanceWithSync(userId, {
+        syncFromPolar: true,
+        updateSubscriptionStatus: false,
+      });
     }
 
+    // Keep existing local database logic unchanged
     const subscription = await prisma.subscription.findFirst({
       where: {
         userId,
@@ -160,85 +164,85 @@ export class CreditService {
   }
 
   // Bulk deduct credits for multiple events (e.g., campaign sending)
-  static async bulkDeductCredits(
-    // TODO: On sending campaign, this func shud be executed but we're using single email sending pattern
-    userId: string,
-    eventType: EventType,
-    count: number,
-    metadata?: Record<string, any>
-  ): Promise<void> {
-    if (!this.CREDIT_CONSUMING_EVENTS.includes(eventType)) {
-      return;
-    }
+  // static async bulkDeductCredits(
+  //   // TODO: On sending campaign, this func shud be executed but we're using single email sending pattern
+  //   userId: string,
+  //   eventType: EventType,
+  //   count: number,
+  //   metadata?: Record<string, any>
+  // ): Promise<void> {
+  //   if (!this.CREDIT_CONSUMING_EVENTS.includes(eventType)) {
+  //     return;
+  //   }
 
-    try {
-      const subscription = await prisma.subscription.findFirst({
-        where: {
-          userId,
-          OR: [
-            { status: 'ACTIVE' },
-            {
-              status: 'CANCELED',
-              remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
-            },
-          ],
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-        include: {
-          user: true,
-        },
-      });
+  //   try {
+  //     const subscription = await prisma.subscription.findFirst({
+  //       where: {
+  //         userId,
+  //         OR: [
+  //           { status: 'ACTIVE' },
+  //           {
+  //             status: 'CANCELED',
+  //             remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
+  //           },
+  //         ],
+  //       },
+  //       orderBy: {
+  //         createdAt: 'desc',
+  //       },
+  //       include: {
+  //         user: true,
+  //       },
+  //     });
 
-      if (!subscription) {
-        throw new Error(
-          `No active subscription or canceled subscription with credits found for user ${userId}`
-        );
-      }
+  //     if (!subscription) {
+  //       throw new Error(
+  //         `No active subscription or canceled subscription with credits found for user ${userId}`
+  //       );
+  //     }
 
-      if (subscription.remainingCredits < count) {
-        throw new Error(
-          `Insufficient credits. Required: ${count}, Available: ${subscription.remainingCredits}`
-        );
-      }
+  //     if (subscription.remainingCredits < count) {
+  //       throw new Error(
+  //         `Insufficient credits. Required: ${count}, Available: ${subscription.remainingCredits}`
+  //       );
+  //     }
 
-      // Deduct credits
-      const newUsedCredits = subscription.usedCredits + count;
-      const newRemainingCredits = subscription.totalCredits - newUsedCredits;
+  //     // Deduct credits
+  //     const newUsedCredits = subscription.usedCredits + count;
+  //     const newRemainingCredits = subscription.totalCredits - newUsedCredits;
 
-      await prisma.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          usedCredits: newUsedCredits,
-          remainingCredits: newRemainingCredits,
-        },
-      });
+  //     await prisma.subscription.update({
+  //       where: { id: subscription.id },
+  //       data: {
+  //         usedCredits: newUsedCredits,
+  //         remainingCredits: newRemainingCredits,
+  //       },
+  //     });
 
-      // Ingest bulk event to Polar
-      if (subscription.meterId) {
-        await ingestEvent({
-          name: 'SENT',
-          externalCustomerId: userId,
-          timestamp: new Date(),
-          metadata: {
-            source: 'bulk deduct credit',
-            event_type: eventType,
-            credits_consumed: count,
-            user_id: userId,
-            subscription_id: subscription.id,
-            ...metadata,
-          },
-        });
-      }
+  //     // Ingest bulk event to Polar
+  //     if (subscription.meterId) {
+  //       await ingestEvent({
+  //         name: 'SENT',
+  //         externalCustomerId: userId,
+  //         timestamp: new Date(),
+  //         metadata: {
+  //           source: 'bulk deduct credit',
+  //           event_type: eventType,
+  //           credits_consumed: count,
+  //           user_id: userId,
+  //           subscription_id: subscription.id,
+  //           ...metadata,
+  //         },
+  //       });
+  //     }
 
-      console.log(
-        `Bulk credit deduction for user ${userId}: ${count} credits for ${eventType}. ` +
-          `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
-      );
-    } catch (error) {
-      console.error('Error in bulk credit deduction:', error);
-      throw error;
-    }
-  }
+  //     console.log(
+  //       `Bulk credit deduction for user ${userId}: ${count} credits for ${eventType}. ` +
+  //         `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
+  //     );
+  //   } catch (error) {
+  //     console.error('Error in bulk credit deduction:', error);
+  //     throw error;
+  //   }
+  // }
 }

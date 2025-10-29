@@ -376,6 +376,7 @@ async function processEventForRecipient(
 
     // Map the event type
     const eventType = mapEventType(sesEvent.eventType);
+    console.log('-------------- EVENT TYPE CHECKING ------------- ', eventType);
 
     // Check for existing event to prevent duplicates
     // Look for events with same type, subscriber, campaign, and messageId within last 10 minutes
@@ -506,39 +507,6 @@ async function processEventForRecipient(
 
       return newEvent;
     });
-
-    // Process credit deduction and Polar ingestion for SENT events
-    if (eventType === 'SENT') {
-      try {
-        // Get campaign to find userId
-        const campaign = await prisma.campaign.findUnique({
-          where: { id: campaignId },
-          select: { userId: true },
-        });
-
-        if (campaign?.userId) {
-          const { CreditService } = await import('@/lib/credit-service');
-          await CreditService.processEmailEvent(campaign.userId, 'SENT', {
-            campaignId: campaignId,
-            subscriberId: subscriber.id,
-            metadata: {
-              messageId: sesEvent.mail.messageId,
-              recipientEmail: recipientEmail,
-              timestamp: sesEvent.mail.timestamp,
-            },
-          });
-          console.log(
-            `📊 Credit processed and SENT event ingested to Polar for user ${campaign.userId}`
-          );
-        }
-      } catch (creditError) {
-        console.error(
-          '❌ Error processing credit/Polar ingestion:',
-          creditError
-        );
-        // Don't fail webhook - event was created successfully
-      }
-    }
 
     // Only broadcast after successful database commit
     try {

@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { addCampaignToQueue } from '@/lib/queue';
 import { z } from 'zod';
 import { invalidateUserCache } from '@/lib/redis-cache';
+import { sesQuotaManager } from '@/lib/ses-quota-manager';
 
 const sendCampaignSchema = z.object({
   scheduleAt: z.string().datetime().optional(),
@@ -125,6 +126,22 @@ export async function POST(
         return NextResponse.json(
           { error: 'No active subscribers found in the selected list' },
           { status: 400 }
+        );
+      }
+
+      // Check SES quota before sending campaign
+      const quotaCheck = await sesQuotaManager.canSendCampaign(activeSubscribersCount);
+      if (!quotaCheck.canSend) {
+        return NextResponse.json(
+          { 
+            error: quotaCheck.reason,
+            quotaInfo: {
+              dailyLimit: quotaCheck.quotaInfo.max24HourSend,
+              sentToday: quotaCheck.quotaInfo.sentLast24Hours,
+              remaining: quotaCheck.quotaInfo.remainingQuota
+            }
+          },
+          { status: 429 } // Too Many Requests
         );
       }
 

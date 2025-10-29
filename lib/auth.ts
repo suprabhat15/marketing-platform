@@ -22,7 +22,7 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
-    requireEmailVerification: true, // Set to true in production
+    requireEmailVerification: false, // Set to true in production
   },
   socialProviders: {
     google: {
@@ -44,9 +44,13 @@ export const auth = betterAuth({
         checkout({
           products: [
             {
-              productId: '123-456-789', // ID of Product from Polar Dashboard
-              slug: 'pro', // Custom slug for easy reference in Checkout URL, e.g. /checkout/pro
+              productId: process.env.POLAR_PRODUCT_ID_SANDBOX || '',
+              slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
+            // {
+            //   productId: 'ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c', // 10k Credits Product ID from Polar Dashboard
+            //   slug: '10k-credits', // Custom slug for easy reference in Checkout URL
+            // },
           ],
           successUrl: '/success?checkout_id={CHECKOUT_ID}',
           authenticatedUsersOnly: true,

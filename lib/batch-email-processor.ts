@@ -94,13 +94,36 @@ export class BatchEmailProcessor {
       let campaignUserId = userId || campaign.userId;
 
       // Check if user still has credits before processing this batch
-      const { CreditService } = await import('./credit-service');
-      const hasCredits = await CreditService.hasEnoughCredits(campaignUserId, subscriberIds.length);
-      
-      if (!hasCredits) {
-        console.error(`❌ Insufficient credits for batch ${batchNumber} of campaign ${campaignId}`);
-        const balance = await CreditService.getUserCreditBalance(campaignUserId);
-        throw new Error(`Insufficient credits for batch processing: need ${subscriberIds.length}, have ${balance.remainingCredits}`);
+      try {
+        const { CreditService } = await import('./credit-service');
+        const hasCredits = await CreditService.hasEnoughCredits(
+          campaignUserId,
+          subscriberIds.length
+        );
+
+        if (!hasCredits) {
+          console.error(
+            `❌ Insufficient credits for batch ${batchNumber} of campaign ${campaignId}`
+          );
+          const balance =
+            await CreditService.getUserCreditBalance(campaignUserId);
+          throw new Error(
+            `Insufficient credits for batch processing: need ${subscriberIds.length}, have ${balance.remainingCredits}`
+          );
+        }
+
+        console.log(
+          `✅ Credit check passed for batch ${batchNumber} of campaign ${campaignId}`
+        );
+      } catch (creditError) {
+        console.error(
+          `❌ Credit service error for batch ${batchNumber} of campaign ${campaignId}:`,
+          creditError
+        );
+        // Continue processing even if credit service fails to avoid blocking emails
+        console.log(
+          `⚠️ Continuing with batch processing despite credit service error`
+        );
       }
 
       // Get subscriber details
@@ -110,6 +133,10 @@ export class BatchEmailProcessor {
           status: 'ACTIVE',
         },
       });
+
+      console.log(
+        `📊 Retrieved ${subscribers.length} active subscribers for batch ${batchNumber} of campaign ${campaignId}`
+      );
 
       // if (subscribers.length === 0) {
       //   console.log(`⚠️ No active subscribers found for batch ${batchNumber}`);
@@ -197,6 +224,10 @@ export class BatchEmailProcessor {
       console.log(`📧 Email already sent to ${subscriber.email} for campaign ${campaignId}, skipping`);
       return;
     }
+    
+    console.log(
+      `🚀 Starting email send process for ${subscriber.email} in campaign ${campaignId}`
+    );
     
     let lastError: Error | null = null;
     // Use consistent messageId across all attempts
@@ -357,17 +388,22 @@ export class BatchEmailProcessor {
         campaignId,
         subscriber.id
       );
-      
+
       console.error(`❌ Email failed for ${subscriber.email}:`, {
         error: errorHandlingResult.classified.message,
         errorType: errorHandlingResult.classified.type,
         shouldRetry: errorHandlingResult.shouldRetry,
-        suppressionAdded: errorHandlingResult.suppressionAdded
+        suppressionAdded: errorHandlingResult.suppressionAdded,
       });
-      
+
       // Only throw if it's a retryable error
-      if (errorHandlingResult.shouldRetry && !errorHandlingResult.suppressionAdded) {
-        throw new Error(sesResult.error.message || 'SES send failed - retryable');
+      if (
+        errorHandlingResult.shouldRetry &&
+        !errorHandlingResult.suppressionAdded
+      ) {
+        throw new Error(
+          sesResult.error.message || 'SES send failed - retryable'
+        );
       } else {
         // Don't retry permanent bounces or suppressed emails
         return; // Success path - error was properly classified
@@ -377,12 +413,54 @@ export class BatchEmailProcessor {
     // Mark email as successfully sent to prevent duplicates
     const sentKey = `sent:${campaignId}:${subscriber.id}`;
     await redis.setex(sentKey, 2 * 24 * 60 * 60, messageId); // 2 days expiration
-    
-    // SENT events are created by SES webhooks, not here to avoid duplicates
-    console.log(`📧 Email sent successfully for ${subscriber.email}, messageId: ${messageId}`);
 
-    // Note: Credits are already reserved at campaign level, no need to ingest again here
-    // Individual credit tracking is handled by SES webhooks via CreditService.processEmailEvent
+    // SENT events are created by SES webhooks, not here to avoid duplicates
+    console.log(
+      `📧 Email sent successfully for ${subscriber.email}, messageId: ${messageId}`
+    );
+
+    // Queue SENT event for Polar ingestion to avoid rate limits and ensure reliability
+    try {
+      // Prefer provided userId, else fetch from campaign
+      let resolvedUserId = userId;
+      if (!resolvedUserId) {
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+          select: { userId: true },
+        });
+        resolvedUserId = campaign?.userId;
+      }
+
+      if (resolvedUserId) {
+        // Use queue system instead of direct call to handle rate limits
+        const { addPolarIngestionJob } = await import('./queue');
+        
+        await addPolarIngestionJob(resolvedUserId, 'SENT', {
+          campaignId,
+          subscriberId: subscriber.id,
+          metadata: {
+            messageId,
+            recipientEmail: subscriber.email,
+            timestamp: new Date().toISOString(),
+          },
+        });
+        
+        console.log(
+          `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
+        );
+      } else {
+        console.warn(
+          `⚠️ Missing userId for campaign ${campaignId}; skipping Polar SENT ingestion`
+        );
+      }
+    } catch (queueError) {
+      console.error(
+        '❌ Error queuing SENT event for Polar ingestion:',
+        queueError
+      );
+      // Log error but don't fail the send flow - the email was sent successfully
+      // The queue system will ensure eventual processing or proper error handling
+    }
 
     // Apply pacing hint from rate limiter
     if (

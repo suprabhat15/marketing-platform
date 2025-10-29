@@ -330,114 +330,22 @@ export async function createCustomerSession(customerId: string) {
   }
 }
 
-// Sync subscription data from Polar API using customer state for accurate credit data
-export async function syncSubscriptionFromPolar(polarSubscriptionId: string) {
-  try {
-    const { prisma } = await import('./prisma');
-
-    // Get subscription from Polar
-    const polarSubscription = await polar.subscriptions.get({
-      id: polarSubscriptionId,
-    });
-
-    // Get the subscription record to find the user ID
-    const localSubscription = await prisma.subscription.findUnique({
-      where: { polarSubscriptionId },
-    });
-
-    if (!localSubscription) {
-      throw new Error(
-        `Local subscription not found for Polar subscription ${polarSubscriptionId}`
-      );
-    }
-
-    // Get real-time credit information from customer state
-    let totalCredits = 0;
-    let usedCredits = 0;
-    let meterId = null;
-    let meterName = null;
-    let remainingCredits = 0;
-
-    try {
-      const customerState = await getCustomerState(localSubscription.userId);
-      const creditInfo = extractCreditsFromCustomerState(customerState);
-
-      totalCredits = creditInfo.totalCredits;
-      usedCredits = creditInfo.usedCredits;
-      remainingCredits = creditInfo.remainingCredits;
-      meterId = creditInfo.meterId;
-
-      console.log(
-        `✅ Syncing subscription ${polarSubscriptionId} with customer state data: ${usedCredits}/${totalCredits} credits`
-      );
-    } catch (customerStateError) {
-      console.warn(
-        '⚠️ Failed to fetch customer state during sync, keeping existing values:',
-        customerStateError
-      );
-
-      // Keep existing credit values if customer state fetch fails
-      totalCredits = localSubscription.totalCredits;
-      usedCredits = localSubscription.usedCredits;
-      remainingCredits = localSubscription.remainingCredits;
-      meterId = localSubscription.meterId;
-      meterName = localSubscription.meterName;
-    }
-
-    // Update local subscription record
-    const updatedSubscription = await prisma.subscription.update({
-      where: { polarSubscriptionId },
-      data: {
-        status: polarSubscription.status?.toUpperCase() as any,
-        totalCredits,
-        usedCredits,
-        remainingCredits,
-        meterId,
-        meterName,
-        currentPeriodStart:
-          (polarSubscription as any).currentPeriodStart ||
-          (polarSubscription as any).current_period_start
-            ? new Date(
-                (polarSubscription as any).currentPeriodStart ||
-                  (polarSubscription as any).current_period_start
-              )
-            : null,
-        currentPeriodEnd:
-          (polarSubscription as any).currentPeriodEnd ||
-          (polarSubscription as any).current_period_end
-            ? new Date(
-                (polarSubscription as any).currentPeriodEnd ||
-                  (polarSubscription as any).current_period_end
-              )
-            : null,
-        canceledAt:
-          (polarSubscription as any).canceledAt ||
-          (polarSubscription as any).canceled_at
-            ? new Date(
-                (polarSubscription as any).canceledAt ||
-                  (polarSubscription as any).canceled_at
-              )
-            : null,
-      },
-    });
-
-    console.log(
-      `✅ Subscription ${polarSubscriptionId} synced: ${usedCredits}/${totalCredits} credits used`
-    );
-    return updatedSubscription;
-  } catch (error) {
-    console.error('Error syncing subscription from Polar:', error);
-    throw new Error('Failed to sync subscription');
-  }
-}
-
-// Get user's credit balance using customer state API for real-time data
-export async function getUserCreditBalance(
+// Combined function to get user credit balance and sync with Polar in one flow
+export async function getUserCreditBalanceWithSync(
   userId: string,
-  syncFromPolar: boolean = true
+  options: {
+    syncFromPolar?: boolean;
+    updateSubscriptionStatus?: boolean;
+    polarSubscriptionId?: string;
+  } = {}
 ) {
   try {
     const { prisma } = await import('./prisma');
+    const {
+      syncFromPolar = true,
+      updateSubscriptionStatus = false,
+      polarSubscriptionId,
+    } = options;
 
     // Get user's active subscription with credit tracking
     const subscription = await prisma.subscription.findFirst({
@@ -465,16 +373,64 @@ export async function getUserCreditBalance(
         const customerState = await getCustomerState(userId);
         const creditInfo = extractCreditsFromCustomerState(customerState);
 
+        // Prepare update data
+        const updateData: any = {
+          totalCredits: creditInfo.totalCredits,
+          usedCredits: creditInfo.usedCredits,
+          remainingCredits: creditInfo.remainingCredits,
+          meterId: creditInfo.meterId,
+        };
+
+        // If we need to update subscription status and have polarSubscriptionId
+        if (updateSubscriptionStatus && polarSubscriptionId) {
+          try {
+            const polarSubscription = await polar.subscriptions.get({
+              id: polarSubscriptionId,
+            });
+
+            updateData.status = polarSubscription.status?.toUpperCase();
+            updateData.currentPeriodStart =
+              (polarSubscription as any).currentPeriodStart ||
+              (polarSubscription as any).current_period_start
+                ? new Date(
+                    (polarSubscription as any).currentPeriodStart ||
+                      (polarSubscription as any).current_period_start
+                  )
+                : null;
+            updateData.currentPeriodEnd =
+              (polarSubscription as any).currentPeriodEnd ||
+              (polarSubscription as any).current_period_end
+                ? new Date(
+                    (polarSubscription as any).currentPeriodEnd ||
+                      (polarSubscription as any).current_period_end
+                  )
+                : null;
+            updateData.canceledAt =
+              (polarSubscription as any).canceledAt ||
+              (polarSubscription as any).canceled_at
+                ? new Date(
+                    (polarSubscription as any).canceledAt ||
+                      (polarSubscription as any).canceled_at
+                  )
+                : null;
+          } catch (polarError) {
+            console.warn(
+              '⚠️ Failed to fetch Polar subscription details:',
+              polarError
+            );
+            // Continue with credit sync even if subscription status update fails
+          }
+        }
+
         // Update local subscription with fresh data
-        if (creditInfo.totalCredits > 0 || creditInfo.usedCredits > 0) {
+        if (
+          creditInfo.totalCredits > 0 ||
+          creditInfo.usedCredits > 0 ||
+          updateSubscriptionStatus
+        ) {
           await prisma.subscription.update({
             where: { id: subscription.id },
-            data: {
-              totalCredits: creditInfo.totalCredits,
-              usedCredits: creditInfo.usedCredits,
-              remainingCredits: creditInfo.remainingCredits,
-              meterId: creditInfo.meterId,
-            },
+            data: updateData,
           });
 
           console.log(
@@ -517,6 +473,51 @@ export async function getUserCreditBalance(
     console.error('Error fetching user credit balance:', error);
     throw new Error('Failed to fetch credit balance');
   }
+}
+
+// Updated syncSubscriptionFromPolar to use the combined function
+export async function syncSubscriptionFromPolar(polarSubscriptionId: string) {
+  try {
+    const { prisma } = await import('./prisma');
+
+    // Get the subscription record to find the user ID
+    const localSubscription = await prisma.subscription.findUnique({
+      where: { polarSubscriptionId },
+    });
+
+    if (!localSubscription) {
+      throw new Error(
+        `Local subscription not found for Polar subscription ${polarSubscriptionId}`
+      );
+    }
+
+    // Use the combined function to sync credits and subscription status
+    const result = await getUserCreditBalanceWithSync(
+      localSubscription.userId,
+      {
+        syncFromPolar: true,
+        updateSubscriptionStatus: true,
+        polarSubscriptionId,
+      }
+    );
+
+    console.log(
+      `✅ Subscription ${polarSubscriptionId} synced: ${result.usedCredits}/${result.totalCredits} credits used`
+    );
+
+    return result;
+  } catch (error) {
+    console.error('Error syncing subscription from Polar:', error);
+    throw new Error('Failed to sync subscription');
+  }
+}
+
+// Keep the original getUserCreditBalance for backward compatibility
+export async function getUserCreditBalance(
+  userId: string,
+  syncFromPolar: boolean = true
+) {
+  return getUserCreditBalanceWithSync(userId, { syncFromPolar });
 }
 
 // Update user's credit usage (call this when user consumes credits)
@@ -573,8 +574,7 @@ export async function ingestEvent(event: {
     const eventData = {
       name: event.name,
       externalCustomerId: event.externalCustomerId,
-      timestamp: event.timestamp || new Date(),
-      ...(event.metadata && { metadata: event.metadata }),
+      metadata: { ...event.metadata },
     };
 
     const response = await polar.events.ingest({
@@ -582,12 +582,10 @@ export async function ingestEvent(event: {
     });
 
     console.log(`✅ [POLAR INGEST] SUCCESS:`, {
-      eventName: event.name,
       customerId: event.externalCustomerId,
       response: response
         ? JSON.stringify(response, null, 2)
         : 'No response data',
-      timestamp: new Date().toISOString(),
     });
 
     return response;
@@ -653,6 +651,7 @@ export async function trackEmailCreditUsage(
       name: 'SENT',
       externalCustomerId: userId,
       metadata: {
+        source: 'track email credit usage',
         emailsSent: emailsSent,
         creditsUsed: creditsToDeduct,
         totalUsedCredits: newUsedCredits,
@@ -720,54 +719,6 @@ export const PRODUCT_CREDIT_MAPPING = {
   'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000, // 100k-Credits
   'e2d782da-6fae-45da-af5d-8975af1a258a': 500000, // 500k-Credits
 } as const;
-
-// Create meter for a specific product (used during initial setup)
-// export async function createMeterForProduct(productId: string) {
-//   try {
-//     const credits =
-//       PRODUCT_CREDIT_MAPPING[productId as keyof typeof PRODUCT_CREDIT_MAPPING];
-
-//     if (!credits) {
-//       throw new Error(`No credit mapping found for product ${productId}`);
-//     }
-
-//     const meter = await polar.meters.create({
-//       name: `email-credits-${credits}`,
-//       filter: {
-//         conjunction: 'and',
-//         clauses: [
-//           {
-//             key: 'product_id',
-//             operation: 'equals',
-//             value: productId,
-//           },
-//           {
-//             key: 'event_name',
-//             operation: 'equals',
-//             value: 'email_sent',
-//           },
-//         ],
-//       },
-//       aggregation: {
-//         func: 'count',
-//       },
-//       metadata: {
-//         productId,
-//         maxCredits: credits.toString(),
-//         creditType: 'email_credits',
-//         description: `Email credit meter for ${credits} credits package`,
-//       },
-//     });
-
-//     console.log(
-//       `Created meter ${meter.id} for product ${productId} with ${credits} credits`
-//     );
-//     return meter;
-//   } catch (error) {
-//     console.error('Error creating meter for product:', error);
-//     throw new Error(`Failed to create meter for product ${productId}`);
-//   }
-// }
 
 // Get or create meter for product
 export async function getOrCreateMeterForProduct(productId: string) {
@@ -867,85 +818,6 @@ export async function getMeter(meterId: string) {
   }
 }
 
-// Update meter consumption when credits are used
-// export async function consumeMeterCredits(
-//   userId: string,
-//   creditsToConsume: number = 1
-// ) {
-//   try {
-//     // Get customer state to find active meters
-//     const customerState = await getCustomerState(userId);
-
-//     if (
-//       !customerState.activeMeters ||
-//       customerState.activeMeters.length === 0
-//     ) {
-//       throw new Error(`No active meters found for user ${userId}`);
-//     }
-
-//     // Use the first active meter (assuming single meter per customer for now)
-//     const activeMeter = customerState.activeMeters[1];
-//     const newConsumedUnits = activeMeter.consumedUnits + creditsToConsume;
-//     const newBalance = activeMeter.creditedUnits - newConsumedUnits;
-
-//     console.log(
-//       `🔄 [METER UPDATE] Consuming ${creditsToConsume} credits from meter:`,
-//       {
-//         meterId: activeMeter.meterId,
-//         currentConsumed: activeMeter.consumedUnits,
-//         newConsumed: newConsumedUnits,
-//         credited: activeMeter.creditedUnits,
-//         newBalance: newBalance,
-//         userId,
-//       }
-//     );
-
-//     // Update the meter with new consumption
-//     const updatedMeter = await polar.meters.update({
-//       id: activeMeter.meterId,
-//       meterUpdate: {
-//         metadata: {
-//           consumedAmount: newConsumedUnits,
-//         },
-//       },
-//     });
-
-//     console.log(
-//       `✅ [METER UPDATE] Successfully updated meter ${activeMeter.meterId} for user ${userId}`
-//     );
-//     return updatedMeter;
-//   } catch (error) {
-//     console.error(
-//       `❌ [METER UPDATE] Failed to consume credits for user ${userId}:`,
-//       error
-//     );
-//     throw new Error(
-//       `Failed to consume meter credits: ${error instanceof Error ? error.message : 'Unknown error'}`
-//     );
-//   }
-// }
-
-// Update meter (e.g., to reset credits for new billing period)
-// export async function updateMeter(
-//   meterId: string,
-//   updates: {
-//     creditedAmount?: number;
-//     consumedAmount?: number;
-//   }
-// ) {
-//   try {
-//     const meter = await polar.meters.update({
-//       id: meterId,
-//       meterUpdate: updates,
-//     });
-
-//     console.log(`Updated meter ${meterId}:`, updates);
-//     return meter;
-//   } catch (error) {
-//     console.error('Error updating meter:', error);
-//     throw new Error('Failed to update meter');
-//   }
-// }
 
 // Process webhook events
 export interface PolarWebhookEvent {

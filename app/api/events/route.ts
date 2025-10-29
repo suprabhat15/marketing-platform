@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { CreditService } from '@/lib/credit-service';
 import { z } from 'zod';
 import { EventType } from '@prisma/client';
+import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
 
 const createEventSchema = z.object({
   type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
@@ -58,6 +59,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Invalidate credit balance cache when events are created (affects balance)
+    await invalidateUserCache(session.user.id, 'events-credit-balance');
+
     return NextResponse.json({
       success: true,
       event,
@@ -96,12 +100,25 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Check cache first (10 second TTL for credit balance)
+    const cacheKey = generateUserCacheKey(session.user.id, 'events-credit-balance');
+    const cachedData = await RedisCache.get(cacheKey);
+    
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
+
     const creditBalance = await CreditService.getUserCreditBalance(session.user.id);
 
-    return NextResponse.json({
+    const responseData = {
       success: true,
       creditBalance,
-    });
+    };
+
+    // Cache the response for 10 seconds
+    await RedisCache.set(cacheKey, responseData, { ttl: 10 });
+
+    return NextResponse.json(responseData);
 
   } catch (error) {
     console.error('Error fetching credit balance:', error);
