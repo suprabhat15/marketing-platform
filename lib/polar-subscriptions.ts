@@ -130,24 +130,3 @@ export async function getUserSubscriptions(customerId: string) {
   }
 }
 
-// Get subscription usage and limits
-export async function getSubscriptionUsage(subscriptionId: string) {
-  try {
-    // This would depend on your specific usage tracking implementation
-    // For now, return a placeholder structure
-    return {
-      subscriptionId,
-      emailsSent: 0,
-      emailsLimit: 0,
-      subscribersCount: 0,
-      subscribersLimit: 0,
-      period: {
-        start: new Date().toISOString(),
-        end: new Date().toISOString(),
-      },
-    };
-  } catch (error) {
-    console.error('Error fetching subscription usage:', error);
-    throw new Error('Failed to fetch subscription usage');
-  }
-}

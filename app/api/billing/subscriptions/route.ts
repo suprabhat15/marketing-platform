@@ -13,6 +13,16 @@ async function getPolarSubscriptions() {
   return { getUserSubscriptions, getSubscription, cancelSubscription, updateSubscription };
 }
 
+// Helper function to invalidate subscription cache for a user
+function invalidateSubscriptionCache(userId: string, subscriptionId?: string) {
+  if (subscriptionId) {
+    // Invalidate specific subscription cache
+    subscriptionCache.delete(`sub_${userId}_${subscriptionId}`);
+  }
+  // Invalidate all subscriptions cache for this user
+  subscriptionCache.delete(`sub_${userId}_all`);
+}
+
 async function getPrisma() {
   const { prisma } = await import('@/lib/prisma');
   return prisma;
@@ -157,6 +167,22 @@ export async function PUT(request: NextRequest) {
     const body = await request.json();
     const validatedData = updateSubscriptionSchema.parse(body);
 
+    // Verify subscription ownership
+    const prisma = await getPrisma();
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        polarSubscriptionId: validatedData.subscriptionId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!subscription) {
+      return NextResponse.json(
+        { error: 'Subscription not found or unauthorized' },
+        { status: 404 }
+      );
+    }
+
     const { updateSubscription } = await getPolarSubscriptions();
     // Update the subscription
     const updatedSubscription = await updateSubscription(
@@ -167,6 +193,11 @@ export async function PUT(request: NextRequest) {
         metadata: validatedData.metadata,
       }
     );
+
+    subscriptionCache.delete(
+      `sub_${session.user.id}_${validatedData.subscriptionId}`
+    );
+    subscriptionCache.delete(`sub_${session.user.id}_all`);
 
     return NextResponse.json({
       success: true,
@@ -203,18 +234,90 @@ export async function DELETE(request: NextRequest) {
     });
 
     if (!session?.user?.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
     const validatedData = cancelSubscriptionSchema.parse(body);
 
-    const { cancelSubscription } = await getPolarSubscriptions();
-    // Cancel the subscription
-    const canceledSubscription = await cancelSubscription(validatedData.subscriptionId);
+    const prisma = await getPrisma();
+
+    // First verify in our database that the subscription belongs to this user
+    const dbSubscription = await prisma.subscription.findFirst({
+      where: {
+        polarSubscriptionId: validatedData.subscriptionId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!dbSubscription) {
+      return NextResponse.json(
+        {
+          error:
+            'Forbidden: Subscription not found or you do not have permission to cancel it',
+        },
+        { status: 403 }
+      );
+    }
+
+    // Fetch the subscription from Polar to verify ownership at the Polar level
+    const { getSubscription, cancelSubscription } =
+      await getPolarSubscriptions();
+    const polarSubscription = await getSubscription(
+      validatedData.subscriptionId
+    );
+
+    if (!polarSubscription) {
+      return NextResponse.json(
+        { error: 'Subscription not found in Polar' },
+        { status: 404 }
+      );
+    }
+
+    // Get the subscription's customer ID from Polar
+    const subscriptionCustomerId =
+      (polarSubscription as any).customer?.id ||
+      (polarSubscription as any).customer_id ||
+      null;
+
+    if (!subscriptionCustomerId) {
+      return NextResponse.json(
+        { error: 'Invalid subscription data: customer ID not found' },
+        { status: 400 }
+      );
+    }
+
+    // Get user's Polar customer ID from database
+    const user = await prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { polarCustomerId: true },
+    });
+
+    if (!user?.polarCustomerId) {
+      return NextResponse.json(
+        { error: 'User does not have a Polar customer ID associated' },
+        { status: 400 }
+      );
+    }
+
+    // Verify ownership: compare subscription's customer ID with user's Polar customer ID
+    if (subscriptionCustomerId !== user.polarCustomerId) {
+      return NextResponse.json(
+        {
+          error:
+            'Forbidden: You do not have permission to cancel this subscription',
+        },
+        { status: 403 }
+      );
+    }
+
+    // Ownership verified, proceed with cancellation
+    const canceledSubscription = await cancelSubscription(
+      validatedData.subscriptionId
+    );
+
+    // Invalidate cache after successful cancellation
+    invalidateSubscriptionCache(session.user.id, validatedData.subscriptionId);
 
     return NextResponse.json({
       success: true,

@@ -188,7 +188,7 @@ export async function getProductPricing(productId: string) {
         currency: (price as any).currency || 'USD',
         recurring: (price as any).recurring || null,
       },
-      credits: extractCreditsFromProduct(product.name),
+      credits: 0,
     };
   } catch (error) {
     console.error('Error fetching product pricing:', error);
@@ -196,14 +196,6 @@ export async function getProductPricing(productId: string) {
   }
 }
 
-// Helper function to extract credits from product name
-function extractCreditsFromProduct(productName: string): number {
-  const match = productName.match(/(\d+)k/i);
-  if (match) {
-    return parseInt(match[1]) * 1000;
-  }
-  return 0;
-}
 
 // List all products for an organization
 export async function getProducts(organizationId?: string) {
@@ -219,40 +211,7 @@ export async function getProducts(organizationId?: string) {
   }
 }
 
-// Get subscription details
-export async function getSubscription(subscriptionId: string) {
-  try {
-    const subscription = await polar.subscriptions.get({ id: subscriptionId });
-    return subscription;
-  } catch (error) {
-    console.error('Error fetching Polar subscription:', error);
-    throw new Error('Failed to fetch subscription');
-  }
-}
 
-// Cancel subscription (placeholder - implement based on Polar API)
-export async function cancelSubscription(subscriptionId: string) {
-  try {
-    // TODO: Implement actual subscription cancellation
-    // For now, just log the cancellation request
-    console.log(`Cancellation requested for subscription: ${subscriptionId}`);
-
-    // Update our database to mark as cancelled
-    const { prisma } = await import('./prisma');
-    const subscription = await prisma.subscription.update({
-      where: { polarSubscriptionId: subscriptionId },
-      data: {
-        status: 'CANCELED',
-        canceledAt: new Date(),
-      },
-    });
-
-    return subscription;
-  } catch (error) {
-    console.error('Error canceling Polar subscription:', error);
-    throw new Error('Failed to cancel subscription');
-  }
-}
 
 // Webhook signature verification (updated to match Polar's format)
 export function verifyWebhookSignature(
