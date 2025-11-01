@@ -6,14 +6,15 @@
 
 import { campaignQueue, batchQueue, campaignWorker, batchWorker } from './queue';
 import { initializeWorkerRecovery, workerRecovery } from './worker-recovery';
+import { globalRateLimiter } from './global-rate-limiter';
 
 let isWorkerRunning = false;
 let workerTimeout: NodeJS.Timeout | null = null;
 let processorsStarted = false;
 
 // Configuration
-const WORKER_IDLE_TIMEOUT = 5 * 60 * 1000; // 5 minutes idle timeout
-const HEALTH_CHECK_INTERVAL = 30 * 1000; // 30 seconds
+const WORKER_IDLE_TIMEOUT = 10 * 60 * 1000; // 10 minutes idle timeout for scale
+const HEALTH_CHECK_INTERVAL = 10 * 1000; // 10 seconds for faster response at high load
 
 /**
  * Start queue processors if not already started
@@ -125,9 +126,11 @@ async function checkForActiveJobs(): Promise<boolean> {
       batchQueue.getJobCounts()
     ]);
 
-    const totalActiveJobs = 
-      (campaignCounts.waiting || 0) + (campaignCounts.active || 0) +
-      (batchCounts.waiting || 0) + (batchCounts.active || 0);
+    const totalActiveJobs =
+      (campaignCounts.waiting || 0) +
+      (campaignCounts.active || 0) +
+      (batchCounts.waiting || 0) +
+      (batchCounts.active || 0);
 
     return totalActiveJobs > 0;
   } catch (error) {
@@ -174,6 +177,14 @@ function setupWorkerMonitoring(): void {
       if (hasJobs) {
         resetIdleTimer();
       }
+
+      // Check rate limiter status periodically
+      const rateStatus = await globalRateLimiter.getStatus();
+      if (rateStatus.currentCount > 7) {
+        console.warn(
+          `⚠️ Rate limiter exceeded: ${rateStatus.currentCount}/${rateStatus.limit}`
+        );
+      }
     } catch (error) {
       console.error('Health check error:', error);
     }
@@ -192,13 +203,17 @@ export function isWorkerActive(): boolean {
  */
 export async function getWorkerStatus() {
   const hasActiveJobs = isWorkerRunning ? await checkForActiveJobs() : false;
-  const recoveryStats = isWorkerRunning ? await workerRecovery.getRecoveryStats() : null;
-  
+  const recoveryStats = isWorkerRunning
+    ? await workerRecovery.getRecoveryStats()
+    : null;
+  const rateStatus = await globalRateLimiter.getStatus();
+
   return {
     running: isWorkerRunning,
     processorsStarted,
     hasActiveJobs,
     idleTimeoutMinutes: WORKER_IDLE_TIMEOUT / (60 * 1000),
+    rateLimiter: rateStatus,
     recovery: recoveryStats
   };
 }

@@ -23,14 +23,10 @@ class SSEManager {
   private readonly MAX_CONNECTIONS_PER_CAMPAIGN = 100;
   private readonly MAX_BUFFER_SIZE = 1000;
   private readonly CONNECTION_TIMEOUT = 300000; // 5 minutes
-  private readonly HEARTBEAT_INTERVAL = 15000; // 15 seconds
 
   constructor() {
     // Cleanup inactive connections every minute
     setInterval(() => this.cleanupConnections(), 60000);
-    
-    // Send heartbeat to maintain connections
-    // setInterval(() => this.sendHeartbeat(), this.HEARTBEAT_INTERVAL);
   }
 
   /**
@@ -126,17 +122,6 @@ class SSEManager {
   }
 
   /**
-   * Broadcast to multiple campaigns efficiently
-   */
-  broadcastToMultipleCampaigns(campaignIds: string[], event: Omit<CampaignEvent, 'campaignId' | 'timestamp'>) {
-    let totalSent = 0;
-    campaignIds.forEach(campaignId => {
-      totalSent += this.broadcastToCampaign(campaignId, event);
-    });
-    return totalSent;
-  }
-
-  /**
    * Get connection statistics
    */
   getStats() {
@@ -154,12 +139,20 @@ class SSEManager {
       totalConnections,
       totalCampaigns,
       bufferSizes: Object.fromEntries(
-        Array.from(this.eventBuffer.entries()).map(([id, buffer]) => [id, buffer.length])
-      )
+        Array.from(this.eventBuffer.entries()).map(([id, buffer]) => [
+          id,
+          buffer.length,
+        ])
+      ),
     };
   }
 
-  private addConnection(campaignId: string, controller: ReadableStreamDefaultController, clientId: string, lastEventId?: string) {
+  private addConnection(
+    campaignId: string,
+    controller: ReadableStreamDefaultController,
+    clientId: string,
+    lastEventId?: string
+  ) {
     const connections = this.connections.get(campaignId) || [];
     // console.log(`📊 SSE Manager: Adding connection ${clientId}. Current connections for campaign ${campaignId}: ${connections.length}`);
     
@@ -202,7 +195,10 @@ class SSEManager {
     }
   }
 
-  private sendEvent(controller: ReadableStreamDefaultController, event: { type: string; data: any; id: string }) {
+  private sendEvent(
+    controller: ReadableStreamDefaultController,
+    event: { type: string; data: any; id: string }
+  ) {
     const sseData = [
       `id: ${event.id}`,
       `event: ${event.type}`,
@@ -287,36 +283,6 @@ class SSEManager {
       } else if (activeConnections.length !== connections.length) {
         this.connections.set(campaignId, activeConnections);
       }
-    }
-  }
-
-  private sendHeartbeat() {
-    const heartbeatEvent = {
-      type: 'heartbeat',
-      data: { timestamp: Date.now() },
-      id: `heartbeat-${Date.now()}`
-    };
-
-    let totalConnections = 0;
-    let successfulHeartbeats = 0;
-
-    for (const [campaignId, connections] of this.connections.entries()) {
-      connections.forEach(conn => {
-        totalConnections++;
-        try {
-          this.sendEvent(conn.controller, heartbeatEvent);
-          // Update timestamp on successful heartbeat
-          conn.timestamp = Date.now();
-          successfulHeartbeats++;
-        } catch (error) {
-          console.error(`❤️‍🩹 Heartbeat failed for connection ${conn.clientId} in campaign ${campaignId}:`, error);
-          // Connection will be cleaned up later
-        }
-      });
-    }
-
-    if (totalConnections > 0) {
-      console.log(`❤️ Heartbeat sent to ${successfulHeartbeats}/${totalConnections} connections across ${this.connections.size} campaigns`);
     }
   }
 

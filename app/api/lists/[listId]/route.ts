@@ -191,6 +191,22 @@ export async function DELETE(
       );
     }
 
+    // Check if there are campaigns using this list
+    const campaignsUsingList = await prisma.campaign.findMany({
+      where: { listId },
+      select: { id: true, name: true, status: true },
+    });
+
+    if (campaignsUsingList.length > 0) {
+      const campaignNames = campaignsUsingList.map(c => c.name).join(', ');
+      return NextResponse.json(
+        { 
+          error: `Cannot delete list. It is being used by ${campaignsUsingList.length} campaign(s): ${campaignNames}. Please delete or update these campaigns first.` 
+        },
+        { status: 400 }
+      );
+    }
+
     // Delete list (subscribers will be deleted due to cascade)
     await prisma.list.delete({
       where: { id: listId },

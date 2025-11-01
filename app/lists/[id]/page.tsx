@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense, lazy } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -13,11 +13,12 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Pagination } from '@/components/ui/pagination';
-import { ImportSubscribersDialog } from '@/components/lists/import-subscribers-dialog';
 import { Textarea } from '@/components/ui/textarea';
+
+// Lazy load heavy components
+const ImportSubscribersDialog = lazy(() => import('@/components/lists/import-subscribers-dialog').then(module => ({ default: module.ImportSubscribersDialog })));
 import { 
   Search, 
-  Plus, 
   MoreHorizontal, 
   Download, 
   Upload, 
@@ -26,9 +27,7 @@ import {
   ArrowLeft,
   Mail,
   Users,
-  Edit,
   Check,
-  X
 } from 'lucide-react';
 import { z } from 'zod';
 

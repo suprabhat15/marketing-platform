@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,7 @@ interface List {
   };
   subscribers?: {
     status: 'ACTIVE' | 'UNSUBSCRIBED' | 'BOUNCED' | 'COMPLAINED';
+    count: number;
   }[];
 }
 
@@ -88,24 +89,26 @@ export function ListsDashboard() {
     }
   };
 
-  const calculateListStats = (list: List): ListStats => {
+  // Memoized function to calculate stats from optimized data structure
+  const calculateListStats = useCallback((list: List): ListStats => {
     if (!list.subscribers) {
       return { subscribed: 0, unsubscribed: 0, bounced: 0, total: 0 };
     }
 
     const stats = list.subscribers.reduce(
-      (acc, subscriber) => {
-        acc.total++;
-        switch (subscriber.status) {
+      (acc, statusData) => {
+        const count = statusData.count;
+        acc.total += count;
+        switch (statusData.status) {
           case 'ACTIVE':
-            acc.subscribed++;
+            acc.subscribed += count;
             break;
           case 'UNSUBSCRIBED':
-            acc.unsubscribed++;
+            acc.unsubscribed += count;
             break;
           case 'BOUNCED':
           case 'COMPLAINED':
-            acc.bounced++;
+            acc.bounced += count;
             break;
         }
         return acc;
@@ -114,16 +117,30 @@ export function ListsDashboard() {
     );
 
     return stats;
-  };
+  }, []);
 
   const handleListCreated = () => {
     fetchLists();
     setCreateDialogOpen(false);
   };
 
-  const handleViewList = (listId: string) => {
+  const handleViewList = useCallback((listId: string) => {
     router.push(`/lists/${listId}`);
-  };
+  }, [router]);
+
+  // Memoized calculations for dashboard stats
+  const globalStats = useMemo(() => {
+    return lists.reduce(
+      (acc, list) => {
+        const stats = calculateListStats(list);
+        acc.totalSubscribers += list._count?.subscribers || 0;
+        acc.activeSubscribers += stats.subscribed;
+        acc.bouncedSubscribers += stats.bounced;
+        return acc;
+      },
+      { totalSubscribers: 0, activeSubscribers: 0, bouncedSubscribers: 0 }
+    );
+  }, [lists, calculateListStats]);
 
   if (loading) {
     return (
@@ -134,7 +151,7 @@ export function ListsDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="page-container space-y-6 text-content">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -168,7 +185,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {lists.reduce((acc, list) => acc + (list._count?.subscribers || 0), 0)}
+              {globalStats.totalSubscribers}
             </div>
           </CardContent>
         </Card>
@@ -180,10 +197,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {lists.reduce((acc, list) => {
-                if (!list.subscribers) return acc;
-                return acc + list.subscribers.filter(s => s.status === 'ACTIVE').length;
-              }, 0)}
+              {globalStats.activeSubscribers}
             </div>
           </CardContent>
         </Card>
@@ -195,10 +209,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {lists.reduce((acc, list) => {
-                if (!list.subscribers) return acc;
-                return acc + list.subscribers.filter(s => s.status === 'BOUNCED' || s.status === 'COMPLAINED').length;
-              }, 0)}
+              {globalStats.bouncedSubscribers}
             </div>
           </CardContent>
         </Card>

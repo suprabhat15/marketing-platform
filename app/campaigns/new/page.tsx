@@ -28,21 +28,12 @@ interface List {
   };
 }
 
-interface Subscriber {
-  id: string;
-  email: string;
-  firstName: string;
-  lastName: string;
-  status: string;
-}
-
 export default function NewCampaignPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [templates, setTemplates] = useState<Template[]>([]);
   const [lists, setLists] = useState<List[]>([]);
-  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
-  const [selectedSubscribers, setSelectedSubscribers] = useState<string[]>([]);
+  const [showSendNowFlyout, setShowSendNowFlyout] = useState(false);
 
   // Form state
   const [campaignName, setCampaignName] = useState('');
@@ -52,18 +43,11 @@ export default function NewCampaignPage() {
   const [selectedList, setSelectedList] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
-  const [showSendNowFlyout, setShowSendNowFlyout] = useState(false);
 
   useEffect(() => {
     fetchTemplates();
     fetchLists();
   }, []);
-
-  useEffect(() => {
-    if (selectedList) {
-      fetchSubscribers(selectedList);
-    }
-  }, [selectedList]);
 
   const fetchTemplates = async () => {
     try {
@@ -89,18 +73,6 @@ export default function NewCampaignPage() {
     }
   };
 
-  const fetchSubscribers = async (listId: string) => {
-    try {
-      const response = await fetch(`/api/lists/${listId}/subscribers`);
-      if (response.ok) {
-        const data = await response.json();
-        setSubscribers(data.subscribers || []);
-      }
-    } catch (error) {
-      console.error('Error fetching subscribers:', error);
-    }
-  };
-
   const handleTemplateSelect = (templateId: string) => {
     setSelectedTemplate(templateId);
     const template = templates.find(t => t.id === templateId);
@@ -110,30 +82,9 @@ export default function NewCampaignPage() {
     }
   };
 
-  const handleSubscriberToggle = (subscriberId: string) => {
-    setSelectedSubscribers(prev => 
-      prev.includes(subscriberId)
-        ? prev.filter(id => id !== subscriberId)
-        : [...prev, subscriberId]
-    );
-  };
-
-  const handleSelectAllSubscribers = () => {
-    if (selectedSubscribers.length === subscribers.length) {
-      setSelectedSubscribers([]);
-    } else {
-      setSelectedSubscribers(subscribers.map((s) => s.id));
-    }
-  };
-
   const handleSendNowClick = () => {
     if (!campaignName || !subject || !content || !selectedList) {
       alert('Please fill in all required fields');
-      return;
-    }
-
-    if (selectedSubscribers.length === 0) {
-      alert('Please select at least one subscriber');
       return;
     }
 
@@ -149,18 +100,29 @@ export default function NewCampaignPage() {
     setIsLoading(true);
 
     try {
+      // Fetch subscribers for the selected list
+      const subscribersResponse = await fetch(
+        `/api/lists/${selectedList}/subscribers`
+      );
+      if (!subscribersResponse.ok) {
+        throw new Error('Failed to fetch subscribers');
+      }
+
+      const subscribersData = await subscribersResponse.json();
+      const subscriberIds = subscribersData.subscribers.map((s: any) => s.id);
+
       const campaignData = {
         name: campaignName,
         subject,
         content,
         listId: selectedList,
         templateId: selectedTemplate || undefined,
-        subscriberIds: selectedSubscribers,
+        subscriberIds: subscriberIds,
         fromEmail: senderConfig.fromEmail,
         fromName: senderConfig.fromName,
         replyTo: senderConfig.replyTo,
       };
-      console.log('senderConfig ', senderConfig);
+
       const response = await fetch('/api/campaigns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,11 +157,6 @@ export default function NewCampaignPage() {
       return;
     }
 
-    if (selectedSubscribers.length === 0) {
-      alert('Please select at least one subscriber');
-      return;
-    }
-
     setIsLoading(true);
 
     try {
@@ -210,7 +167,7 @@ export default function NewCampaignPage() {
         listId: selectedList,
         templateId: selectedTemplate || undefined,
         scheduledAt: sendNow ? undefined : `${scheduleDate}T${scheduleTime}`,
-        subscriberIds: selectedSubscribers,
+        subscriberIds: [], // Empty for drafts - will be populated when sending
         fromEmail: 'placeholder@example.com', // Placeholder for drafts
         fromName: 'Draft Campaign',
         replyTo: '',
@@ -362,46 +319,12 @@ export default function NewCampaignPage() {
               </Select>
             </div>
 
-            {subscribers.length > 0 && (
-              <div>
-                <div className="mb-3 flex items-center justify-between">
-                  <Label>
-                    Choose Subscribers ({selectedSubscribers.length} selected)
-                  </Label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleSelectAllSubscribers}
-                  >
-                    {selectedSubscribers.length === subscribers.length
-                      ? 'Deselect All'
-                      : 'Select All'}
-                  </Button>
-                </div>
-
-                <div className="max-h-60 space-y-2 overflow-y-auto rounded-md border p-3">
-                  {subscribers.map((subscriber) => (
-                    <div
-                      key={subscriber.id}
-                      className="flex items-center space-x-2"
-                    >
-                      <Checkbox
-                        id={subscriber.id}
-                        checked={selectedSubscribers.includes(subscriber.id)}
-                        onCheckedChange={() =>
-                          handleSubscriberToggle(subscriber.id)
-                        }
-                      />
-                      <Label
-                        htmlFor={subscriber.id}
-                        className="flex-1 cursor-pointer"
-                      >
-                        {subscriber.firstName} {subscriber.lastName} (
-                        {subscriber.email})
-                      </Label>
-                    </div>
-                  ))}
-                </div>
+            {selectedList && (
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> All active subscribers from the
+                  selected list will be included when you send the campaign.
+                </p>
               </div>
             )}
           </CardContent>
@@ -419,7 +342,6 @@ export default function NewCampaignPage() {
           {scheduleDate && scheduleTime ? 'Schedule Campaign' : 'Save as Draft'}
         </Button>
         <Button onClick={handleSendNowClick} disabled={isLoading}>
-          {/* <Button onClick={() => handleCreateCampaign(true)} disabled={isLoading}> */}
           <Send className="mr-2 h-4 w-4" />
           {isLoading ? 'Sending...' : 'Send Now'}
         </Button>

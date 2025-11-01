@@ -4,8 +4,9 @@ import { broadcastCampaignUpdate, broadcastEvent } from './event-broadcast';
 import { BatchEmailProcessor, BatchEmailData, replaceVariables } from './batch-email-processor';
 // import { CampaignProgressTracker } from './campaign-progress';
 import { sendEmail } from './ses';
-import { globalRateLimiter } from './global-rate-limiter';
-import { getRedisInstance } from './redis';
+import { enhancedRateLimiter } from './global-rate-limiter';
+import { emailErrorClassifier } from './error-classifier';
+import { getRedisInstance, redis as redisForDlq, redis } from './redis';
 
 async function checkCampaignCompletion(campaignId: string) {
   try {
@@ -20,43 +21,69 @@ async function checkCampaignCompletion(campaignId: string) {
       return;
     }
 
-    // Check if all batches are complete by getting active/waiting jobs
-    const [campaignJobs, batchJobs] = await Promise.all([
-      campaignQueue.getJobs(['waiting', 'active'], 0, -1),
-      batchQueue.getJobs(['waiting', 'active'], 0, -1)
-    ]);
-    
-    const activeCampaignJobs = campaignJobs.filter(job => job.data.campaignId === campaignId);
-    const activeBatchJobs = batchJobs.filter(job => job.data.campaignId === campaignId);
+    // Efficiently check active jobs with pagination (avoid full scan for 1M-scale)
+    const getActiveJobsCount = async (
+      queue: Queue,
+      campaignId: string
+    ): Promise<number> => {
+      let count = 0;
+      let cursor = 0;
+      const pageSize = 1000;
+      while (true) {
+        const jobs = await queue.getJobs(
+          ['waiting', 'active'],
+          cursor,
+          cursor + pageSize - 1
+        );
+        const campaignJobs = jobs.filter(
+          (job) => job.data.campaignId === campaignId
+        );
+        count += campaignJobs.length;
+        if (jobs.length < pageSize) break;
+        cursor += pageSize;
+      }
+      return count;
+    };
 
-    if (activeCampaignJobs.length > 0 || activeBatchJobs.length > 0) {
-      console.log(`Campaign ${campaignId} still has active jobs, not yet complete`);
+    const [campaignActiveCount, batchActiveCount] = await Promise.all([
+      getActiveJobsCount(campaignQueue, campaignId),
+      getActiveJobsCount(batchQueue, campaignId),
+    ]);
+
+    if (campaignActiveCount > 0 || batchActiveCount > 0) {
+      console.log(
+        `Campaign ${campaignId} still has ${campaignActiveCount + batchActiveCount} active jobs, not yet complete`
+      );
       return;
     }
 
-    console.log(`\u2705 Campaign ${campaignId} batches complete, checking for DLQ retries...`);
-
-    // Now check for failed emails and retry them
-    const allDlqJobs = await dlqQueue.getJobs(['waiting', 'completed', 'failed'], 0, -1);
-    const campaignFailedJobs = allDlqJobs.filter(job => 
-      job.data.campaignId === campaignId && job.name === 'failed-email'
+    console.log(
+      `\u2705 Campaign ${campaignId} batches complete, checking for DLQ retries...`
     );
 
-    if (campaignFailedJobs.length > 0) {
-      console.log(`\ud83d\udd25 Found ${campaignFailedJobs.length} failed emails for campaign ${campaignId}, starting DLQ retry...`);
+    // Check DLQ via Redis (faster than full job scan)
+    const dlqStats = await getDlqStats(campaignId);
+    if (dlqStats.total > 0) {
+      console.log(
+        `Found ${dlqStats.total} failed emails for campaign ${campaignId} in DLQ, starting retry...`
+      );
       try {
-        await retryFailedEmailsFromDLQ(campaignId);
-        await markCampaignComplete(campaignId);
+        const retryResult = await retryFailedEmailsFromDLQ(campaignId);
+        console.log(`DLQ retry result: ${JSON.stringify(retryResult)}`);
       } catch (dlqError) {
         console.error(`DLQ retry failed for campaign ${campaignId}:`, dlqError);
-        await markCampaignComplete(campaignId);
       }
     } else {
-      console.log(`\u2728 No failed emails found for campaign ${campaignId}, marking as complete`);
-      await markCampaignComplete(campaignId);
+      console.log(
+        `\u2728 No failed emails found for campaign ${campaignId}, marking as complete`
+      );
     }
+    await markCampaignComplete(campaignId);
   } catch (error) {
-    console.error(`Error checking campaign completion for ${campaignId}:`, error);
+    console.error(
+      `Error checking campaign completion for ${campaignId}:`,
+      error
+    );
   }
 }
 
@@ -92,29 +119,65 @@ interface CampaignJobData {
 
 // ----------------- Queue Setup -----------------
 
-// Use centralized Redis connection manager
-const connectionForQueue = getRedisInstance('queue');
-const connectionForWorker = getRedisInstance('worker');
-const redisForDlq = getRedisInstance('dlq');
+// Use centralized Redis connection manager - share connections for better stability
+const sharedRedisConnection = getRedisInstance('default'); // Use default instance for all queues
+const connectionForQueue = sharedRedisConnection;
+const connectionForWorker = getRedisInstance('worker'); // Keep separate for workers
+const redisForDlq = sharedRedisConnection; // Share with main queues
 
 const defaultJobOptions = {
   removeOnComplete: true,
-  removeOnFail: 500,
+  removeOnFail: 100,
   attempts: 3,
   backoff: { type: 'exponential', delay: 5000 }
 };
 
-export const campaignQueue = new Queue<CampaignJobData>('campaign-processing', {
+// Queue configuration with connection sharing and built-in limiter for pacing (7 batches/sec max, but global limiter handles SES)
+const queueConfig = {
   connection: connectionForQueue,
-  defaultJobOptions,
-});
-export const batchQueue = new Queue<BatchEmailData>('batch-processing', {
-  connection: connectionForQueue,
-  defaultJobOptions,
-});
+  defaultJobOptions: {
+    ...defaultJobOptions,
+    limiter: { max: 7, duration: 1000 }, // Align with SES TPS
+  },
+};
+
+export const campaignQueue = new Queue<CampaignJobData>(
+  'campaign-processing',
+  queueConfig
+);
+export const batchQueue = new Queue<BatchEmailData>(
+  'batch-processing',
+  queueConfig
+);
 export const emailQueue = batchQueue; // Alias for backward compatibility
-export const dlqQueue = new Queue<any>('email-dlq', { connection: connectionForQueue });
-export const batchDlqQueue = new Queue<any>('batch-dlq', { connection: connectionForQueue });
+export const dlqQueue = new Queue<any>('email-dlq', {
+  connection: redisForDlq,
+  defaultJobOptions: {
+    removeOnComplete: 10,
+    removeOnFail: 50,
+    attempts: 1, // DLQ jobs shouldn't retry again
+  },
+});
+export const batchDlqQueue = new Queue<any>('batch-dlq', {
+  connection: redisForDlq,
+  defaultJobOptions: {
+    removeOnComplete: 10,
+    removeOnFail: 50,
+    attempts: 1,
+  },
+});
+
+// Polar ingestion queue for handling SENT events to avoid 429 rate limits
+export const polarIngestionQueue = new Queue<any>('polar-ingestion', {
+  connection: connectionForQueue,
+  defaultJobOptions: {
+    removeOnComplete: 20,
+    removeOnFail: 100,
+    attempts: 5, // More attempts for rate limit retries
+    backoff: { type: 'exponential', delay: 2000 },
+    limiter: { max: 99, duration: 1000 }, // 2 requests per second to avoid rate limits
+  },
+});
 
 // ----------------- Workers -----------------
 
@@ -140,12 +203,53 @@ export const campaignWorker = new Worker<CampaignJobData>(
       const subscribers = campaign.list.subscribers;
       if (!subscribers.length) return;
 
+      // Check credits before processing campaign
+      const { EmailService } = await import('./email-service');
+      const creditCheck = await EmailService.checkCreditsBeforeSending(
+        userId,
+        subscribers.length
+      );
+
+      if (!creditCheck.canSend) {
+        console.error(
+          `❌ Insufficient credits for campaign ${campaignId}: need ${creditCheck.creditsRequired}, have ${creditCheck.creditsAvailable}`
+        );
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'FAILED' },
+        });
+        throw new Error(
+          `Insufficient credits: need ${creditCheck.creditsRequired}, have ${creditCheck.creditsAvailable}`
+        );
+      }
+
+      // Reserve credits upfront for the entire campaign
+      const creditsReserved = await EmailService.reserveCreditsForCampaign(
+        userId,
+        campaignId,
+        subscribers.length
+      );
+      if (!creditsReserved) {
+        console.error(
+          `❌ Failed to reserve credits for campaign ${campaignId}`
+        );
+        await prisma.campaign.update({
+          where: { id: campaignId },
+          data: { status: 'FAILED' },
+        });
+        throw new Error('Failed to reserve credits for campaign');
+      }
+
+      console.log(
+        `✅ Reserved ${subscribers.length} credits for campaign ${campaignId}`
+      );
+
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'SENDING', sentAt: new Date() },
       });
 
-      const pageSize = 1000;
+      const pageSize = 5000; // Larger pages for efficiency at 1M scale
       const sendBatchSize = batchSize;
       let cursor: { id?: string } | undefined;
       let batchNumber = 0;
@@ -157,8 +261,10 @@ export const campaignWorker = new Worker<CampaignJobData>(
           where: { listId: campaign.listId, status: 'ACTIVE' },
           take: pageSize,
           ...(cursor && { cursor: { id: cursor.id }, skip: 1 }),
+          orderBy: { id: 'asc' }, // Ensure consistent cursor
         });
         if (!page.length) break;
+        // console.log('--------- page.length ----------- ', page.length);
 
         for (let i = 0; i < page.length; i += sendBatchSize) {
           batchNumber++;
@@ -182,12 +288,13 @@ export const campaignWorker = new Worker<CampaignJobData>(
             userId: userId, // Add userId for credit tracking
           };
           bulkBuffer.push({
-            name: 'process-batch',
+            name: 'process-batch' as const,
             data: batchData,
-            opts: { delay: batchNumber * 10 },
+            opts: { delay: batchNumber * 1000 }, // 1s staggered start per batch
           });
 
-          if (bulkBuffer.length >= 500) {
+          if (bulkBuffer.length >= 50) {
+            // Smaller bulks to reduce memory spikes
             await batchQueue.addBulk(bulkBuffer);
             bulkBuffer = [];
           }
@@ -198,6 +305,61 @@ export const campaignWorker = new Worker<CampaignJobData>(
 
       if (bulkBuffer.length) await batchQueue.addBulk(bulkBuffer);
     } catch (error) {
+      // Refund credits only for emails that were not sent
+      try {
+        const { EmailService } = await import('./email-service');
+
+        // Get total subscribers that were supposed to be sent
+        const campaign = await prisma.campaign.findUnique({
+          where: { id: campaignId },
+          include: {
+            list: { include: { subscribers: { where: { status: 'ACTIVE' } } } },
+          },
+        });
+
+        if (campaign?.list?.subscribers?.length) {
+          const totalSubscribers = campaign.list.subscribers.length;
+
+          // Count how many emails were actually sent (have SENT events)
+          const sentEmailsCount = await prisma.event.count({
+            where: {
+              campaignId,
+              type: 'SENT',
+            },
+          });
+
+          // Also check Redis for sent emails (more accurate for recent sends)
+          const redisSentKeys = await redis.keys(`sent:${campaignId}:*`);
+          const actualSentCount = Math.max(
+            sentEmailsCount,
+            redisSentKeys.length
+          );
+
+          // Calculate emails that were not sent
+          const unsentEmailsCount = totalSubscribers - actualSentCount;
+
+          if (unsentEmailsCount > 0) {
+            await EmailService.refundCreditsForFailedSends(
+              userId,
+              unsentEmailsCount,
+              campaignId
+            );
+            console.log(
+              `🔄 Refunded ${unsentEmailsCount} credits for unsent emails in failed campaign ${campaignId} (${actualSentCount}/${totalSubscribers} were sent)`
+            );
+          } else {
+            console.log(
+              `✅ No refund needed for campaign ${campaignId} - all ${actualSentCount} emails were sent before failure`
+            );
+          }
+        }
+      } catch (refundError) {
+        console.error(
+          `Failed to refund credits for campaign ${campaignId}:`,
+          refundError
+        );
+      }
+
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'FAILED' },
@@ -213,30 +375,83 @@ export const batchWorker = new Worker<BatchEmailData>(
   async (job: Job<BatchEmailData>) => {
     if (job.name !== 'process-batch') return;
 
+    // Add job timeout
+    const jobTimeout = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('Batch job timeout')), 300000); // 5 minute timeout for entire batch
+    });
+
     try {
-      const processor = new BatchEmailProcessor();
-      await processor.processBatch(job.data);
-      console.log(`\u2705 Batch ${job.data.batchNumber}/${job.data.totalBatches} completed for campaign ${job.data.campaignId}`);
-      
-      // Only check completion if this is the last batch OR if this batch is significantly delayed
-      const shouldCheckCompletion = (
-        job.data.batchNumber === job.data.totalBatches || 
-        Math.random() < 0.1 // 10% chance to check completion (to handle edge cases)
+      const processor = new BatchEmailProcessor(5, 100); // 5 concurrent emails, 100ms delay
+      console.log('-------------- PROCESSING BATCH ---------------- ');
+
+      const processPromise = processor.processBatch(job.data);
+      await Promise.race([processPromise, jobTimeout]);
+
+      console.log(
+        `Batch ${job.data.batchNumber}/${job.data.totalBatches} completed for campaign ${job.data.campaignId}`
       );
-      
-      if (shouldCheckCompletion) {
-        // Add a small delay to allow other batches to complete
+
+      // Deterministic completion check for last batch only (avoids races)
+      if (job.data.batchNumber === job.data.totalBatches) {
         setTimeout(() => {
-          checkCampaignCompletion(job.data.campaignId).catch(error => {
-            console.error(`Error in delayed completion check for campaign ${job.data.campaignId}:`, error);
+          checkCampaignCompletion(job.data.campaignId).catch((error) => {
+            console.error(
+              `Error in completion check for campaign ${job.data.campaignId}:`,
+              error
+            );
           });
-        }, 2000); // 2 second delay
+        }, 10000); // 10s delay for stragglers at scale
       }
     } catch (error) {
       console.error(
         `Batch ${job.data.batchNumber} for campaign ${job.data.campaignId} failed:`,
         error
       );
+
+      // Handle timeout specifically
+      if (error instanceof Error && error.message === 'Batch job timeout') {
+        console.error(
+          `⏰ Batch ${job.data.batchNumber} timed out after 5 minutes`
+        );
+      }
+
+      // For batch failures, check if any emails in this batch were sent and refund only unsent ones
+      try {
+        const { EmailService } = await import('./email-service');
+        const campaignId = job.data.campaignId;
+        const subscriberIds = job.data.subscriberIds;
+
+        // Count how many emails from this batch were actually sent
+        const sentInBatch = await redis.keys(`sent:${campaignId}:*`);
+        const sentSubscriberIds = sentInBatch.map((key) => key.split(':')[2]); // Extract subscriber ID from key
+        const unsentInBatch = subscriberIds.filter(
+          (id) => !sentSubscriberIds.includes(id)
+        );
+
+        if (unsentInBatch.length > 0) {
+          // Get user ID for refund
+          const campaign = await prisma.campaign.findUnique({
+            where: { id: campaignId },
+            select: { userId: true },
+          });
+
+          if (campaign) {
+            await EmailService.refundCreditsForFailedSends(
+              campaign.userId,
+              unsentInBatch.length,
+              campaignId
+            );
+            console.log(
+              `🔄 Refunded ${unsentInBatch.length} credits for unsent emails in failed batch ${job.data.batchNumber} of campaign ${campaignId}`
+            );
+          }
+        }
+      } catch (refundError) {
+        console.error(
+          `Failed to refund credits for batch ${job.data.batchNumber}:`,
+          refundError
+        );
+      }
 
       await batchDlqQueue.add('failed-batch', {
         originalJobData: job.data,
@@ -248,14 +463,62 @@ export const batchWorker = new Worker<BatchEmailData>(
       throw error;
     }
   },
-  { connection: connectionForWorker, concurrency: 2 }
+  { connection: connectionForWorker, concurrency: 7 }
 );
 
 export const emailWorker = batchWorker; // Alias for backward compatibility
 
+// Polar ingestion worker for processing SENT events with rate limiting
+export const polarIngestionWorker = new Worker<any>(
+  'polar-ingestion',
+  async (job: Job<any>) => {
+    if (job.name !== 'ingest-sent-event') return;
+
+    const { userId, eventType, eventData, attempt = 1 } = job.data;
+    
+    try {
+      const { CreditService } = await import('./credit-service');
+      
+      // Process the SENT event with credit deduction and Polar ingestion
+      await CreditService.processEmailEvent(userId, eventType, eventData);
+      
+      console.log(`✅ Polar SENT event ingested successfully for user ${userId} - campaign: ${eventData.campaignId}`);
+      
+    } catch (error: any) {
+      if (error.message?.includes('429') || error.message?.includes('rate limit') || error.message?.includes('Too Many Requests')) {
+        console.warn(`⚠️ Rate limit hit for Polar ingestion (attempt ${attempt}/5), will retry with exponential backoff`);
+        
+        // Let BullMQ handle the retry with exponential backoff
+        throw error;
+      }
+      
+      // Check if it's a temporary error that should be retried
+      if (error.message?.includes('network') || error.message?.includes('timeout') || error.message?.includes('503') || error.message?.includes('502')) {
+        console.warn(`⚠️ Temporary error for Polar ingestion (attempt ${attempt}/5): ${error.message}`);
+        throw error;
+      }
+      
+      // For other errors, log and don't retry to avoid infinite loops
+      console.error(`❌ Permanent error in Polar ingestion for user ${userId}:`, {
+        error: error.message,
+        stack: error.stack,
+        campaignId: eventData.campaignId,
+        subscriberId: eventData.subscriberId
+      });
+      
+      // Don't throw - mark as completed but failed to avoid retry
+      return;
+    }
+  },
+  {
+    connection: connectionForWorker,
+    concurrency: 2, // Low concurrency to respect rate limits
+  }
+);
+
 // ----------------- DLQ Retry Helpers -----------------
 
-export async function retryFailedBatches(campaignId?: string, limit = 50) {
+export async function retryFailedBatches(campaignId?: string, limit = 100) {
   const jobs = await batchDlqQueue.getJobs(['waiting', 'failed'], 0, limit - 1);
 
   let retriedCount = 0;
@@ -264,9 +527,9 @@ export async function retryFailedBatches(campaignId?: string, limit = 50) {
 
     if (campaignId && data.campaignId !== campaignId) continue;
 
-    await batchQueue.add('process-batch', data, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
+    await batchQueue.add('process-batch' as const, data, {
+      attempts: 2,
+      backoff: { type: 'exponential', delay: 10000 }, // Longer backoff
       priority: 2,
     });
 
@@ -278,42 +541,37 @@ export async function retryFailedBatches(campaignId?: string, limit = 50) {
 }
 
 /**
- * Retry failed individual emails from the DLQ after campaign batches complete.
- * This function executes once all batches of a particular campaign are completed.
- * @param campaignId The campaign ID to retry failed emails for
- * @param maxRetries Maximum retry attempts per email (default 2)
- * @param batchSize Number of emails to process in each retry batch (default 25)
+ * Optimized DLQ retry: Classify bounces, single retry, parallel batches, Redis-only state.
  */
 export async function retryFailedEmailsFromDLQ(
   campaignId: string,
-  maxRetries = 2,
-  batchSize = 25
+  maxRetries = 1, // Reduced to 1 total (prevents loops)
+  batchSize = 50 // Larger for throughput
 ) {
-  console.log(`🔥 Starting DLQ email retry for campaign ${campaignId}...`);
+  console.log(
+    `🔥 Starting optimized DLQ email retry for campaign ${campaignId}...`
+  );
 
   try {
-    // Get all failed email jobs for this campaign from DLQ
-    const allDlqJobs = await dlqQueue.getJobs(
-      ['waiting', 'completed', 'failed'],
-      0,
-      -1
-    );
-    const campaignFailedJobs = allDlqJobs.filter(
-      (job) => job.data.campaignId === campaignId && job.name === 'failed-email'
+    // Use Redis for DLQ state (no full scan)
+    const dlqData = await getDlqEmailsFromRedis(campaignId);
+    const campaignFailedEmails = Object.entries(dlqData).filter(
+      ([_, data]: [string, any]) =>
+        data.status === 'failed' && !data.isPermanentBounce // Skip classified permanents
     );
 
-    if (campaignFailedJobs.length === 0) {
+    if (campaignFailedEmails.length === 0) {
       console.log(
-        `✨ No failed emails found in DLQ for campaign ${campaignId}`
+        `✨ No retryable failed emails in DLQ for campaign ${campaignId}`
       );
       return { retriedCount: 0, successCount: 0, finalFailureCount: 0 };
     }
 
     console.log(
-      `🔥 Found ${campaignFailedJobs.length} failed emails in DLQ for campaign ${campaignId}`
+      `🔥 Found ${campaignFailedEmails.length} retryable emails in DLQ for campaign ${campaignId}`
     );
 
-    // Get campaign and template data for retry
+    // Get campaign data once
     const campaign = await prisma.campaign.findUnique({
       where: { id: campaignId },
       include: { template: true },
@@ -330,380 +588,350 @@ export async function retryFailedEmailsFromDLQ(
     let successCount = 0;
     let finalFailureCount = 0;
 
-    // Process failed emails in batches
-    for (let i = 0; i < campaignFailedJobs.length; i += batchSize) {
-      const batch = campaignFailedJobs.slice(i, i + batchSize);
-      console.log(
-        `🔥📦 Processing DLQ retry batch ${Math.floor(i / batchSize) + 1}/${Math.ceil(campaignFailedJobs.length / batchSize)} (${batch.length} emails)`
-      );
+    // Parallel batch processing with Promise.allSettled
+    const batchPromises = [];
+    for (let i = 0; i < campaignFailedEmails.length; i += batchSize) {
+      const batch = campaignFailedEmails.slice(i, i + batchSize);
+      batchPromises.push(
+        (async () => {
+          console.log(
+            `🔥📦 Processing DLQ retry batch ${Math.floor(i / batchSize) + 1} (${batch.length} emails)`
+          );
 
-      // Process each email in the batch with retry logic
-      const batchPromises = batch.map(async (dlqJob) => {
-        const failedEmailData = dlqJob.data;
-        retriedCount++;
+          const emailPromises = batch.map(
+            async ([emailKey, failedEmailData]: [string, any]) => {
+              const {
+                subscriberId,
+                email,
+                templateHtml,
+                subject,
+                fromName,
+                fromEmail,
+                replyTo,
+              } = failedEmailData;
 
-        for (let attempt = 1; attempt <= maxRetries; attempt++) {
-          try {
-            console.log(
-              `🔥🔄 [DLQ Retry ${attempt}/${maxRetries}] Attempting to send email to ${failedEmailData.email}`
-            );
+              // Check if email was already successfully sent to prevent duplicates
+              const sentKey = `sent:${campaignId}:${subscriberId}`;
+              const alreadySent = await redisForDlq.get(sentKey);
 
-            // Acquire rate limit permit
-            const rateLimitResult = await globalRateLimiter.acquire();
-
-            if (!rateLimitResult.allowed) {
-              console.warn(
-                `🔥⚠️ [DLQ Retry ${attempt}] Rate limit exceeded for ${failedEmailData.email}`
-              );
-
-              if (attempt === maxRetries) {
-                console.error(
-                  `🔥❌ [DLQ FINAL FAILURE] Rate limit exceeded after ${maxRetries} DLQ attempts for ${failedEmailData.email}`
+              if (alreadySent) {
+                console.log(
+                  `📧 DLQ: Email already sent to ${email} for campaign ${campaignId}, skipping retry`
                 );
-                finalFailureCount++;
-
-                // Update Redis with final failure
-                await updateDlqEmailInRedis(
-                  campaignId,
-                  failedEmailData.subscriberId,
-                  failedEmailData.email,
-                  {
-                    status: 'retry_failed',
-                    finalFailedAt: new Date().toISOString(),
-                    finalError: 'Rate limit exceeded in DLQ retry',
-                    totalRetryAttempts: maxRetries,
-                  }
-                );
-
-                // Create bounced event for failed email
-                try {
-                  const failedEvent = await prisma.event.create({
-                    data: {
-                      type: 'BOUNCED',
-                      data: {
-                        email: failedEmailData.email,
-                        messageId: `${campaignId}-${failedEmailData.subscriberId}-dlq-failure`,
-                        timestamp: new Date().toISOString(),
-                        error: 'Rate limit exceeded in DLQ retry',
-                        retryAttempts: maxRetries,
-                      },
-                      subscriberId: failedEmailData.subscriberId,
-                      campaignId,
-                    },
-                    include: {
-                      subscriber: {
-                        select: {
-                          email: true,
-                          firstName: true,
-                          lastName: true,
-                        },
-                      },
-                    },
-                  });
-
-                  await broadcastEvent(campaignId, failedEvent);
-                } catch (eventError) {
-                  console.error(
-                    'Error creating failed event for DLQ:',
-                    eventError
-                  );
-                }
-
-                // await CampaignProgressTracker.incrementFailed(campaignId, 1);
+                successCount++; // Count as success since it was already sent
                 return;
               }
 
-              // Exponential backoff for DLQ retries
-              const backoffDelay = Math.min(
-                2000 * Math.pow(2, attempt - 1),
-                20000
-              );
-              console.log(
-                `🔥⏳ [DLQ Retry ${attempt}] Waiting ${backoffDelay}ms before retry for ${failedEmailData.email}`
-              );
-              await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-              continue;
-            }
+              retriedCount++;
 
-            console.log(
-              `🔥✅ [DLQ Retry ${attempt}] Rate limit acquired for ${failedEmailData.email}`
-            );
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                  // Acquire rate limit using enhanced rate limiter
+                  const emailType = 'marketing';
+                  const rateLimitResult =
+                    await enhancedRateLimiter.acquire(emailType);
+                  if (!rateLimitResult.allowed) {
+                    if (attempt === maxRetries) {
+                      finalFailureCount++;
+                      await classifyAndUpdateDlq(
+                        campaignId,
+                        subscriberId,
+                        email,
+                        'rate_limit_exceeded',
+                        'Rate limit permanent failure'
+                      );
+                      return;
+                    }
+                    await new Promise((r) => setTimeout(r, 10000 * attempt)); // 10s+ backoff
+                    continue;
+                  }
 
-            // Get subscriber details
-            const subscriber = await prisma.subscriber.findUnique({
-              where: { id: failedEmailData.subscriberId },
-            });
+                  const subscriber = await prisma.subscriber.findUnique({
+                    where: { id: subscriberId },
+                  });
+                  if (!subscriber || subscriber.status !== 'ACTIVE') {
+                    finalFailureCount++;
+                    await classifyAndUpdateDlq(
+                      campaignId,
+                      subscriberId,
+                      email,
+                      'subscriber_inactive',
+                      'Inactive subscriber'
+                    );
+                    return;
+                  }
 
-            if (!subscriber || subscriber.status !== 'ACTIVE') {
-              console.warn(
-                `🔥⚠️ Subscriber ${failedEmailData.subscriberId} not found or inactive, skipping DLQ retry`
-              );
-              finalFailureCount++;
+                  const personalizedHtml = replaceVariables(
+                    templateHtml,
+                    subscriber
+                  );
+                  const personalizedSubject = replaceVariables(
+                    subject,
+                    subscriber
+                  );
+                  const messageId = `${campaignId}-${subscriberId}-dlq-retry-${Date.now()}`;
 
-              // Update Redis with subscriber status issue
-              await updateDlqEmailInRedis(
-                campaignId,
-                failedEmailData.subscriberId,
-                failedEmailData.email,
-                {
-                  status: 'subscriber_inactive',
-                  finalFailedAt: new Date().toISOString(),
-                  finalError: subscriber
-                    ? 'Subscriber inactive'
-                    : 'Subscriber not found',
-                }
-              );
-
-              // Create bounced event for inactive/missing subscriber
-              try {
-                const failedEvent = await prisma.event.create({
-                  data: {
-                    type: 'BOUNCED',
-                    data: {
-                      email: failedEmailData.email,
-                      messageId: `${campaignId}-${failedEmailData.subscriberId}-subscriber-inactive`,
-                      timestamp: new Date().toISOString(),
-                      error: subscriber
-                        ? 'Subscriber inactive'
-                        : 'Subscriber not found',
-                      retryAttempts: 0,
-                    },
-                    subscriberId: failedEmailData.subscriberId,
+                  // Send with enhanced error classification
+                  const sesResult = await sendEmail({
+                    to: [email],
+                    subject: personalizedSubject,
+                    html: personalizedHtml,
+                    from: `${fromName} <${fromEmail}>`,
+                    replyTo,
                     campaignId,
-                  },
-                });
+                    messageId,
+                  });
 
-                await broadcastEvent(campaignId, failedEvent);
-              } catch (eventError) {
-                console.error(
-                  'Error creating failed event for inactive subscriber:',
-                  eventError
-                );
-              }
+                  if (!sesResult.success && sesResult.error) {
+                    // Use the enhanced error classifier
+                    const errorHandlingResult =
+                      await emailErrorClassifier.handleEmailError(
+                        sesResult.error,
+                        email,
+                        campaignId,
+                        subscriberId
+                      );
 
-              // await CampaignProgressTracker.incrementFailed(campaignId, 1);
-              return;
-            }
+                    console.error(
+                      `🔥❌ [DLQ Retry ${attempt}/${maxRetries}] Failed for ${email}:`,
+                      {
+                        error: errorHandlingResult.classified.message,
+                        errorType: errorHandlingResult.classified.type,
+                        shouldRetry: errorHandlingResult.shouldRetry,
+                        suppressionAdded: errorHandlingResult.suppressionAdded,
+                      }
+                    );
 
-            const personalizedHtml = replaceVariables(
-              failedEmailData.templateHtml,
-              subscriber
-            );
-            const personalizedSubject = replaceVariables(
-              failedEmailData.subject,
-              subscriber
-            );
+                    // Don't retry if permanent error or suppressed
+                    if (
+                      !errorHandlingResult.shouldRetry ||
+                      errorHandlingResult.suppressionAdded
+                    ) {
+                      finalFailureCount++;
+                      return;
+                    }
 
-            // Send the email
-            const messageId = `${campaignId}-${failedEmailData.subscriberId}-dlq-${Date.now()}`;
+                    if (attempt === maxRetries) {
+                      finalFailureCount++;
+                      return; // Error classifier already handled the failure
+                    }
 
-            await sendEmail({
-              to: [failedEmailData.email],
-              subject: personalizedSubject,
-              html: personalizedHtml,
-              from: `${failedEmailData.fromName} <${failedEmailData.fromEmail}>`,
-              replyTo: failedEmailData.replyTo,
-              campaignId,
-              messageId,
-            });
+                    // Use intelligent backoff
+                    const backoffDelay =
+                      errorHandlingResult.retryDelay || 30000 * attempt;
+                    await new Promise((r) => setTimeout(r, backoffDelay));
+                    continue;
+                  } else {
+                    successCount++;
 
-            console.log(
-              `🔥✓ [DLQ SUCCESS] Email sent to ${failedEmailData.email} for campaign ${campaignId} after ${attempt} DLQ attempt(s)`
-            );
+                    // Mark email as successfully sent to prevent future duplicates
+                    const sentKey = `sent:${campaignId}:${subscriberId}`;
+                    const messageId = `${campaignId}-${subscriberId}-dlq-retry-${Date.now()}`;
+                    await redisForDlq.setex(
+                      sentKey,
+                      2 * 24 * 60 * 60,
+                      messageId
+                    ); // 2 days expiration
 
-            // Increment sent count and mark as success
-            // await CampaignProgressTracker.incrementSent(campaignId, 1);
-            successCount++;
+                    await updateDlqEmailInRedis(
+                      campaignId,
+                      subscriberId,
+                      email,
+                      {
+                        status: 'retried_success',
+                        retriedAt: new Date().toISOString(),
+                        retryAttempt: attempt,
+                      }
+                    );
 
-            // Ingest credit usage to Polar for DLQ retry success
-            try {
-              const { ingestEvent } = await import('./polar');
-              await ingestEvent({
-                name: 'credits',
-                externalCustomerId: campaign.userId,
-                metadata: {
-                  campaignId,
-                  subscriberEmail: failedEmailData.email,
-                  source: 'email_campaign_dlq_retry',
-                  dlqRetryAttempt: attempt,
-                  timestamp: new Date().toISOString(),
-                },
-              });
-              console.log(
-                `💰 DLQ retry credit ingested for user ${campaign.userId} (campaign: ${campaignId}, email: ${failedEmailData.email})`
-              );
-            } catch (error) {
-              console.error(
-                `❌ Failed to ingest DLQ retry credit for user ${campaign.userId}:`,
-                error
-              );
-            }
+                    // Queue SENT event for Polar ingestion to avoid rate limits
+                    try {
+                      const campaign = await prisma.campaign.findUnique({
+                        where: { id: campaignId },
+                        select: { userId: true },
+                      });
 
-            // Update Redis with successful retry
-            await updateDlqEmailInRedis(
-              campaignId,
-              failedEmailData.subscriberId,
-              failedEmailData.email,
-              {
-                status: 'retried_success',
-                retriedAt: new Date().toISOString(),
-                retryAttempt: attempt,
-              }
-            );
+                      if (campaign?.userId) {
+                        await addPolarIngestionJob(campaign.userId, 'SENT', {
+                          campaignId,
+                          subscriberId,
+                          metadata: {
+                            messageId,
+                            recipientEmail: email,
+                            timestamp: new Date().toISOString(),
+                            source: 'dlq_retry',
+                          },
+                        });
+                        console.log(
+                          `🔵 DLQ retry SENT event queued for Polar ingestion - campaign: ${campaignId}`
+                        );
+                      }
+                    } catch (queueError) {
+                      console.error(
+                        '❌ Error queuing DLQ retry SENT event for Polar ingestion:',
+                        queueError
+                      );
+                      // Don't fail the retry - email was sent successfully
+                    }
 
-            // Remove from DLQ after successful send
-            try {
-              await dlqJob.remove();
-              console.log(
-                `🔥🗑️ Removed ${failedEmailData.email} from DLQ after successful retry`
-              );
-            } catch (removeError) {
-              console.error(`🔥⚠️ Failed to remove job from DLQ:`, removeError);
-            }
-
-            // Apply pacing for DLQ processing
-            if (
-              rateLimitResult.nextRequestDelay &&
-              rateLimitResult.nextRequestDelay > 0
-            ) {
-              console.log(
-                `🔥⏱️ Applying DLQ pacing delay: ${rateLimitResult.nextRequestDelay}ms`
-              );
-              await new Promise((resolve) =>
-                setTimeout(resolve, rateLimitResult.nextRequestDelay)
-              );
-            }
-
-            return; // Success - exit retry loop
-          } catch (error) {
-            const errorMessage =
-              error instanceof Error ? error.message : String(error);
-            console.error(
-              `🔥❌ [DLQ Retry ${attempt}/${maxRetries}] Failed to send email to ${failedEmailData.email}:`,
-              errorMessage
-            );
-
-            if (attempt === maxRetries) {
-              console.error(
-                `🔥❌ [DLQ FINAL FAILURE] Email send failed after ${maxRetries} DLQ attempts for ${failedEmailData.email}`
-              );
-              finalFailureCount++;
-
-              // Update Redis with final failure
-              await updateDlqEmailInRedis(
-                campaignId,
-                failedEmailData.subscriberId,
-                failedEmailData.email,
-                {
-                  status: 'retry_failed',
-                  finalFailedAt: new Date().toISOString(),
-                  finalError: errorMessage,
-                  totalRetryAttempts: maxRetries,
+                    // Pace: Honor SES throttling
+                    if (rateLimitResult.nextRequestDelay > 0) {
+                      await new Promise((r) =>
+                        setTimeout(r, rateLimitResult.nextRequestDelay)
+                      );
+                    }
+                    return;
+                  }
+                } catch (error) {
+                  if (attempt === maxRetries) {
+                    finalFailureCount++;
+                    await classifyAndUpdateDlq(
+                      campaignId,
+                      subscriberId,
+                      email,
+                      'retry_failed',
+                      (error as Error).message
+                    );
+                  } else {
+                    await new Promise((r) => setTimeout(r, 30000 * attempt));
+                  }
                 }
-              );
-
-              // await CampaignProgressTracker.incrementFailed(campaignId, 1);
-
-              // Create final failure event
-              try {
-                const finalFailedEvent = await prisma.event.create({
-                  data: {
-                    type: 'BOUNCED',
-                    data: {
-                      email: failedEmailData.email,
-                      messageId: `${campaignId}-${failedEmailData.subscriberId}-dlq-final-failure`,
-                      timestamp: new Date().toISOString(),
-                      error: errorMessage,
-                      retryAttempts: maxRetries,
-                      isDlqFinalFailure: true,
-                    },
-                    subscriberId: failedEmailData.subscriberId,
-                    campaignId,
-                  },
-                  include: {
-                    subscriber: {
-                      select: {
-                        email: true,
-                        firstName: true,
-                        lastName: true,
-                      },
-                    },
-                  },
-                });
-
-                await broadcastEvent(campaignId, finalFailedEvent);
-              } catch (eventError) {
-                console.error(
-                  '🔥⚠️ Error creating DLQ final failure event:',
-                  eventError
-                );
               }
-
-              break;
             }
+          );
 
-            // Exponential backoff for DLQ retries
-            const backoffDelay = Math.min(
-              2000 * Math.pow(2, attempt - 1),
-              20000
-            );
-            console.log(
-              `🔥⏳ [DLQ Retry ${attempt}] Waiting ${backoffDelay}ms before retry due to error: ${errorMessage}`
-            );
-            await new Promise((resolve) => setTimeout(resolve, backoffDelay));
-          }
-        }
-      });
+          await Promise.allSettled(emailPromises);
+        })()
+      );
 
-      // Wait for batch to complete before processing next batch
-      await Promise.allSettled(batchPromises);
-
-      // Add delay between batches to avoid overwhelming the system
-      if (i + batchSize < campaignFailedJobs.length) {
-        console.log(
-          `🔥⏸️ Waiting 3 seconds before processing next DLQ retry batch...`
-        );
-        await new Promise((resolve) => setTimeout(resolve, 3000));
-      }
+      // Stagger batches
+      if (batchPromises.length > 1)
+        await new Promise((r) => setTimeout(r, 5000));
     }
 
-    console.log(`🔥✅ DLQ retry completed for campaign ${campaignId}:`);
-    console.log(`   📊 Total processed: ${retriedCount}`);
-    console.log(`   ✅ Successful retries: ${successCount}`);
-    console.log(`   ❌ Final failures: ${finalFailureCount}`);
+    await Promise.allSettled(batchPromises);
+
+    console.log(
+      `🔥✅ DLQ retry completed: processed=${retriedCount}, success=${successCount}, failures=${finalFailureCount}`
+    );
 
     return { retriedCount, successCount, finalFailureCount };
   } catch (error) {
-    console.error(
-      `🔥💥 Error during DLQ retry for campaign ${campaignId}:`,
-      error
-    );
+    console.error(`🔥💥 DLQ retry error for ${campaignId}:`, error);
     throw error;
+  }
+}
+
+// Helper: Classify permanent bounces (SES codes: 5xx, invalid recipient, etc.)
+function isPermanentBounce(errorCode: string): boolean {
+  const permanentCodes = [
+    'InvalidRecipient',
+    'MessageRejected',
+    '5.',
+    '550',
+    '553',
+  ];
+  return permanentCodes.some((code) => errorCode.includes(code));
+}
+
+// Wrapper for DLQ updates with classification
+async function classifyAndUpdateDlq(
+  campaignId: string,
+  subscriberId: string,
+  email: string,
+  status: string,
+  error?: string,
+  extra?: any
+) {
+  await updateDlqEmailInRedis(campaignId, subscriberId, email, {
+    status,
+    finalFailedAt: new Date().toISOString(),
+    finalError: error,
+    ...extra,
+  });
+
+  // Create event if bounced
+  if (status.includes('bounce') || status === 'permanent_bounce') {
+    await prisma.event.create({
+      data: {
+        type: 'BOUNCED',
+        data: { email, error, timestamp: new Date().toISOString() },
+        subscriberId,
+        campaignId,
+      },
+    });
+    await broadcastEvent(campaignId, {
+      /* event */
+    });
   }
 }
 
 // ----------------- Worker Event Listeners -----------------
 
-campaignWorker.on('completed', job => console.log(`✅ Campaign job ${job.id} completed (batches queued)`));
-campaignWorker.on('failed', (job, err) => console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`));
-
-batchWorker.on('completed', job =>
-  console.log(`✅ Batch ${job.data.batchNumber} of campaign ${job.data.campaignId} completed`)
+campaignWorker.on('completed', (job) =>
+  console.log(`✅ Campaign job ${job.id} completed (batches queued)`)
 );
-batchWorker.on('failed', (job, err) => console.error(`❌ Batch job ${job?.id} failed: ${err.message}`));
+campaignWorker.on('failed', (job, err) =>
+  console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`)
+);
+
+batchWorker.on('completed', (job) =>
+  console.log(
+    `✅ Batch ${job.data.batchNumber} of campaign ${job.data.campaignId} completed`
+  )
+);
+batchWorker.on('failed', (job, err) =>
+  console.error(`❌ Batch job ${job?.id} failed: ${err.message}`)
+);
+
+// Polar ingestion worker event listeners
+polarIngestionWorker.on('completed', (job) =>
+  console.log(`✅ Polar ingestion job ${job.id} completed for user ${job.data.userId}`)
+);
+polarIngestionWorker.on('failed', (job, err) =>
+  console.error(`❌ Polar ingestion job ${job?.id} failed: ${err.message}`)
+);
 
 // ----------------- Queue Management -----------------
 
-export async function addCampaignToQueue(campaignId: string, userId: string, options?: { batchSize?: number }) {
+export async function addCampaignToQueue(
+  campaignId: string,
+  userId: string,
+  options?: { batchSize?: number }
+) {
   const job = await campaignQueue.add(
-    'process-campaign',
+    'process-campaign' as const,
     { campaignId, userId, batchSize: options?.batchSize || 100 },
     { priority: 1 }
   );
   return job;
 }
 
-
+// Add SENT event to Polar ingestion queue
+export async function addPolarIngestionJob(
+  userId: string,
+  eventType: string,
+  eventData: {
+    campaignId: string;
+    subscriberId: string;
+    metadata?: Record<string, any>;
+  }
+) {
+  const job = await polarIngestionQueue.add(
+    'ingest-sent-event' as const,
+    {
+      userId,
+      eventType,
+      eventData,
+      queuedAt: new Date().toISOString(),
+    },
+    {
+      priority: 10, // High priority for SENT events
+      delay: Math.floor(Math.random() * 1000), // Small random delay to spread load
+    }
+  );
+  return job;
+}
 
 // ----------------- Graceful Shutdown -----------------
 
@@ -712,10 +940,13 @@ const shutdown = async () => {
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),
+    dlqQueue.close(),
+    batchDlqQueue.close(),
+    polarIngestionQueue.close(),
     campaignWorker.close(),
-    batchWorker.close()
+    batchWorker.close(),
+    polarIngestionWorker.close(),
   ]);
-  // Redis connections managed by RedisConnectionManager
   console.log('✅ Queues and workers closed');
 };
 
@@ -727,26 +958,31 @@ process.on('SIGINT', shutdown);
 /**
  * Update DLQ email status in Redis
  */
-async function updateDlqEmailInRedis(campaignId: string, subscriberId: string, email: string, updateData: any): Promise<void> {
+async function updateDlqEmailInRedis(
+  campaignId: string,
+  subscriberId: string,
+  email: string,
+  updateData: any
+): Promise<void> {
   try {
     const dlqKey = `dlq:${campaignId}`;
     const emailKey = `${subscriberId}:${email}`;
-    
+
     // Get existing data
     const existingData = await redisForDlq.hget(dlqKey, emailKey);
     const currentData = existingData ? JSON.parse(existingData) : {};
-    
+
     // Merge with update
     const updatedData = {
       ...currentData,
       ...updateData,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
-    
+
     await redisForDlq.hset(dlqKey, emailKey, JSON.stringify(updatedData));
-    
-    // Set expiration for 30 days
-    await redisForDlq.expire(dlqKey, 30 * 24 * 60 * 60);
+
+    // Set expiration for 7 days (shorter for cleanup)
+    await redisForDlq.expire(dlqKey, 7 * 24 * 60 * 60);
   } catch (error) {
     console.error('Error updating DLQ email in Redis:', error);
   }
@@ -755,20 +991,23 @@ async function updateDlqEmailInRedis(campaignId: string, subscriberId: string, e
 /**
  * Get all DLQ emails for a campaign from Redis
  */
-export async function getDlqEmailsFromRedis(campaignId: string): Promise<Record<string, any>> {
+export async function getDlqEmailsFromRedis(
+  campaignId: string
+): Promise<Record<string, any>> {
   try {
     const dlqKey = `dlq:${campaignId}`;
     const dlqData = await redisForDlq.hgetall(dlqKey);
-    
+
     const parsedData: Record<string, any> = {};
     for (const [emailKey, dataStr] of Object.entries(dlqData)) {
       try {
-        parsedData[emailKey] = (typeof dataStr === 'string') ? JSON.parse(dataStr) : dataStr;
+        parsedData[emailKey] =
+          typeof dataStr === 'string' ? JSON.parse(dataStr) : dataStr;
       } catch (parseError) {
         console.error(`Error parsing DLQ data for ${emailKey}:`, parseError);
       }
     }
-    
+
     return parsedData;
   } catch (error) {
     console.error('Error getting DLQ emails from Redis:', error);
@@ -777,7 +1016,7 @@ export async function getDlqEmailsFromRedis(campaignId: string): Promise<Record<
 }
 
 /**
- * Get DLQ statistics for a campaign
+ * Get DLQ statistics for a campaign (optimized with counters)
  */
 export async function getDlqStats(campaignId: string): Promise<{
   total: number;
@@ -786,21 +1025,24 @@ export async function getDlqStats(campaignId: string): Promise<{
   retriedSuccess: number;
   retryFailed: number;
   subscriberInactive: number;
+  permanentBounces: number;
 }> {
   try {
     const dlqData = await getDlqEmailsFromRedis(campaignId);
-    
+
     const stats = {
       total: Object.keys(dlqData).length,
       failed: 0,
       retried: 0,
       retriedSuccess: 0,
       retryFailed: 0,
-      subscriberInactive: 0
+      subscriberInactive: 0,
+      permanentBounces: 0,
     };
-    
+
     Object.values(dlqData).forEach((emailData: any) => {
-      switch (emailData.status) {
+      const { status, isPermanentBounce } = emailData;
+      switch (status) {
         case 'failed':
           stats.failed++;
           break;
@@ -815,9 +1057,17 @@ export async function getDlqStats(campaignId: string): Promise<{
         case 'subscriber_inactive':
           stats.subscriberInactive++;
           break;
+        case 'permanent_bounce':
+          stats.permanentBounces++;
+          break;
       }
+      if (isPermanentBounce) stats.permanentBounces++;
     });
-    
+
+    // Cache stats in Redis for 1min
+    const statsKey = `dlq:stats:${campaignId}`;
+    await redisForDlq.set(statsKey, JSON.stringify(stats), 'EX', 60);
+
     return stats;
   } catch (error) {
     console.error('Error getting DLQ stats:', error);
@@ -827,7 +1077,8 @@ export async function getDlqStats(campaignId: string): Promise<{
       retried: 0,
       retriedSuccess: 0,
       retryFailed: 0,
-      subscriberInactive: 0
+      subscriberInactive: 0,
+      permanentBounces: 0,
     };
   }
 }
