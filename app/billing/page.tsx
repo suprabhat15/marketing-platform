@@ -18,6 +18,7 @@ import {
   XCircle,
   Loader2
 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 interface PaymentHistory {
   id: string;
@@ -55,6 +56,7 @@ export default function BillingPage() {
   const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [creditBalance, setCreditBalance] = useState<any>(null);
+  const router = useRouter();
 
   const fetchBillingData = async () => {
     try {
@@ -354,7 +356,7 @@ export default function BillingPage() {
                       <p className="text-muted-foreground mb-4">
                         You don't have any active subscriptions.
                       </p>
-                      <Button onClick={() => window.location.href = '/pricing'}>
+                      <Button onClick={() => router.push('/pricing')}>
                         Browse Plans
                       </Button>
                     </CardContent>

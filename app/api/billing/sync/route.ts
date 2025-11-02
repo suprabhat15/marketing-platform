@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { RedisCache, generateUserCacheKey } from '@/lib/redis-cache';
 
 // Optimize with dynamic imports and caching
 async function getAuth() {
@@ -22,9 +23,8 @@ const syncSubscriptionSchema = z.object({
   syncAll: z.boolean().default(false),
 });
 
-// Cache for recent sync results to avoid redundant API calls
-const syncCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+// Cache TTL for sync results (5 minutes)
+const CACHE_TTL = 5 * 60; // 5 minutes in seconds for Redis
 
 // Sync subscription data from Polar API
 export async function POST(request: NextRequest) {
@@ -42,17 +42,31 @@ export async function POST(request: NextRequest) {
     const validatedData = syncSubscriptionSchema.parse(body);
     const { syncSubscriptionFromPolar, getUserCreditBalance } = await getPolar();
 
-    // Check cache for recent sync
-    const cacheKey = `sync_${session.user.id}_${validatedData.subscriptionId || 'all'}`;
-    const cached = syncCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-      });
-    }
+    // Check Redis cache for recent sync
+    const cacheKey = generateUserCacheKey(
+      session.user.id,
+      'billing-sync',
+      validatedData.subscriptionId || 'all'
+    );
 
     if (validatedData.subscriptionId) {
+      const prisma = await getPrisma();
+      
+      // Verify subscription belongs to user
+      const subscription = await prisma.subscription.findFirst({
+        where: {
+          polarSubscriptionId: validatedData.subscriptionId,
+          userId: session.user.id,
+        },
+      });
+      
+      if (!subscription) {
+        return NextResponse.json(
+          { error: 'Subscription not found or access denied' },
+          { status: 403 }
+        );
+      }
+      
       // Sync specific subscription
       const syncedSubscription = await syncSubscriptionFromPolar(validatedData.subscriptionId);
       
@@ -62,8 +76,11 @@ export async function POST(request: NextRequest) {
         message: 'Subscription synced successfully',
       };
 
-      // Cache the result
-      syncCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      try {
+        await RedisCache.set(cacheKey, result, { ttl: CACHE_TTL });
+      } catch (cacheError) {
+        console.warn('Redis cache write failed:', cacheError);
+      }
 
       return NextResponse.json(result);
     } else if (validatedData.syncAll) {
@@ -76,38 +93,44 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      const syncResults = [];
-      for (const subscription of userSubscriptions) {
-        try {
-          const synced = await syncSubscriptionFromPolar(
-            subscription.polarSubscriptionId
-          );
-          syncResults.push({
-            id: subscription.polarSubscriptionId, 
-            status: 'synced',
-            credits: {
-              total: synced.totalCredits,
-              used: synced.usedCredits,
-              remaining: synced.remainingCredits,
-            }
-          });
-        } catch (error) {
-          syncResults.push({ 
-            id: subscription.polarSubscriptionId,
-            status: 'error',
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      }
+      // Cache the result in Redis (fail silently if Redis is down)
+      const syncResults = await Promise.all(
+        userSubscriptions.map(async (subscription) => {
+          try {
+            const synced = await syncSubscriptionFromPolar(
+              subscription.polarSubscriptionId
+            );
+            return {
+              id: subscription.polarSubscriptionId,
+              status: 'synced' as const,
+              credits: {
+                total: synced.totalCredits,
+                used: synced.usedCredits,
+                remaining: synced.remainingCredits,
+              },
+            };
+          } catch (error) {
+            return {
+              id: subscription.polarSubscriptionId,
+              status: 'error' as const,
+              error: error instanceof Error ? error.message : 'Unknown error',
+            };
+          }
+        })
+      );
 
       const result = {
         success: true,
         syncResults,
-        message: `Synced ${syncResults.filter(r => r.status === 'synced').length} of ${syncResults.length} subscriptions`,
+        message: `Synced ${syncResults.filter((r) => r.status === 'synced').length} of ${syncResults.length} subscriptions`,
       };
 
-      // Cache the result
-      syncCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      // Cache the result in Redis (fail silently if Redis is down)
+      try {
+        await RedisCache.set(cacheKey, result, { ttl: CACHE_TTL });
+      } catch (cacheError) {
+        console.warn('Redis cache write failed:', cacheError);
+      }
 
       return NextResponse.json(result);
     } else {
@@ -120,8 +143,12 @@ export async function POST(request: NextRequest) {
         message: 'Credit balance refreshed from Polar',
       };
 
-      // Cache the result
-      syncCache.set(cacheKey, { data: result, timestamp: Date.now() });
+      // Cache the result in Redis (fail silently if Redis is down)
+      try {
+        await RedisCache.set(cacheKey, result, { ttl: CACHE_TTL });
+      } catch (cacheError) {
+        console.warn('Redis cache write failed:', cacheError);
+      }
 
       return NextResponse.json(result);
     }
@@ -154,14 +181,23 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check cache for recent GET request
-    const getCacheKey = `get_${session.user.id}`;
-    const cached = syncCache.get(getCacheKey);
-    if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-      });
+    // Check Redis cache for recent GET request
+    const getCacheKey = generateUserCacheKey(session.user.id, 'billing-status');
+
+    try {
+      const cached = await RedisCache.get(getCacheKey);
+      if (cached) {
+        return NextResponse.json({
+          ...cached,
+          fromCache: true,
+        });
+      }
+    } catch (cacheError) {
+      console.warn(
+        'Redis cache read failed, proceeding without cache:',
+        cacheError
+      );
+      // Continue without cache if Redis fails
     }
 
     const { getUserCreditBalance } = await getPolar();
@@ -192,11 +228,18 @@ export async function GET(request: NextRequest) {
     const result = {
       creditBalance,
       subscriptions,
-      lastSyncAt: subscriptions[0]?.updatedAt || null,
+      lastSyncAt:
+        subscriptions.length > 0
+          ? subscriptions.reduce(
+              (latest, sub) =>
+                !latest || sub.updatedAt > latest ? sub.updatedAt : latest,
+              null as Date | null
+            )
+          : null,
     };
 
-    // Cache the result
-    syncCache.set(getCacheKey, { data: result, timestamp: Date.now() });
+    // Cache the result in Redis
+    await RedisCache.set(getCacheKey, result, { ttl: CACHE_TTL });
 
     return NextResponse.json(result);
   } catch (error) {

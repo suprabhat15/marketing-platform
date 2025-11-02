@@ -1,10 +1,24 @@
 'use client';
 
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle, XCircle, AlertTriangle, Calendar, CreditCard, Loader2 } from 'lucide-react';
+import {
+  CheckCircle,
+  XCircle,
+  AlertTriangle,
+  Calendar,
+  CreditCard,
+  Loader2,
+} from 'lucide-react';
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 interface SubscriptionCardProps {
   subscription: {
@@ -32,6 +46,7 @@ interface SubscriptionCardProps {
 
 export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardProps) {
   const [loading, setLoading] = useState<string | null>(null);
+  const router = useRouter();
 
   const getStatusIcon = () => {
     switch (subscription.status) {
@@ -169,7 +184,7 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
             <Button 
               variant="outline" 
               size="sm"
-              onClick={() => handleUpgrade('new-product-id')}
+              onClick={() => router.push('/pricing')}
               disabled={loading !== null}
             >
               {loading === 'upgrade' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -186,7 +201,7 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
             </Button>
           </div>
         );
-      
+
       case 'trialing':
       case 'past_due':
       case 'incomplete':
@@ -195,7 +210,7 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
             <Button 
               variant="default" 
               size="sm"
-              onClick={() => window.location.href = '/billing/payment-methods'}
+              onClick={() => router.push('/billing/payment-methods')}
             >
               Update Payment Method
             </Button>
@@ -216,7 +231,7 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
           <Button 
             variant="default" 
             size="sm"
-            onClick={() => window.location.href = '/pricing'}
+            onClick={() => router.push('/pricing')}
           >
             Reactivate Subscription
           </Button>

@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   verifyWebhookSignature,
   type PolarWebhookEvent,
-  createMeter,
   getOrCreateMeterForProduct,
   getCustomerState,
   extractCreditsFromCustomerState,
@@ -321,42 +320,33 @@ export async function handleOrderCreated(data: any) {
     // Wait 100ms for subscription to be created, then check if it exists
     let subscriptionId = null;
     if (data.subscription_id) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-
       const existingSubscription = await prisma.subscription.findFirst({
         where: { polarSubscriptionId: data.subscription_id, status: 'ACTIVE' },
       });
 
       if (existingSubscription) {
         subscriptionId = existingSubscription.id;
+      } else {
+        console.log(
+          `Subscription ${data.subscription_id} not yet created, will be linked later`
+        );
       }
     }
 
     // Get credits and price from pricing table
     const { credits: totalCredits, price: calculatedAmount } =
       getCreditsPricing(data);
-
-    // Create order record in database
     await prisma.order.create({
       data: {
         polarOrderId: data.id,
         customerId: data.customer?.id || data.customerId, // maybe it would be data.subscription.customer_id
-        status: 'PAID',
+        status: data.status?.toUpperCase() || 'PENDING',
         productId: data.product?.id,
         amount: calculatedAmount,
         currency: data.currency || 'USD',
         credits: totalCredits,
         userId: userId,
       },
-    });
-
-    // Update user's subscription status or permissions
-    await updateUserAfterPurchase(userId, {
-      orderId: data.id,
-      productId: data.product?.id,
-      amount: data.amount,
-      currency: data.currency,
-      status: 'paid',
     });
 
     console.log(`Order processed successfully for user ${userId}`);
@@ -710,7 +700,7 @@ async function handleSubscriptionUncanceled(data: any) {
       where: { polarSubscriptionId: data.id },
       data: {
         status: 'ACTIVE',
-        canceledAt: data.canceled_at ? new Date(data.canceled_at) : null,
+        canceledAt: null,
       },
     });
     
