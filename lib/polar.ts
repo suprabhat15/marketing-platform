@@ -2,8 +2,14 @@ import { Polar } from '@polar-sh/sdk';
 import crypto from 'crypto';
 
 // Initialize Polar SDK with environment configuration
+if (!process.env.POLAR_ACCESS_TOKEN_SANDBOX) {
+  throw new Error(
+    'POLAR_ACCESS_TOKEN_SANDBOX environment variable is required'
+  );
+}
+
 export const polar = new Polar({
-  accessToken: process.env.POLAR_ACCESS_TOKEN_SANDBOX ?? "",
+  accessToken: process.env.POLAR_ACCESS_TOKEN_SANDBOX,
   server: 'sandbox',
 });
 
@@ -12,7 +18,7 @@ export const polar = new Polar({
 
 // Types for checkout session
 export interface CheckoutSessionData {
-  productId?: string;
+  productId: string;
   successUrl?: string;
   cancelUrl?: string;
   customerEmail?: string;
@@ -37,15 +43,11 @@ export interface CreateCustomerData {
 export async function createOrGetCustomer(data: CreateCustomerData) {
   try {
     // Check for existing customer first
-    console.log("--------- checking for existing customer --------- ", data);
-    
     try {
       const selectedCustomer = await polar.customers.getStateExternal({
         externalId: data.userId,
       });
-      
-      console.log("--------- found existing customer --------- ", selectedCustomer);
-      if(selectedCustomer) return selectedCustomer;
+      if (selectedCustomer) return selectedCustomer;
     } catch (getError: any) {
       const { statusCode, error} = getError;
 
@@ -76,9 +78,10 @@ export async function createOrGetCustomer(data: CreateCustomerData) {
 // Create checkout session with automatic meter initialization
 export async function createCheckoutSession(data: CheckoutSessionData) {
   try {
-    const productId =
-      data.productId || process.env.POLAR_PRODUCT_ID_SANDBOX || '1234567890';
-
+    const productId = data?.productId;
+    if (!productId) {
+      throw new Error('productId is required for checkout session');
+    }
     const checkoutData: any = {
       products: [productId],
     };
@@ -217,14 +220,21 @@ export async function getProducts(organizationId?: string) {
 export function verifyWebhookSignature(
   payload: string,
   signature: string,
-  secret: string = process.env.POLAR_WEBHOOK_SECRET!
+  secret?: string
 ): boolean {
+  const webhookSecret = secret || process.env.POLAR_WEBHOOK_SECRET;
+  if (!webhookSecret) {
+    throw new Error(
+      'POLAR_WEBHOOK_SECRET is required for webhook verification'
+    );
+  }
+
   // Remove 'sha256=' prefix if present
   const cleanSignature = signature.replace('sha256=', '');
 
   const expectedSignature = crypto
-    .createHmac('sha256', secret)
-    .update(payload, 'utf8')
+    .createHmac('sha256', webhookSecret)
+    .update(payload)
     .digest('hex');
 
   return crypto.timingSafeEqual(
@@ -272,7 +282,7 @@ export function extractCreditsFromCustomerState(customerState: any) {
     usedCredits,
     remainingCredits,
     meterId,
-    balance: customerState.activeMeters?.[0]?.balance || remainingCredits,
+    balance: remainingCredits,
   };
 }
 
@@ -484,11 +494,17 @@ export async function updateCreditUsage(userId: string, creditsUsed: number) {
   try {
     const { prisma } = await import('./prisma');
 
-    // Get user's active subscription
+    // Get user's active subscription or canceled subscription with remaining credits
     const subscription = await prisma.subscription.findFirst({
       where: {
-        userId: userId,
-        status: 'ACTIVE',
+        userId,
+        OR: [
+          { status: 'ACTIVE' },
+          {
+            status: 'CANCELED',
+            remainingCredits: { gt: 0 }, // Allow canceled subscriptions with remaining credits
+          },
+        ],
       },
       orderBy: {
         createdAt: 'desc',
@@ -496,7 +512,16 @@ export async function updateCreditUsage(userId: string, creditsUsed: number) {
     });
 
     if (!subscription) {
-      throw new Error('No active subscription found for user');
+      throw new Error(
+        'No active subscription or canceled subscription with credits found for user'
+      );
+    }
+
+    // Check if user has enough credits
+    if (subscription.remainingCredits < creditsUsed) {
+      throw new Error(
+        `Insufficient credits. Need ${creditsUsed}, have ${subscription.remainingCredits}`
+      );
     }
 
     const newUsedCredits = subscription.usedCredits + creditsUsed;
@@ -540,12 +565,12 @@ export async function ingestEvent(event: {
       events: [eventData],
     });
 
-    console.log(`✅ [POLAR INGEST] SUCCESS:`, {
-      customerId: event.externalCustomerId,
-      response: response
-        ? JSON.stringify(response, null, 2)
-        : 'No response data',
-    });
+    // console.log(`✅ [POLAR INGEST] SUCCESS:`, {
+    //   customerId: event.externalCustomerId,
+    //   response: response
+    //     ? JSON.stringify(response, null, 2)
+    //     : 'No response data',
+    // });
 
     return response;
   } catch (error) {
@@ -576,60 +601,53 @@ export async function trackEmailCreditUsage(
   try {
     const { prisma } = await import('./prisma');
 
-    // Get user's active subscription
+    // Use the centralized updateCreditUsage function
+    const creditResult = await updateCreditUsage(userId, emailsSent);
+
+    // Get the subscription for additional metadata
     const subscription = await prisma.subscription.findFirst({
       where: {
-        userId: userId,
-        status: 'ACTIVE',
+        userId,
+        OR: [
+          { status: 'ACTIVE' },
+          {
+            status: 'CANCELED',
+            remainingCredits: { gt: 0 },
+          },
+        ],
       },
       orderBy: {
         createdAt: 'desc',
       },
     });
 
-    if (!subscription) {
-      throw new Error('No active subscription found for user');
+    // Ingest event to Polar for usage tracking (if meter is configured)
+    if (subscription?.meterId) {
+      await ingestEvent({
+        name: 'SENT',
+        externalCustomerId: userId,
+        metadata: {
+          source: 'track email credit usage',
+          emailsSent: emailsSent,
+          creditsUsed: emailsSent,
+          totalUsedCredits: creditResult.usedCredits,
+          remainingCredits: creditResult.remainingCredits,
+          subscriptionId: subscription.polarSubscriptionId,
+        },
+      });
     }
 
-    // Update local credit usage
-    const creditsToDeduct = emailsSent; // 1 credit per email
-    const newUsedCredits = subscription.usedCredits + creditsToDeduct;
-    const newRemainingCredits = subscription.totalCredits - newUsedCredits;
-
-    // Update subscription in local database
-    await prisma.subscription.update({
-      where: { id: subscription.id },
-      data: {
-        usedCredits: newUsedCredits,
-        remainingCredits: newRemainingCredits,
-      },
-    });
-
-    // Ingest event to Polar for usage tracking
-    await ingestEvent({
-      name: 'SENT',
-      externalCustomerId: userId,
-      metadata: {
-        source: 'track email credit usage',
-        emailsSent: emailsSent,
-        creditsUsed: creditsToDeduct,
-        totalUsedCredits: newUsedCredits,
-        remainingCredits: newRemainingCredits,
-        subscriptionId: subscription.polarSubscriptionId,
-      },
-    });
-
-    console.log(
-      `Tracked ${emailsSent} emails (${creditsToDeduct} credits) for user ${userId}. Remaining: ${newRemainingCredits}/${subscription.totalCredits}`
-    );
+    // console.log(
+    //   `Tracked ${emailsSent} emails (${emailsSent} credits) for user ${userId}. Remaining: ${creditResult.remainingCredits}/${creditResult.totalCredits}`
+    // );
 
     return {
       emailsSent,
-      creditsUsed: creditsToDeduct,
-      totalCredits: subscription.totalCredits,
-      usedCredits: newUsedCredits,
-      remainingCredits: newRemainingCredits,
-      hasEnoughCredits: newRemainingCredits >= 0,
+      creditsUsed: emailsSent,
+      totalCredits: creditResult.totalCredits,
+      usedCredits: creditResult.usedCredits,
+      remainingCredits: creditResult.remainingCredits,
+      hasEnoughCredits: creditResult.remainingCredits >= 0,
     };
   } catch (error) {
     console.error('Error tracking email credit usage:', error);
@@ -643,7 +661,10 @@ export async function checkCreditAvailability(
   emailsToSend: number
 ) {
   try {
-    const creditBalance = await getUserCreditBalance(userId);
+    const creditBalance = await getUserCreditBalanceWithSync(userId, {
+      syncFromPolar: false, // Use local data for faster checks
+      updateSubscriptionStatus: false,
+    });
 
     if (!creditBalance.hasActiveSubscription) {
       return {
