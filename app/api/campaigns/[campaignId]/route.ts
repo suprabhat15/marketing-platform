@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { emailQueue, batchQueue } from '@/lib/queue';
 import { invalidateUserCache } from '@/lib/redis-cache';
+import { redis } from '@/lib/redis';
 
 export async function GET(
   request: NextRequest,
@@ -53,23 +54,28 @@ export async function GET(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    // Get event counts by type
-    const eventCounts = await prisma.event.groupBy({
-      by: ['type'],
-      where: { campaignId },
-      _count: { type: true }
-    });
+    // Get aggregated event stats from Redis
+    const campaignKeys = await redis.keys(`campaign_stats:${campaignId}:*`);
+    const eventsByType: Record<string, number> = {};
+    
+    if (campaignKeys.length > 0) {
+      const values = await redis.mget(...campaignKeys);
+      campaignKeys.forEach((key, index) => {
+        const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
+        if (eventType !== 'total') { // Exclude total from eventsByType
+          eventsByType[eventType] = parseInt(values[index] || '0');
+        }
+      });
+    }
 
-    const eventsByType = eventCounts.reduce((acc, event) => {
-      acc[event.type] = event._count.type;
-      return acc;
-    }, {} as Record<string, number>);
+    // Get total events from Redis
+    const totalEvents = await redis.get(`campaign_stats:${campaignId}:total`);
 
     return NextResponse.json({ 
       campaign: {
         ...campaign,
         eventsByType,
-        totalEvents: campaign._count.events,
+        totalEvents: parseInt(totalEvents || '0'),
         subscriberCount: campaign.list._count.subscribers
       }
     });
