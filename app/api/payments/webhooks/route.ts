@@ -11,17 +11,21 @@ import { prisma } from '@/lib/prisma';
 // Credit package pricing mapping (should match pricing page)
 const CREDIT_PRICING = {
   10000: 10.0,
-  // 20000: 20.00,
+  20000: 20.0,
   // 50000: 50.00,
   // 100000: 100.00,
   // 500000: 500.00,
 } as const;
 
-const PRODUCT_ID_10000 = process.env.POLAR_PRODUCT_ID_SANDBOX || '';
+const PRODUCT_ID_10000 =
+  process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '';
+const PRODUCT_ID_20000 =
+  process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '';
 
 // Product ID to credit mapping (matching auth.ts products)
 const PRODUCT_CREDIT_MAPPING = {
   [PRODUCT_ID_10000]: 10000, // 10k-Credits
+  [PRODUCT_ID_20000]: 20000, // 10k-Credits
   // '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000,   // 20k-Credits
   // '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000,   // 50k-Credits
   // 'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000,  // 100k-Credits
@@ -254,14 +258,6 @@ async function handleCustomerUpdated(data: any) {
       });
       // Sync any customer updates if needed
       console.log(`Customer ${data.id} updated for user ${externalId}`);
-
-      const { assignOnboardingCredits } = await import('@/lib/polar');
-      const result = await assignOnboardingCredits(externalId);
-
-      console.log(
-        `✅ [POLAR WEBHOOK] Customer ${data.id} created, linked to user ${externalId}, and onboarding credits processed:`,
-        result
-      );
     }
   } catch (error) {
     console.error('Error handling customer.updated:', error);

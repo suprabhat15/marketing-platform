@@ -44,15 +44,17 @@ export const auth = betterAuth({
         checkout({
           products: [
             {
-              productId: process.env.POLAR_PRODUCT_ID_SANDBOX || '',
+              productId:
+                process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '',
               slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
-            // {
-            //   productId: 'ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c', // 10k Credits Product ID from Polar Dashboard
-            //   slug: '10k-credits', // Custom slug for easy reference in Checkout URL
-            // },
+            {
+              productId:
+                process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '',
+              slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
+            },
           ],
-          successUrl: '/success?checkout_id={CHECKOUT_ID}',
+          successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing`,
           authenticatedUsersOnly: true,
         }),
         portal(),

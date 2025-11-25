@@ -74,15 +74,15 @@ export class EmailService {
         }
 
         // Deduct credits upfront for the entire campaign
-        await CreditService.bulkDeductCredits(
-          userId,
-          'SENT',
-          recipientCount,
-          {
-            campaign_id: campaignId,
-            operation: 'campaign_send_reservation',
-          }
-        );
+        // await CreditService.bulkDeductCredits(
+        //   userId,
+        //   'SENT',
+        //   recipientCount,
+        //   {
+        //     campaign_id: campaignId,
+        //     operation: 'campaign_send_reservation',
+        //   }
+        // );
       }
 
       return true;

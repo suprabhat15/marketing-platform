@@ -119,37 +119,6 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
     }
   };
 
-  const handleUpgrade = async (newProductId: string) => {
-    if (loading) return;
-    
-    setLoading('upgrade');
-    try {
-      const response = await fetch('/api/billing/subscriptions', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          subscriptionId: subscription.id,
-          productId: newProductId,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to update subscription');
-      }
-
-      alert('Subscription updated successfully');
-      onUpdate();
-    } catch (error) {
-      console.error('Error updating subscription:', error);
-      alert(error instanceof Error ? error.message : 'Failed to update subscription');
-    } finally {
-      setLoading(null);
-    }
-  };
 
   const getStatusMessage = () => {
     switch (subscription.status) {

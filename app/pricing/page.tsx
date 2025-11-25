@@ -1,6 +1,5 @@
 'use client';
 
-import { PricingCard } from '@/components/ui/pricing-card';
 import { CheckoutButton } from '@/components/payments/checkout-button';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -9,8 +8,14 @@ const creditOptions = [
   {
     credits: 10000,
     price: 10.0,
-    productId: process.env.POLAR_PRODUCT_ID_SANDBOX, // ee6d8cdb-5dd9-4cdf-b541-c4bdee0a9a7c
-    slug: '10k-Credits',
+    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K,
+    slug: 'Credits-10000',
+  },
+  {
+    credits: 20000,
+    price: 20.0,
+    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K,
+    slug: 'Credits-20000',
   },
 ];
 
