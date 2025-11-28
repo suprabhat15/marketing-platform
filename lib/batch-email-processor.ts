@@ -3,8 +3,6 @@ import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
-// import { CampaignProgressTracker } from './campaign-progress';
-import { broadcastEvent } from './event-broadcast';
 import { dlqQueue } from './queue';
 
 export interface BatchEmailData {
@@ -12,7 +10,8 @@ export interface BatchEmailData {
   batchNumber: number;
   totalBatches: number;
   subscriberIds: string[];
-  templateHtml: string;
+  templateId?: string; // Reference to template instead of full HTML
+  templateHtml?: string; // Fallback for inline content
   subject: string;
   fromEmail: string;
   fromName: string;
@@ -59,6 +58,27 @@ export class BatchEmailProcessor {
   }
 
   /**
+   * Load template content from database using template ID
+   */
+  private async loadTemplate(templateId: string): Promise<string> {
+    try {
+      const template = await prisma.template.findUnique({
+        where: { id: templateId },
+        select: { content: true, html: true },
+      });
+
+      if (!template) {
+        throw new Error(`Template ${templateId} not found`);
+      }
+
+      return template.content || template.html || '';
+    } catch (error) {
+      console.error(`Error loading template ${templateId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
    * Process a batch by streaming email sends with rate limiting
    */
   async processBatch(batchData: BatchEmailData): Promise<void> {
@@ -67,6 +87,7 @@ export class BatchEmailProcessor {
       batchNumber,
       totalBatches,
       subscriberIds,
+      templateId,
       templateHtml,
       subject,
       fromEmail,
@@ -91,7 +112,11 @@ export class BatchEmailProcessor {
       }
 
       // Get userId from campaign if not provided
-      let campaignUserId = userId || campaign.userId;
+      const campaignUserId = userId || campaign.userId;
+
+      if (!campaignUserId) {
+        throw new Error(`Campaign ${campaignId} has no associated userId`);
+      }
 
       // Check if user still has credits before processing this batch
       try {
@@ -116,13 +141,19 @@ export class BatchEmailProcessor {
           `✅ Credit check passed for batch ${batchNumber} of campaign ${campaignId}`
         );
       } catch (creditError) {
-        console.error(
-          `❌ Credit service error for batch ${batchNumber} of campaign ${campaignId}:`,
-          creditError
-        );
-        // Continue processing even if credit service fails to avoid blocking emails
-        console.log(
-          `⚠️ Continuing with batch processing despite credit service error`
+        // Re-throw credit errors to prevent sending without proper tracking
+        throw creditError;
+      }
+
+      // Load template content if using template reference pattern
+      let resolvedTemplateHtml = templateHtml;
+      if (!resolvedTemplateHtml && templateId) {
+        resolvedTemplateHtml = await this.loadTemplate(templateId);
+      }
+
+      if (!resolvedTemplateHtml) {
+        throw new Error(
+          `No template content available for campaign ${campaignId}`
         );
       }
 
@@ -144,37 +175,47 @@ export class BatchEmailProcessor {
       //   return;
       // }
 
-      // Create a semaphore for batch-level concurrency
+      // Process subscribers in memory-efficient chunks to avoid Promise array buildup
+      const CHUNK_SIZE = 10; // Process 10 emails at a time to limit memory usage
       const semaphore = new Semaphore(this.concurrency);
-      const emailPromises: Promise<void>[] = [];
 
-      // Process subscribers with controlled concurrency
-      for (const subscriber of subscribers) {
-        const emailPromise = semaphore.acquire(async () => {
-          await this.sendSingleEmail({
-            campaignId,
-            subscriber,
-            templateHtml,
-            subject,
-            fromEmail,
-            fromName,
-            replyTo,
-            userId: campaignUserId,
+      for (let i = 0; i < subscribers.length; i += CHUNK_SIZE) {
+        const chunk = subscribers.slice(i, i + CHUNK_SIZE);
+        const chunkPromises: Promise<void>[] = [];
+
+        // Process this chunk of subscribers
+        for (const subscriber of chunk) {
+          const emailPromise = semaphore.acquire(async () => {
+            await this.sendSingleEmail({
+              campaignId,
+              subscriber,
+              templateHtml: resolvedTemplateHtml,
+              subject,
+              fromEmail,
+              fromName,
+              replyTo,
+              userId: campaignUserId,
+            });
           });
-        });
 
-        emailPromises.push(emailPromise);
+          chunkPromises.push(emailPromise);
 
-        // Add small delay between initiating sends to avoid thundering herd
-        if (this.batchDelayMs > 0) {
-          await new Promise((resolve) =>
-            setTimeout(resolve, this.batchDelayMs)
-          );
+          // Add small delay between initiating sends to avoid thundering herd
+          if (this.batchDelayMs > 0) {
+            await new Promise((resolve) =>
+              setTimeout(resolve, this.batchDelayMs)
+            );
+          }
+        }
+
+        // Wait for this chunk to complete before starting the next
+        await Promise.allSettled(chunkPromises);
+
+        // Small delay between chunks to allow GC and reduce memory pressure
+        if (i + CHUNK_SIZE < subscribers.length) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
-
-      // Wait for all emails in this batch to complete
-      await Promise.allSettled(emailPromises);
 
       // Mark batch as completed
       // await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
@@ -216,12 +257,25 @@ export class BatchEmailProcessor {
     replyTo: string;
     userId?: string;
   }): Promise<void> {
-    // Check if email was already successfully sent to prevent duplicates
+    // Atomically check and mark as in-progress to prevent duplicates
     const sentKey = `sent:${campaignId}:${subscriber.id}`;
+    const lockKey = `lock:${sentKey}`;
+    const lockAcquired = await redis.set(lockKey, '1', 'EX', 300, 'NX'); // 5 min lock
+
+    if (!lockAcquired) {
+      console.log(
+        `📧 Email send already in progress or sent for ${subscriber.email}, skipping`
+      );
+      return;
+    }
+
     const alreadySent = await redis.get(sentKey);
-    
+
     if (alreadySent) {
-      console.log(`📧 Email already sent to ${subscriber.email} for campaign ${campaignId}, skipping`);
+      console.log(
+        `📧 Email already sent to ${subscriber.email} for campaign ${campaignId}, skipping`
+      );
+      await redis.del(lockKey);
       return;
     }
     
@@ -265,7 +319,7 @@ export class BatchEmailProcessor {
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // Handle timeout specifically
-        if (lastError.message === 'Email send timeout') {
+        if (lastError.message.includes('timeout')) {
           console.error(
             `⏰ Email send timeout for ${subscriber.email} (attempt ${attempt}/${this.maxRetries})`
           );
@@ -273,7 +327,7 @@ export class BatchEmailProcessor {
             await this.handleFinalFailure(
               campaignId,
               subscriber,
-              templateHtml,
+              resolvedTemplateHtml,
               subject,
               fromEmail,
               fromName,
@@ -291,7 +345,7 @@ export class BatchEmailProcessor {
           await this.handleFinalFailure(
             campaignId,
             subscriber,
-            templateHtml,
+            resolvedTemplateHtml,
             subject,
             fromEmail,
             fromName,
@@ -380,10 +434,16 @@ export class BatchEmailProcessor {
 
     const sesResult = await Promise.race([sendEmailPromise, sendEmailTimeout]);
 
-    if (!sesResult.success && sesResult.error) {
+    if (!sesResult.success) {
+      const error = sesResult.error || new Error('Unknown SES send failure');
+      // Normalize error to expected format
+      const normalizedError = {
+        code: (error as any).code || (error as any).name || 'Unknown',
+        message: error.message || 'Unknown SES send failure',
+      };
       // Use enhanced error classification
       const errorHandlingResult = await emailErrorClassifier.handleEmailError(
-        sesResult.error,
+        normalizedError,
         subscriber.email,
         campaignId,
         subscriber.id
@@ -401,9 +461,7 @@ export class BatchEmailProcessor {
         errorHandlingResult.shouldRetry &&
         !errorHandlingResult.suppressionAdded
       ) {
-        throw new Error(
-          sesResult.error.message || 'SES send failed - retryable'
-        );
+        throw new Error(error.message || 'SES send failed - retryable');
       } else {
         // Don't retry permanent bounces or suppressed emails
         return; // Success path - error was properly classified
@@ -444,10 +502,9 @@ export class BatchEmailProcessor {
             timestamp: new Date().toISOString(),
           },
         });
-        
-        console.log(
-          `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
-        );
+        // console.log(
+        //   `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
+        // );
       } else {
         console.warn(
           `⚠️ Missing userId for campaign ${campaignId}; skipping Polar SENT ingestion`
@@ -578,7 +635,7 @@ export class BatchEmailProcessor {
           },
         });
 
-        await broadcastEvent(campaignId, bouncedEvent);
+        // await broadcastEvent(campaignId, bouncedEvent); // Removed - using aggregated stats
       } catch (eventError) {
         console.error('Error creating bounced event:', eventError);
       }
