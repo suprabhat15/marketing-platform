@@ -109,26 +109,8 @@ export class EmailService {
         },
       });
 
-      // Only deduct credits for BOUNCED events here (SENT credits already deducted during reservation)
-      if (eventType === 'BOUNCED' && campaignId) {
-        // Get userId from campaign
-        const campaign = await prisma.campaign.findUnique({
-          where: { id: campaignId },
-          select: { userId: true },
-        });
-
-        if (campaign) {
-          await CreditService.processEmailEvent(
-            campaign.userId,
-            eventType,
-            {
-              campaignId,
-              subscriberId,
-              metadata,
-            }
-          );
-        }
-      }
+      // Credit deduction is handled automatically by batch-email-processor for SENT events
+      // BOUNCED events no longer deduct credits since they weren't successfully delivered
     } catch (error) {
       console.error('Error recording email event:', error);
       throw error;

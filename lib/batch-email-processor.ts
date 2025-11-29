@@ -327,7 +327,7 @@ export class BatchEmailProcessor {
             await this.handleFinalFailure(
               campaignId,
               subscriber,
-              resolvedTemplateHtml,
+              templateHtml,
               subject,
               fromEmail,
               fromName,
@@ -345,7 +345,7 @@ export class BatchEmailProcessor {
           await this.handleFinalFailure(
             campaignId,
             subscriber,
-            resolvedTemplateHtml,
+            templateHtml,
             subject,
             fromEmail,
             fromName,
@@ -490,18 +490,36 @@ export class BatchEmailProcessor {
       }
 
       if (resolvedUserId) {
-        // Use queue system instead of direct call to handle rate limits
-        const { addPolarIngestionJob } = await import('./queue');
-        
-        await addPolarIngestionJob(resolvedUserId, 'SENT', {
-          campaignId,
-          subscriberId: subscriber.id,
-          metadata: {
-            messageId,
-            recipientEmail: subscriber.email,
+        // Use SQS for reliable Polar event processing
+        // This should not fail email sending if SQS is unavailable
+        try {
+          const { sendPolarEventToSQS } = await import('./sqs-service');
+
+          const eventId = `${messageId}`;
+
+          await sendPolarEventToSQS({
+            userId: resolvedUserId,
+            eventType: 'SENT',
+            eventData: {
+              campaignId,
+              subscriberId: subscriber.id,
+              metadata: {
+                messageId,
+                recipientEmail: subscriber.email,
+                timestamp: new Date().toISOString(),
+              },
+            },
             timestamp: new Date().toISOString(),
-          },
-        });
+            eventId,
+          });
+        } catch (sqsError) {
+          console.warn(
+            '⚠️ Failed to send event to SQS, but email was sent successfully:',
+            sqsError
+          );
+          // Don't throw - email sending should succeed even if SQS fails
+          // Lambda will miss this event, but it's better than failing email delivery
+        }
         // console.log(
         //   `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
         // );

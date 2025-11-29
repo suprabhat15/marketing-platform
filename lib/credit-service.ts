@@ -2,8 +2,9 @@ import { EventType } from '@prisma/client';
 
 // Credit deduction service for email events
 export class CreditService {
-  // Events that consume credits
-  private static CREDIT_CONSUMING_EVENTS: EventType[] = ['SENT', 'BOUNCED'];
+  // Events that consume credits - Only SENT events should deduct credits
+  // BOUNCED emails don't deduct credits since they weren't successfully delivered
+  private static CREDIT_CONSUMING_EVENTS: EventType[] = ['SENT'];
 
   // Process email event and deduct credits if applicable
   static async processEmailEvent(
@@ -15,7 +16,7 @@ export class CreditService {
       metadata?: Record<string, any>;
     }
   ): Promise<void> {
-    // Only process SENT and BOUNCED events
+    // Only process SENT events for credit deduction
     if (!this.CREDIT_CONSUMING_EVENTS.includes(eventType)) {
       return;
     }
@@ -26,11 +27,14 @@ export class CreditService {
       // Use the unified credit tracking function from polar.ts
       const { trackEmailCreditUsage } = await import('./polar');
 
-      await trackEmailCreditUsage(userId, 1);
+      // Create unique event ID for idempotency
+      const eventId = `${eventData.campaignId || 'unknown'}-${eventData.subscriberId || 'unknown'}-${eventData.metadata?.messageId || Date.now()}`;
 
-      // console.log(
-      //   `Credit deducted for user ${userId}: ${eventType} event via trackEmailCreditUsage`
-      // );
+      const result = await trackEmailCreditUsage(userId, 1, eventId);
+
+      console.log(
+        `✅ Credit deducted for user ${userId}: ${eventType} event (${eventId}) - Remaining: ${result.remainingCredits}/${result.totalCredits}`
+      );
     } catch (error) {
       console.error(
         'Error processing email event for credit deduction:',
