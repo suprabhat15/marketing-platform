@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { z } from 'zod';
 
 const createCheckoutSchema = z.object({
-  productId: z.string().optional(),
+  productId: z.string().min(1, 'Product ID is required'),
   successUrl: z.string().url('Invalid success URL').optional(),
   cancelUrl: z.string().url('Invalid cancel URL').optional(),
   metadata: z.record(z.union([z.string(), z.number(), z.boolean()])).optional(),
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       // },
     });
 
-    console.log('---------- customer ----------- ', customer);
+
     // Update user with Polar customer ID
     await prisma.user.update({
       where: { id: session.user.id },
