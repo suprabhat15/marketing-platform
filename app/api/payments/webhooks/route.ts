@@ -401,7 +401,7 @@ async function handleOrderPaid(data: any) {
 }
 
 async function handleOrderRefunded(data: any) {
-  console.log('Processing order.refunded:', data);
+  // console.log('Processing order.refunded:', data);
 
   try {
     await prisma.order.update({
@@ -425,7 +425,7 @@ async function handleOrderRefunded(data: any) {
 
 // Subscription event handlers
 export async function handleSubscriptionCreated(data: any) {
-  console.log('Processing subscription.created:', data);
+  // console.log('Processing subscription.created:', data);
 
   try {
     // Try multiple ways to get the user ID
@@ -443,32 +443,26 @@ export async function handleSubscriptionCreated(data: any) {
     let totalCredits = 0;
     let usedCredits = 0;
     let meterId = null;
-    let meterName = null;
+    // let meterName = null;
     let remainingCredits = 0;
 
     try {
       // Fetch customer state to get active meters with real credit data
       const customerState = await getCustomerState(userId);
       const creditInfo = extractCreditsFromCustomerState(customerState);
-      console.log(
-        '---------extractCreditsFromCustomerState---------- ',
-        creditInfo
-      );
+      // console.log(
+      //   '---------extractCreditsFromCustomerState---------- ',
+      //   creditInfo
+      // );
 
       totalCredits = creditInfo.totalCredits;
       usedCredits = creditInfo.usedCredits;
       remainingCredits = creditInfo.remainingCredits;
       meterId = creditInfo.meterId;
 
-      // Get meter name from benefits if available
-      const benefits = data.product?.benefits;
-      if (benefits && benefits.length > 0) {
-        meterName = benefits[0].properties?.description;
-      }
-
-      console.log(
-        `✅ Credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
-      );
+      // console.log(
+      //   `✅ Credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
+      // );
     } catch (customerStateError) {
       console.warn(
         '⚠️ Failed to fetch customer state, falling back to pricing table:',
@@ -489,7 +483,7 @@ export async function handleSubscriptionCreated(data: any) {
         // Use the new getOrCreateMeterForProduct function for better integration
         createdMeter = await getOrCreateMeterForProduct(data.product.id);
         meterId = createdMeter.id;
-        meterName = createdMeter.name;
+        // meterName = createdMeter.name;
         console.log(`✅ Using meter ${meterId} for subscription ${data.id}`);
       } catch (meterError) {
         console.error('⚠️ Failed to get/create meter:', meterError);
@@ -508,7 +502,7 @@ export async function handleSubscriptionCreated(data: any) {
         usedCredits,
         remainingCredits,
         meterId,
-        meterName,
+        // meterName,
         currentPeriodStart: data.current_period_start
           ? new Date(data.current_period_start)
           : new Date(),
@@ -564,7 +558,7 @@ async function handleSubscriptionUpdated(data: any) {
     let totalCredits = 0;
     let usedCredits = 0;
     let meterId = null;
-    let meterName = null;
+    // let meterName = null;
     let remainingCredits = 0;
 
     try {
@@ -596,7 +590,7 @@ async function handleSubscriptionUpdated(data: any) {
         usedCredits = existingSubscription.usedCredits;
         remainingCredits = existingSubscription.remainingCredits;
         meterId = existingSubscription.meterId;
-        meterName = existingSubscription.meterName;
+        // meterName = existingSubscription.meterName;
       }
     }
 
@@ -610,7 +604,7 @@ async function handleSubscriptionUpdated(data: any) {
         usedCredits,
         remainingCredits,
         meterId,
-        meterName,
+        // meterName,
         currentPeriodStart: data.current_period_start
           ? new Date(data.current_period_start)
           : undefined,

@@ -2,13 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma';
 
-import {
-  polar,
-  checkout,
-  portal,
-  usage,
-  webhooks,
-} from '@polar-sh/better-auth';
+import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 
 const polarClient = new Polar({
