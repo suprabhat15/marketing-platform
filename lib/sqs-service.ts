@@ -1,15 +1,28 @@
 import { SQSClient, SendMessageCommand } from '@aws-sdk/client-sqs';
 
+const AWS_ACCESS_KEY_ID = process.env.AWS_ACCESS_KEY_ID;
+const AWS_SECRET_ACCESS_KEY = process.env.AWS_SECRET_ACCESS_KEY;
+
+if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
+  throw new Error('Missing required AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set');
+}
+
 // Initialize SQS client
 const sqs = new SQSClient({
   region: 'us-east-1',
   credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
+    accessKeyId: AWS_ACCESS_KEY_ID,
+    secretAccessKey: AWS_SECRET_ACCESS_KEY,
   },
 });
 
 const POLAR_EVENTS_QUEUE_URL = process.env.AWS_POLAR_SQS_URL;
+
+if (!POLAR_EVENTS_QUEUE_URL) {
+  throw new Error(
+    'Missing required environment variable: AWS_POLAR_SQS_URL must be set'
+  );
+}
 
 export interface PolarEventMessage {
   userId: string;
@@ -42,12 +55,13 @@ export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<v
           DataType: 'String',
           StringValue: message.userId,
         },
-        ...(message.metadata?.eventId && {
-          eventId: {
-            DataType: 'String',
-            StringValue: message.metadata.eventId,
-          },
-        }),
+        ...(message.metadata?.eventId &&
+          typeof message.metadata.eventId === 'string' && {
+            eventId: {
+              DataType: 'String',
+              StringValue: message.metadata.eventId,
+            },
+          }),
       },
     });
 

@@ -755,11 +755,20 @@ export function getCreditsPricing(data: any): {
   const credits =
     PRODUCT_CREDIT_MAPPING[
       data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING
-    ] || 0;
+    ];
+
+  if (!credits) {
+    console.error(`Unknown product ID`); // ${data.product?.id}
+    throw new Error(`No credit mapping found for product`); // ${data.product?.id}
+  }
 
   // Get the corresponding price from our pricing table
-  const price = CREDIT_PRICING[credits as keyof typeof CREDIT_PRICING] || 0;
+  const price = CREDIT_PRICING[credits as keyof typeof CREDIT_PRICING];
 
+  if (!price) {
+    console.error(`No pricing found for ${credits} credits`);
+    throw new Error(`No pricing found for ${credits} credits`);
+  }
   return { credits, price };
 }
 
