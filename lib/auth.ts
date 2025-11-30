@@ -41,11 +41,10 @@ export const auth = betterAuth({
               productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '',
               slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
-            // {
-            //   productId:
-            //     process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '',
-            //   slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
-            // },
+            {
+              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '',
+              slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
+            },
           ],
           successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing`,
           authenticatedUsersOnly: true,

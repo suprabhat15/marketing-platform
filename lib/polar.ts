@@ -738,12 +738,12 @@ export const CREDIT_PRICING = {
 
 // Product ID environment variables
 const PRODUCT_ID_10000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '';
-// const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '';
+const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '';
 
 // Product ID to credit mapping (matching auth.ts products)
 export const PRODUCT_CREDIT_MAPPING = {
   [PRODUCT_ID_10000]: 10000, // 10k-Credits
-  // [PRODUCT_ID_20000]: 20000, // 20k-Credits
+  [PRODUCT_ID_20000]: 20000, // 20k-Credits
 } as const;
 
 // Helper function to get credits and price from product ID
