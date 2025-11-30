@@ -264,7 +264,7 @@ async function handleCustomerStateChanged(data: any) {
 }
 
 // Order event handlers
-export async function handleOrderCreated(data: any) {
+async function handleOrderCreated(data: any) {
   console.log('Processing order.created:', data);
 
   try {
@@ -388,7 +388,7 @@ async function handleOrderRefunded(data: any) {
 }
 
 // Subscription event handlers
-export async function handleSubscriptionCreated(data: any) {
+async function handleSubscriptionCreated(data: any) {
   // console.log('Processing subscription.created:', data);
 
   try {

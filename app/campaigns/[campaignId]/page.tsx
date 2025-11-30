@@ -78,7 +78,7 @@ export default function CampaignDetailPage() {
   useEffect(() => {
     if (!campaignId) return;
     fetchCampaign();
-  }, [campaignId]); // Only depend on campaignId
+  }, [campaignId, fetchCampaign]);
 
   const getStatusColor = (status: Campaign['status']) => {
     switch (status) {

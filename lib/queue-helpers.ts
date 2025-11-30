@@ -206,9 +206,9 @@ export async function retryFailedEmailsFromDLQ(
       return { retriedCount: 0, successCount: 0, finalFailureCount: 0 };
     }
 
-    let retriedCount = 0;
-    let successCount = 0;
-    let finalFailureCount = 0;
+    const retriedCount = 0;
+    const successCount = 0;
+    const finalFailureCount = 0;
 
     // Process in batches with proper error handling
     // ... (DLQ retry logic implementation)

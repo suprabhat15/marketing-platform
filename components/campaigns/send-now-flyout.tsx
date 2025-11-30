@@ -43,6 +43,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
       const emailParts = fromEmail.split('@');
       setFromEmail(`${emailParts[0]}@${selectedDomain}`);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDomain]);
 
   const fetchVerifiedDomains = async () => {

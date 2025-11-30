@@ -38,25 +38,27 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
   const [copiedRecords, setCopiedRecords] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    fetchDomainDetail();
-  }, [domainId]);
-
-  const fetchDomainDetail = async () => {
-    try {
-      const response = await fetch(`/api/domains/${domainId}`);
-      const data = await response.json();
-      
-      if (response.ok) {
-        setDomain(data);
-      } else {
-        alert(data.error || 'Failed to fetch domain details');
+    const fetchDomainDetail = async () => {
+      try {
+        const response = await fetch(`/api/domains/${domainId}`);
+        const data = await response.json();
+        if (response.ok) {
+          setDomain(data);
+        } else {
+          alert(data.error || 'Failed to fetch domain details');
+        }
+      } catch (error) {
+        alert('Failed to fetch domain details');
+      } finally {
+        setIsLoading(false);
       }
-    } catch (error) {
-      alert('Failed to fetch domain details');
-    } finally {
-      setIsLoading(false);
+    };
+
+    if (domainId) {
+      fetchDomainDetail();
     }
-  };
+  }, [domainId]);
+  
 
   const handleCheckVerification = async () => {
     if (!domain) return;
