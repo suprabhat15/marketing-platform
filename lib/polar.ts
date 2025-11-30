@@ -2,15 +2,13 @@ import { Polar } from '@polar-sh/sdk';
 import crypto from 'crypto';
 
 // Initialize Polar SDK with environment configuration
-if (!process.env.POLAR_ACCESS_TOKEN_SANDBOX) {
-  throw new Error(
-    'POLAR_ACCESS_TOKEN_SANDBOX environment variable is required'
-  );
+if (!process.env.POLAR_ACCESS_TOKEN) {
+  throw new Error('POLAR_ACCESS_TOKEN environment variable is required');
 }
 
 export const polar = new Polar({
-  accessToken: process.env.POLAR_ACCESS_TOKEN_SANDBOX,
-  server: 'sandbox',
+  accessToken: process.env.POLAR_ACCESS_TOKEN,
+  // server: 'sandbox',
 });
 
 // Organization ID for your Polar organization
@@ -95,17 +93,17 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
       let meterId = null;
       
       // If it's a meter object, use its id
-      if (meterOrBenefit?.id && meterOrBenefit?.name) {
+      if (meterOrBenefit?.id) {
         meterId = meterOrBenefit.id;
       }
-      // If it's a benefit with meter properties, extract meter_id
-      else if (meterOrBenefit?.properties?.meter_id) {
-        meterId = meterOrBenefit.properties.meter_id;
-      }
-      // If it's a benefit with meterId property
-      else if (meterOrBenefit?.properties?.meterId) {
-        meterId = meterOrBenefit.properties.meterId;
-      }
+      // // If it's a benefit with meter properties, extract meter_id
+      // else if (meterOrBenefit?.properties?.meter_id) {
+      //   meterId = meterOrBenefit.properties.meter_id;
+      // }
+      // // If it's a benefit with meterId property
+      // else if (meterOrBenefit?.properties?.meterId) {
+      //   meterId = meterOrBenefit.properties.meterId;
+      // }
 
       if (meterId) {
         console.log(
@@ -124,10 +122,10 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
       };
       
       // Only add meterId if it's defined
-      if (meterId) {
-        meterMetadata.meterId = meterId;
-      }
-      
+      // if (meterId) {
+      //   meterMetadata.meterId = meterId;
+      // }
+
       checkoutData.metadata = meterMetadata;
     } catch (meterError) {
       console.warn(
@@ -596,10 +594,27 @@ export async function ingestEvent(event: {
 // Track email credit usage and sync with Polar
 export async function trackEmailCreditUsage(
   userId: string,
-  emailsSent: number
+  emailsSent: number,
+  eventId?: string // Optional unique event ID for idempotency
 ) {
   try {
     const { prisma } = await import('./prisma');
+
+    // Add idempotency check if eventId is provided
+    if (eventId) {
+      const { getRedisInstance } = await import('./redis');
+      const redis = await getRedisInstance();
+
+      const deduplicationKey = `credit_deduction:${userId}:${eventId}`;
+      const alreadyProcessed = await redis.get(deduplicationKey);
+
+      if (alreadyProcessed) {
+        console.log(
+          `⚠️ Credit deduction already processed for event ${eventId}, skipping`
+        );
+        return JSON.parse(alreadyProcessed);
+      }
+    }
 
     // Use the centralized updateCreditUsage function
     const creditResult = await updateCreditUsage(userId, emailsSent);
@@ -622,26 +637,35 @@ export async function trackEmailCreditUsage(
     });
 
     // Ingest event to Polar for usage tracking (if meter is configured)
-    if (subscription?.meterId) {
-      await ingestEvent({
-        name: 'SENT',
-        externalCustomerId: userId,
-        metadata: {
-          source: 'track email credit usage',
-          emailsSent: emailsSent,
-          creditsUsed: emailsSent,
-          totalUsedCredits: creditResult.usedCredits,
-          remainingCredits: creditResult.remainingCredits,
-          subscriptionId: subscription.polarSubscriptionId,
-        },
-      });
-    }
+    // This is done separately and should not fail local credit tracking
+    // if (subscription?.meterId) {
+    //   try {
+    //     await ingestEvent({
+    //       name: 'SENT',
+    //       externalCustomerId: userId,
+    //       metadata: {
+    //         source: 'track email credit usage',
+    //         emailsSent: emailsSent,
+    //         creditsUsed: emailsSent,
+    //         totalUsedCredits: creditResult.usedCredits,
+    //         remainingCredits: creditResult.remainingCredits,
+    //         subscriptionId: subscription.polarSubscriptionId,
+    //       },
+    //     });
+    //   } catch (polarError) {
+    //     console.warn(
+    //       '⚠️ Failed to sync with Polar, but local credits updated successfully:',
+    //       polarError
+    //     );
+    //     // Don't throw - local credit tracking should succeed even if Polar fails
+    //   }
+    // }
 
     // console.log(
     //   `Tracked ${emailsSent} emails (${emailsSent} credits) for user ${userId}. Remaining: ${creditResult.remainingCredits}/${creditResult.totalCredits}`
     // );
 
-    return {
+    const result = {
       emailsSent,
       creditsUsed: emailsSent,
       totalCredits: creditResult.totalCredits,
@@ -649,6 +673,18 @@ export async function trackEmailCreditUsage(
       remainingCredits: creditResult.remainingCredits,
       hasEnoughCredits: creditResult.remainingCredits >= 0,
     };
+
+    // Cache the result for idempotency (if eventId was provided)
+    if (eventId) {
+      const { getRedisInstance } = await import('./redis');
+      const redis = await getRedisInstance();
+
+      const deduplicationKey = `credit_deduction:${userId}:${eventId}`;
+      // Cache for 24 hours
+      await redis.setex(deduplicationKey, 24 * 60 * 60, JSON.stringify(result));
+    }
+
+    return result;
   } catch (error) {
     console.error('Error tracking email credit usage:', error);
     throw new Error('Failed to track email credit usage');
@@ -691,14 +727,41 @@ export async function checkCreditAvailability(
   }
 }
 
-// Product to credit mapping (centralized)
-export const PRODUCT_CREDIT_MAPPING = {
-  '21f0fc55-39e4-4bd8-9f68-99858cc613a4': 10000, // 10k-Credits
-  '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000, // 20k-Credits
-  '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000, // 50k-Credits
-  'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000, // 100k-Credits
-  'e2d782da-6fae-45da-af5d-8975af1a258a': 500000, // 500k-Credits
+// Credit package pricing mapping (authoritative source)
+export const CREDIT_PRICING = {
+  10000: 10.0,
+  // 20000: 20.0,
+  // 50000: 50.00,
+  // 100000: 100.00,
+  // 500000: 500.00,
 } as const;
+
+// Product ID environment variables
+const PRODUCT_ID_10000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '';
+// const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '';
+
+// Product ID to credit mapping (matching auth.ts products)
+export const PRODUCT_CREDIT_MAPPING = {
+  [PRODUCT_ID_10000]: 10000, // 10k-Credits
+  // [PRODUCT_ID_20000]: 20000, // 20k-Credits
+} as const;
+
+// Helper function to get credits and price from product ID
+export function getCreditsPricing(data: any): {
+  credits: number;
+  price: number;
+} {
+  // Get credits from productId mapping
+  const credits =
+    PRODUCT_CREDIT_MAPPING[
+      data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING
+    ] || 0;
+
+  // Get the corresponding price from our pricing table
+  const price = CREDIT_PRICING[credits as keyof typeof CREDIT_PRICING] || 0;
+
+  return { credits, price };
+}
 
 // Get or create meter for product
 export async function getOrCreateMeterForProduct(productId: string) {
@@ -709,12 +772,6 @@ export async function getOrCreateMeterForProduct(productId: string) {
 
     if (!benefit) {
       throw new Error(`No benefits found for product ${productId}`);
-    }
-
-    // If the benefit has a meter_id in properties, fetch the actual meter
-    if (benefit.properties?.meterId) {
-      const meter = await polar.meters.get({ id: benefit.properties.meterId });
-      return meter;
     }
 
     // If the benefit has an id that refers to a meter, use that

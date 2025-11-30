@@ -6,8 +6,8 @@ import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 
 const polarClient = new Polar({
-  accessToken: process.env.POLAR_ACCESS_TOKEN_SANDBOX,
-  server: 'sandbox',
+  accessToken: process.env.POLAR_ACCESS_TOKEN,
+  // server: 'sandbox',
 });
 
 export const auth = betterAuth({
@@ -38,15 +38,14 @@ export const auth = betterAuth({
         checkout({
           products: [
             {
-              productId:
-                process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '',
+              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '',
               slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
-            {
-              productId:
-                process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '',
-              slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
-            },
+            // {
+            //   productId:
+            //     process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '',
+            //   slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
+            // },
           ],
           successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing`,
           authenticatedUsersOnly: true,

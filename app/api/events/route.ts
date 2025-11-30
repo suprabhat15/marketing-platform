@@ -5,7 +5,7 @@ import { CreditService } from '@/lib/credit-service';
 import { z } from 'zod';
 import { EventType } from '@prisma/client';
 import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
-
+ // why ?? 
 const createEventSchema = z.object({
   type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
   campaignId: z.string().optional(),
@@ -41,23 +41,8 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Process credit deduction for SENT and BOUNCED events
-    if (validatedData.type === 'SENT' || validatedData.type === 'BOUNCED') {
-      try {
-        await CreditService.processEmailEvent(
-          session.user.id,
-          validatedData.type as EventType,
-          {
-            campaignId: validatedData.campaignId,
-            subscriberId: validatedData.subscriberId,
-            metadata: validatedData.data,
-          }
-        );
-      } catch (creditError) {
-        console.error('Error processing credit deduction:', creditError);
-        // Don't fail the event creation if credit deduction fails
-      }
-    }
+    // Credit deduction is handled automatically by batch-email-processor after successful sends
+    // No need to process credits here to avoid double counting
 
     // Invalidate credit balance cache when events are created (affects balance)
     await invalidateUserCache(session.user.id, 'events-credit-balance');

@@ -497,29 +497,26 @@ export class BatchEmailProcessor {
 
           const eventId = `${messageId}`;
 
-          await sendPolarEventToSQS({
-            userId: resolvedUserId,
-            eventType: 'SENT',
-            eventData: {
-              campaignId,
-              subscriberId: subscriber.id,
+            await sendPolarEventToSQS({
+              userId: resolvedUserId,
+              eventType: 'SENT',
               metadata: {
-                messageId,
+                eventId,
+                campaignId,
+                subscriberId: subscriber.id,
                 recipientEmail: subscriber.email,
                 timestamp: new Date().toISOString(),
               },
-            },
-            timestamp: new Date().toISOString(),
-            eventId,
-          });
-        } catch (sqsError) {
-          console.warn(
-            '⚠️ Failed to send event to SQS, but email was sent successfully:',
-            sqsError
-          );
-          // Don't throw - email sending should succeed even if SQS fails
-          // Lambda will miss this event, but it's better than failing email delivery
-        }
+            });
+          } catch (sqsError) {
+            console.warn(
+              '⚠️ Failed to send event to SQS, but email was sent successfully:',
+              sqsError
+            );
+            // Don't throw - email sending should succeed even if SQS fails
+            // Lambda will miss this event, but it's better than failing email delivery
+          }
+
         // console.log(
         //   `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
         // );

@@ -14,18 +14,22 @@ const POLAR_EVENTS_QUEUE_URL = process.env.AWS_POLAR_SQS_URL;
 export interface PolarEventMessage {
   userId: string;
   eventType: string;
-  eventData: {
-    campaignId?: string;
-    subscriberId?: string;
-    metadata?: Record<string, any>;
-  };
-  timestamp: string;
-  eventId: string;
+  metadata?: Record<string, any>;
+  // eventId: string;
+  // campaignId?: string;
+  // subscriberId?: string;
+  // timestamp: string;
+  // recipientEmail?: string;
 }
 
 // Send Polar event to SQS (Lambda will process automatically)
 export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<void> {
   try {
+    // Add timeout to prevent hanging SQS calls
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('SQS call timeout')), 5000); // 5 second timeout
+    });
+
     const command = new SendMessageCommand({
       QueueUrl: POLAR_EVENTS_QUEUE_URL,
       MessageBody: JSON.stringify(message),
@@ -38,14 +42,17 @@ export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<v
           DataType: 'String',
           StringValue: message.userId,
         },
-        eventId: {
-          DataType: 'String',
-          StringValue: message.eventId,
-        },
+        ...(message.metadata?.eventId && {
+          eventId: {
+            DataType: 'String',
+            StringValue: message.metadata.eventId,
+          },
+        }),
       },
     });
 
-    await sqs.send(command);
+    // Race between SQS send and timeout
+    await Promise.race([sqs.send(command), timeoutPromise]);
     console.log(`✅ Polar event sent to SQS: ${message.eventType} for user ${message.userId}`);
   } catch (error) {
     console.error('❌ Failed to send Polar event to SQS:', error);

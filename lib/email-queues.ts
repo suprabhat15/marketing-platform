@@ -217,13 +217,14 @@ export const batchWorker = new Worker<BatchEmailData>(
   async (job: Job<BatchEmailData>) => {
     if (job.name !== 'process-batch') return;
 
-    // Add job timeout
+    // Add job timeout - increased to 15 minutes for large campaigns
     const jobTimeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Batch job timeout')), 300000);
+      setTimeout(() => reject(new Error('Batch job timeout')), 900000);
     });
 
     try {
-      const processor = new BatchEmailProcessor(5, 100);
+      // Optimized config: higher concurrency (10), lower delay (50ms) for faster processing
+      const processor = new BatchEmailProcessor(10, 50);
       console.log('-------------- PROCESSING BATCH ---------------- ');
 
       const processPromise = processor.processBatch(job.data);

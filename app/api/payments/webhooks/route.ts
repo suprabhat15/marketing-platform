@@ -5,46 +5,12 @@ import {
   getOrCreateMeterForProduct,
   getCustomerState,
   extractCreditsFromCustomerState,
+  getCreditsPricing,
 } from '@/lib/polar';
 import { prisma } from '@/lib/prisma';
 
-// Credit package pricing mapping (should match pricing page)
-const CREDIT_PRICING = {
-  10000: 10.0,
-  20000: 20.0,
-  // 50000: 50.00,
-  // 100000: 100.00,
-  // 500000: 500.00,
-} as const;
-
-const PRODUCT_ID_10000 =
-  process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '';
-const PRODUCT_ID_20000 =
-  process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '';
-
-// Product ID to credit mapping (matching auth.ts products)
-const PRODUCT_CREDIT_MAPPING = {
-  [PRODUCT_ID_10000]: 10000, // 10k-Credits
-  [PRODUCT_ID_20000]: 20000, // 10k-Credits
-  // '53e8ae14-1bc7-46f4-b5c4-0a5cd87f9f11': 20000,   // 20k-Credits
-  // '9ffd8b08-bb25-43f3-aa32-d4f3257a7862': 50000,   // 50k-Credits
-  // 'c474152d-b7ba-4083-b1f1-63f23b08e57b': 100000,  // 100k-Credits
-  // 'e2d782da-6fae-45da-af5d-8975af1a258a': 500000,  // 500k-Credits
-} as const;
-
-// Helper function to get credits and price from product ID
-function getCreditsPricing(data: any): { credits: number; price: number } {
-  // Get credits from productId mapping
-  const credits =
-    PRODUCT_CREDIT_MAPPING[
-      data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING
-    ] || 0;
-
-  // Get the corresponding price from our pricing table
-  const price = CREDIT_PRICING[credits as keyof typeof CREDIT_PRICING] || 0;
-
-  return { credits, price };
-}
+// Import centralized credit pricing from polar.ts
+// All credit and pricing mappings are now centralized in @/lib/polar
 
 export async function POST(request: NextRequest) {
   try {
@@ -95,11 +61,9 @@ export async function POST(request: NextRequest) {
 
     // Verify webhook signature using sandbox secret (skip in development mode without signature)
     if (signature) {
-      const webhookSecret = process.env.POLAR_WEBHOOK_SECRET_SANDBOX;
+      const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
       if (!webhookSecret) {
-        console.error(
-          'POLAR_WEBHOOK_SECRET_SANDBOX environment variable not set'
-        );
+        console.error('POLAR_WEBHOOK_SECRET environment variable not set');
         return NextResponse.json(
           { error: 'Webhook secret not configured' },
           { status: 500 }
