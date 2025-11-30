@@ -9,15 +9,20 @@ export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: "📊", path: "/" },
-    { id: "campaigns", label: "Campaigns", icon: "📧", path: "/campaigns" },
-    { id: "subscribers", label: "Subscribers", icon: "👥", path: "/subscribers" },
-    { id: "templates", label: "Templates", icon: "📝", path: "/templates" },
-    { id: "lists", label: "Lists", icon: "📋", path: "/lists" },
-    { id: "domains", label: "Domains", icon: "🌐", path: "/domains" },
-    { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
-    { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
-    { id: "billing", label: "Billing", icon: "💳", path: "/billing" },
+    // { id: "dashboard", label: "Dashboard", icon: "📊", path: "/" },
+    { id: 'campaigns', label: 'Campaigns', icon: '📧', path: '/campaigns' },
+    {
+      id: 'subscribers',
+      label: 'Subscribers',
+      icon: '👥',
+      path: '/subscribers',
+    },
+    { id: 'templates', label: 'Templates', icon: '📝', path: '/templates' },
+    { id: 'lists', label: 'Lists', icon: '📋', path: '/lists' },
+    { id: 'domains', label: 'Domains', icon: '🌐', path: '/domains' },
+    // { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
+    // { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
+    { id: 'billing', label: 'Billing', icon: '💳', path: '/billing' },
   ];
 
   const handleNavigation = (path: string) => {

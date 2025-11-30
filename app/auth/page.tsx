@@ -132,7 +132,7 @@ export default function AuthPage() {
             <Tabs defaultValue="login" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Sign In</TabsTrigger>
-                <TabsTrigger value="signup">Sign Up</TabsTrigger>
+                {/* <TabsTrigger value="signup">Sign Up</TabsTrigger> */}
               </TabsList>
 
               <TabsContent value="login" className="space-y-4">
@@ -260,7 +260,7 @@ export default function AuthPage() {
                 </div>
               </div>
 
-              <Button
+              {/* <Button
                 type="button"
                 variant="outline"
                 className="mt-4 w-full"
@@ -269,7 +269,7 @@ export default function AuthPage() {
               >
                 <Mail className="mr-2 h-4 w-4" />
                 Google
-              </Button>
+              </Button> */}
             </div>
 
             {error && (
