@@ -26,7 +26,7 @@
     "@aws-sdk/client-sqs": "^3.940.0",
     "@hookform/resolvers": "^5.2.1",
     "@polar-sh/better-auth": "^1.1.9",
-    "@polar-sh/sdk": "^0.35.4",
+    "@polar-sh/sdk": "^0.41.5",
     "@prisma/client": "^6.10.1",
     "@prisma/extension-accelerate": "^2.0.2",
     "@radix-ui/react-alert-dialog": "^1.1.14",
