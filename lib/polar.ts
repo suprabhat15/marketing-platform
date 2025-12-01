@@ -212,35 +212,6 @@ export async function getProducts(organizationId?: string) {
   }
 }
 
-
-
-// Webhook signature verification (updated to match Polar's format)
-export function verifyWebhookSignature(
-  payload: string,
-  signature: string,
-  secret?: string
-): boolean {
-  const webhookSecret = secret || process.env.POLAR_WEBHOOK_SECRET;
-  if (!webhookSecret) {
-    throw new Error(
-      'POLAR_WEBHOOK_SECRET is required for webhook verification'
-    );
-  }
-
-  // Remove 'sha256=' prefix if present
-  const cleanSignature = signature.replace('sha256=', '');
-
-  const expectedSignature = crypto
-    .createHmac('sha256', webhookSecret)
-    .update(payload)
-    .digest('hex');
-
-  return crypto.timingSafeEqual(
-    Buffer.from(cleanSignature, 'hex'),
-    Buffer.from(expectedSignature, 'hex')
-  );
-}
-
 // Get customer state with active meters for credit tracking
 export async function getCustomerState(externalId: string) {
   try {

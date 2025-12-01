@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import {
-  verifyWebhookSignature,
   type PolarWebhookEvent,
   getOrCreateMeterForProduct,
   getCustomerState,
@@ -8,6 +7,10 @@ import {
   getCreditsPricing,
 } from '@/lib/polar';
 import { prisma } from '@/lib/prisma';
+import {
+  validateEvent,
+  WebhookVerificationError,
+} from '@polar-sh/sdk/webhooks';
 
 // Import centralized credit pricing from polar.ts
 // All credit and pricing mappings are now centralized in @/lib/polar
@@ -15,88 +18,40 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: NextRequest) {
   try {
     const payload = await request.text();
-    const signature = request.headers.get('polar-webhook-signature');
-    const userAgent = request.headers.get('user-agent');
-    const host = request.headers.get('host');
-    const contentType = request.headers.get('content-type');
 
-    // Log request details for debugging
-    console.log('Webhook request details:', {
-      hasPayload: !!payload,
-      payloadLength: payload.length,
-      hasSignature: !!signature,
-      userAgent,
-      host,
-      contentType,
-      headers: Object.fromEntries(request.headers.entries()),
-    });
+    const headers = {
+      'webhook-id': request.headers.get('webhook-id') ?? '',
+      'webhook-timestamp': request.headers.get('webhook-timestamp') ?? '',
+      'webhook-signature': request.headers.get('webhook-signature') ?? '',
+    };
 
-    if (!signature) {
-      console.error('Missing Polar webhook signature. Request details:', {
-        userAgent,
-        host,
-        contentType,
-        payloadPreview: payload.substring(0, 200),
-      });
-
-      // For development: Allow testing without signature if payload looks like a test
-      const isDevelopment = process.env.NODE_ENV === 'development';
-      const isLocalhost =
-        host?.includes('localhost') ||
-        host?.includes('127.0.0.1') ||
-        host?.includes('ngrok');
-
-      if (isDevelopment || isLocalhost) {
-        console.warn(
-          '⚠️ DEVELOPMENT MODE: Processing webhook without signature verification'
-        );
-        // Continue processing below
-      } else {
-        return NextResponse.json(
-          { error: 'Missing webhook signature' },
-          { status: 400 }
-        );
-      }
-    }
-
-    // Verify webhook signature using sandbox secret (skip in development mode without signature)
-    if (signature) {
-      const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
-      if (!webhookSecret) {
-        console.error('POLAR_WEBHOOK_SECRET environment variable not set');
-        return NextResponse.json(
-          { error: 'Webhook secret not configured' },
-          { status: 500 }
-        );
-      }
-
-      const isValid = verifyWebhookSignature(payload, signature, webhookSecret);
-      if (!isValid) {
-        console.error('Invalid Polar webhook signature');
-        return NextResponse.json(
-          { error: 'Invalid webhook signature' },
-          { status: 401 }
-        );
-      }
-
-      console.log('✅ Webhook signature verified successfully');
-    } else {
-      console.warn(
-        '⚠️ Processing webhook without signature verification (development mode)'
+    const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+    if (!webhookSecret) {
+      console.error('POLAR_WEBHOOK_SECRET environment variable not set');
+      return NextResponse.json(
+        { error: 'Webhook secret not configured' },
+        { status: 500 }
       );
     }
 
-    const event: PolarWebhookEvent = JSON.parse(payload);
-    console.log('Received Polar webhook:', event.type);
+    const event: PolarWebhookEvent = validateEvent(
+      payload,
+      headers,
+      webhookSecret
+    ) as PolarWebhookEvent;
 
-    // Process the webhook event
+    console.log('✅ Webhook signature verified successfully:', event.type);
+
     await handleWebhookEvent(event);
 
     return NextResponse.json({ success: true });
-  } catch (error) {
-    console.error('Error processing Polar webhook:', error);
+  } catch (err) {
+    if (err instanceof WebhookVerificationError) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+    }
+    console.error('Error processing Polar webhook:', err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Internal Server error' },
       { status: 500 }
     );
   }
