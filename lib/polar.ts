@@ -137,7 +137,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
     }
 
     // Add optional fields if provided
-    if (data.successUrl) checkoutData.success_url = data.successUrl;
+    if (data.successUrl) checkoutData.successUrl = data.successUrl;
     if (data.cancelUrl) checkoutData.cancel_url = data.cancelUrl;
     if (data.customerEmail) checkoutData.customer_email = data.customerEmail;
     if (data.customerId) checkoutData.customer_id = data.customerId;
