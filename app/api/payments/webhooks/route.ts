@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   type PolarWebhookEvent,
   getOrCreateMeterForProduct,
-  getCustomerState,
-  extractCreditsFromCustomerState,
+  fetchCreditsFromActiveMeters,
   getCreditsPricing,
 } from '@/lib/polar';
 import { prisma } from '@/lib/prisma';
@@ -166,7 +165,7 @@ async function handleCustomerUpdated(data: any) {
   console.log('Processing customer.updated:', data);
 
   try {
-    const externalId = data.external_id;
+    const externalId = data.externalId;
 
     if (externalId) {
       await prisma.user.update({
@@ -187,7 +186,7 @@ async function handleCustomerDeleted(data: any) {
   console.log('Processing customer.deleted:', data);
 
   try {
-    const externalId = data.external_id;
+    const externalId = data.externalId;
 
     if (externalId) {
       // Remove Polar customer ID from user
@@ -208,7 +207,7 @@ async function handleCustomerStateChanged(data: any) {
   console.log('Processing customer.state_changed:', data);
 
   try {
-    const externalId = data.external_id;
+    const externalId = data.externalId;
 
     if (externalId) {
       console.log(`Customer state changed for user ${externalId}:`, data.state);
@@ -225,7 +224,6 @@ async function handleOrderCreated(data: any) {
   try {
     // Extract user information from metadata
     const userId = data.metadata?.userId;
-    const userEmail = data.metadata?.userEmail || data.customer?.email;
 
     if (!userId) {
       console.error('No userId found in order metadata');
@@ -234,16 +232,16 @@ async function handleOrderCreated(data: any) {
 
     // Wait 100ms for subscription to be created, then check if it exists
     let subscriptionId = null;
-    if (data.subscription_id) {
+    if (data.subscriptionId) {
       const existingSubscription = await prisma.subscription.findFirst({
-        where: { polarSubscriptionId: data.subscription_id, status: 'ACTIVE' },
+        where: { polarSubscriptionId: data.subscriptionId, status: 'ACTIVE' },
       });
 
       if (existingSubscription) {
         subscriptionId = existingSubscription.id;
       } else {
         console.log(
-          `Subscription ${data.subscription_id} not yet created, will be linked later`
+          `Subscription ${data.subscriptionId} not yet created, will be linked later`
         );
       }
     }
@@ -254,11 +252,11 @@ async function handleOrderCreated(data: any) {
     await prisma.order.create({
       data: {
         polarOrderId: data.id,
-        customerId: data.customer?.id || data.customerId, // maybe it would be data.subscription.customer_id
+        customerId: data.customer?.id || data.customerId,
         status: data.status?.toUpperCase() || 'PENDING',
         productId: data.product?.id,
         amount: calculatedAmount,
-        currency: data.currency || 'USD',
+        currency: data.subscription.currency?.toUpperCase() || 'USD',
         credits: totalCredits,
         userId: userId,
       },
@@ -278,8 +276,8 @@ async function handleOrderUpdated(data: any) {
       where: { polarOrderId: data.id },
       data: {
         status: data.status?.toUpperCase() || 'PENDING',
-        amount: data.amount,
-        currency: data.currency || 'USD',
+        amount: data.subscription.amount,
+        currency: data.subscription.currency?.toUpperCase() || 'USD',
       },
     });
     console.log(`Order ${data.id} updated`);
@@ -307,8 +305,8 @@ async function handleOrderPaid(data: any) {
       await updateUserAfterPurchase(userId, {
         orderId: data.id,
         productId: data.product?.id,
-        amount: data.amount,
-        currency: data.currency,
+        amount: data.subscription.amount,
+        currency: data.subscription.currency?.toUpperCase(),
         status: 'paid',
       });
     }
@@ -348,11 +346,11 @@ async function handleSubscriptionCreated(data: any) {
 
   try {
     // Try multiple ways to get the user ID
-    const userId = data.customer?.external_id || data.metadata?.userId;
+    const userId = data.customer?.externalId || data.metadata?.userId;
 
     if (!userId) {
       console.error(
-        '❌ No external_id, externalId, or userId found in subscription data:',
+        '❌ No externalId, or userId found in subscription data:',
         data
       );
       return;
@@ -366,11 +364,9 @@ async function handleSubscriptionCreated(data: any) {
     let remainingCredits = 0;
 
     try {
-      // Fetch customer state to get active meters with real credit data
-      const customerState = await getCustomerState(userId);
-      const creditInfo = extractCreditsFromCustomerState(customerState);
+      const creditInfo = await fetchCreditsFromActiveMeters(userId);
       // console.log(
-      //   '---------extractCreditsFromCustomerState---------- ',
+      //   '---------fetchCreditsFromActiveMeters---------- ',
       //   creditInfo
       // );
 
@@ -414,27 +410,27 @@ async function handleSubscriptionCreated(data: any) {
     await prisma.subscription.create({
       data: {
         polarSubscriptionId: data.id,
-        customerId: data.customer?.id || data.customer_id,
+        customerId: data.customer?.id || data.customerId,
         status: data.status?.toUpperCase() || 'ACTIVE',
-        productId: data.product?.id || data.product_id,
+        productId: data.product?.id || data.productId,
         totalCredits,
         usedCredits,
         remainingCredits,
         meterId,
         // meterName,
-        currentPeriodStart: data.current_period_start
-          ? new Date(data.current_period_start)
+        currentPeriodStart: data.currentPeriodStart
+          ? new Date(data.currentPeriodStart)
           : new Date(),
-        currentPeriodEnd: data.current_period_end
-          ? new Date(data.current_period_end)
+        currentPeriodEnd: data.currentPeriodEnd
+          ? new Date(data.currentPeriodEnd)
           : new Date(),
-        canceledAt: data.canceled_at ? new Date(data.canceled_at) : null,
+        canceledAt: data.canceledAt ? new Date(data.canceledAt) : null,
         userId,
       },
     });
 
     // Update user's Polar customer ID if not set
-    const customerId = data.customer?.id || data.customer_id;
+    const customerId = data.customer?.id || data.customerId;
     if (customerId) {
       await prisma.user.update({
         where: { id: userId },
@@ -460,14 +456,11 @@ async function handleSubscriptionUpdated(data: any) {
 
   try {
     // Try multiple ways to get the user ID
-    const userId =
-      data.customer?.external_id ||
-      data.customer?.externalId ||
-      data.metadata?.userId;
+    const userId = data.customer?.externalId || data.metadata?.userId;
 
     if (!userId) {
       console.error(
-        '❌ No external_id, externalId, or userId found in subscription update:',
+        '❌ No externalId, or userId found in subscription update:',
         data
       );
       return;
@@ -481,9 +474,7 @@ async function handleSubscriptionUpdated(data: any) {
     let remainingCredits = 0;
 
     try {
-      // Fetch customer state to get latest active meters data
-      const customerState = await getCustomerState(userId);
-      const creditInfo = extractCreditsFromCustomerState(customerState);
+      const creditInfo = await fetchCreditsFromActiveMeters(userId);
 
       totalCredits = creditInfo.totalCredits;
       usedCredits = creditInfo.usedCredits;
@@ -518,19 +509,19 @@ async function handleSubscriptionUpdated(data: any) {
       where: { polarSubscriptionId: data.id },
       data: {
         status: data.status?.toUpperCase(),
-        productId: data.product?.id || data.product_id,
+        productId: data.product?.id || data.productId,
         totalCredits,
         usedCredits,
         remainingCredits,
         meterId,
         // meterName,
-        currentPeriodStart: data.current_period_start
-          ? new Date(data.current_period_start)
+        currentPeriodStart: data.currentPeriodStart
+          ? new Date(data.currentPeriodStart)
           : undefined,
-        currentPeriodEnd: data.current_period_end
-          ? new Date(data.current_period_end)
+        currentPeriodEnd: data.currentPeriodEnd
+          ? new Date(data.currentPeriodEnd)
           : undefined,
-        canceledAt: data.canceled_at ? new Date(data.canceled_at) : undefined,
+        canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
       },
     });
 
@@ -546,7 +537,7 @@ async function handleSubscriptionCanceled(data: any) {
   console.log('Processing subscription.canceled:', data);
 
   try {
-    const userId = data.customer?.external_id || data.metadata?.userId;
+    const userId = data.customer?.externalId || data.metadata?.userId;
 
     if (!userId) {
       console.error('No userId found in subscription metadata');
@@ -569,7 +560,7 @@ async function handleSubscriptionCanceled(data: any) {
       where: { polarSubscriptionId: data.id },
       data: {
         status: 'CANCELED',
-        canceledAt: data.canceled_at ? new Date(data.canceled_at) : new Date(),
+        canceledAt: data.canceledAt ? new Date(data.canceledAt) : new Date(),
       },
     });
 
@@ -626,8 +617,7 @@ async function handleSubscriptionRevoked(data: any) {
   console.log('Processing subscription.revoked:', data);
   
   try {
-    const userId = data.customer?.external_id || data.metadata?.userId;
-    
+    const userId = data.customer?.externalId || data.metadata?.userId;
     // Get current subscription to log revocation details
     const currentSubscription = await prisma.subscription.findUnique({
       where: { polarSubscriptionId: data.id },

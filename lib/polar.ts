@@ -47,11 +47,11 @@ export async function createOrGetCustomer(data: CreateCustomerData) {
       });
       if (selectedCustomer) return selectedCustomer;
     } catch (getError: any) {
-      const { statusCode, error} = getError;
+      const { statusCode, error } = getError;
 
       // If customer not found (404), we'll create a new one
       if (statusCode === 404 || error === 'ResourceNotFound') {
-        console.log("Customer not found, will create new one");
+        console.log('Customer not found, will create new one');
       } else {
         // If it's a different error, throw it
         throw getError;
@@ -91,7 +91,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
 
       // Extract meter ID from the returned object (could be meter or benefit)
       let meterId = null;
-      
+
       // If it's a meter object, use its id
       if (meterOrBenefit?.id) {
         meterId = meterOrBenefit.id;
@@ -120,7 +120,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
         productId: productId,
         ...(data.metadata || {}),
       };
-      
+
       // Only add meterId if it's defined
       // if (meterId) {
       //   meterMetadata.meterId = meterId;
@@ -197,7 +197,6 @@ export async function getProductPricing(productId: string) {
   }
 }
 
-
 // List all products for an organization
 export async function getProducts(organizationId?: string) {
   try {
@@ -212,36 +211,65 @@ export async function getProducts(organizationId?: string) {
   }
 }
 
-// Get customer state with active meters for credit tracking
-export async function getCustomerState(externalId: string) {
-  try {
-    const customerState = await polar.customers.getStateExternal({
-      externalId,
-    });
-    return customerState;
-  } catch (error) {
-    console.error('Error fetching customer state:', error);
-    throw new Error('Failed to fetch customer state');
-  }
-}
-
-// Extract credit information from customer state activeMeters
-export function extractCreditsFromCustomerState(customerState: any) {
+// Fetch credit info from Active Meters using Polar customer meters API
+export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
   let totalCredits = 0;
   let usedCredits = 0;
   let meterId = null;
 
-  if (customerState.activeMeters && customerState.activeMeters.length > 0) {
-    // Sum up all active meters for total credits
-    for (const activeMeter of customerState.activeMeters) {
-      totalCredits += activeMeter.creditedUnits || 0;
-      usedCredits += activeMeter.consumedUnits || 0;
+  console.log(
+    '🔍 [DEBUG] Fetching meters for external customer ID:',
+    externalCustomerId
+  );
 
-      // Use the first meter ID for tracking
-      if (!meterId) {
-        meterId = activeMeter.meterId;
+  try {
+    // Get meters using Polar customer meters API with organizationId filter
+    const metersResponse = await polar.customerMeters.list({
+      externalCustomerId,
+    });
+    console.log(
+      '🔍 [DEBUG] Meters response received:',
+      JSON.stringify(metersResponse, null, 2)
+    );
+    let meterCount = 0;
+
+    // Iterate through paginated response
+    for await (const response of metersResponse) {
+      if (response.result?.items && response.result.items.length > 0) {
+        meterCount += response.result.items.length;
+
+        // Sum up all meters for total credits
+        for (let i = 0; i < response.result.items.length; i++) {
+          const meter = response.result.items[i];
+          const meterCredits = meter.creditedUnits || 0;
+          const meterUsed = meter.consumedUnits || 0;
+
+          console.log(
+            `🔍 [DEBUG] Meter ${i + 1}: ID=${meter.meterId}, credited=${meterCredits}, consumed=${meterUsed}`
+          );
+
+          totalCredits += meterCredits;
+          usedCredits += meterUsed;
+
+          // Use the first meter ID for tracking
+          if (!meterId) {
+            meterId = meter.meterId;
+          }
+        }
       }
     }
+
+    if (meterCount > 0) {
+      console.log(
+        `🔍 [DEBUG] After summing ${meterCount} meters: total=${totalCredits}, used=${usedCredits}`
+      );
+    } else {
+      console.log('🔍 [DEBUG] No meters found');
+    }
+  } catch (error) {
+    console.error('Error fetching customer meters from API:', error);
+    // No fallback available - return zero credits if API call fails
+    console.log('🔍 [DEBUG] No fallback available, returning zero credits');
   }
 
   const remainingCredits = totalCredits - usedCredits;
@@ -308,8 +336,7 @@ export async function getUserCreditBalanceWithSync(
     // Get real-time credit data from Polar customer state API
     if (syncFromPolar) {
       try {
-        const customerState = await getCustomerState(userId);
-        const creditInfo = extractCreditsFromCustomerState(customerState);
+        const creditInfo = await fetchCreditsFromActiveMeters(userId);
 
         // Prepare update data
         const updateData: any = {
@@ -516,52 +543,6 @@ export async function updateCreditUsage(userId: string, creditsUsed: number) {
   }
 }
 
-// Ingest events to Polar for usage tracking
-export async function ingestEvent(event: {
-  name: string;
-  externalCustomerId: string;
-  timestamp?: Date;
-  metadata?: Record<string, any>;
-}) {
-  try {
-    const eventData = {
-      name: event.name,
-      externalCustomerId: event.externalCustomerId,
-      metadata: { ...event.metadata },
-    };
-
-    const response = await polar.events.ingest({
-      events: [eventData],
-    });
-
-    // console.log(`✅ [POLAR INGEST] SUCCESS:`, {
-    //   customerId: event.externalCustomerId,
-    //   response: response
-    //     ? JSON.stringify(response, null, 2)
-    //     : 'No response data',
-    // });
-
-    return response;
-  } catch (error) {
-    console.error(`❌ [POLAR INGEST] FAILED:`, {
-      eventName: event.name,
-      customerId: event.externalCustomerId,
-      error:
-        error instanceof Error
-          ? {
-              message: error.message,
-              stack: error.stack,
-              name: error.name,
-            }
-          : error,
-      timestamp: new Date().toISOString(),
-    });
-    throw new Error(
-      `Failed to ingest event: ${error instanceof Error ? error.message : 'Unknown error'}`
-    );
-  }
-}
-
 // Track email credit usage and sync with Polar
 export async function trackEmailCreditUsage(
   userId: string,
@@ -606,31 +587,6 @@ export async function trackEmailCreditUsage(
         createdAt: 'desc',
       },
     });
-
-    // Ingest event to Polar for usage tracking (if meter is configured)
-    // This is done separately and should not fail local credit tracking
-    // if (subscription?.meterId) {
-    //   try {
-    //     await ingestEvent({
-    //       name: 'SENT',
-    //       externalCustomerId: userId,
-    //       metadata: {
-    //         source: 'track email credit usage',
-    //         emailsSent: emailsSent,
-    //         creditsUsed: emailsSent,
-    //         totalUsedCredits: creditResult.usedCredits,
-    //         remainingCredits: creditResult.remainingCredits,
-    //         subscriptionId: subscription.polarSubscriptionId,
-    //       },
-    //     });
-    //   } catch (polarError) {
-    //     console.warn(
-    //       '⚠️ Failed to sync with Polar, but local credits updated successfully:',
-    //       polarError
-    //     );
-    //     // Don't throw - local credit tracking should succeed even if Polar fails
-    //   }
-    // }
 
     // console.log(
     //   `Tracked ${emailsSent} emails (${emailsSent} credits) for user ${userId}. Remaining: ${creditResult.remainingCredits}/${creditResult.totalCredits}`
