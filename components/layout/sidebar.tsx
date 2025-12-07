@@ -3,7 +3,6 @@
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LoginButton } from "@/components/auth/login-button";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function Sidebar() {
   const router = useRouter();
@@ -31,9 +30,8 @@ export function Sidebar() {
 
   return (
     <div className="w-64 h-screen bg-sidebar border-r border-sidebar-border p-4 flex flex-col">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8">
         <h1 className="text-2xl font-bold text-sidebar-foreground">MailPackr</h1>
-        <ThemeToggle />
       </div>
       
       <nav className="space-y-2 flex-1">
