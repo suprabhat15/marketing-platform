@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import Underline from '@tiptap/extension-underline';
-import { Button } from '@/components/ui/button';
+import { Button as UIButton } from '@/components/ui/button';
 import {
   Bold,
   Italic,
@@ -20,8 +20,10 @@ import {
   Heading1,
   Heading2,
   Code,
+  Image as ImageIcon,
 } from 'lucide-react';
-import { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { ResizableImage } from '@/lib/tiptap-extensions/resizable-image';
 
 interface TiptapEditorProps {
   content: string;
@@ -42,58 +44,65 @@ export function TiptapEditor({
 }: TiptapEditorProps) {
   const [linkUrl, setLinkUrl] = useState('');
   const [showLinkInput, setShowLinkInput] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        bulletList: {
-          keepMarks: true,
-          keepAttributes: false,
+  const editor = useEditor(
+    {
+      extensions: [
+        StarterKit.configure({
+          bulletList: {
+            keepMarks: true,
+            keepAttributes: false,
+          },
+          orderedList: {
+            keepMarks: true,
+            keepAttributes: false,
+          },
+        }),
+        Placeholder.configure({
+          placeholder,
+        }),
+        Link.configure({
+          openOnClick: false,
+          HTMLAttributes: {
+            class: 'text-blue-500 underline cursor-pointer',
+          },
+        }),
+        Underline,
+        ResizableImage.configure({
+          allowBase64: true,
+        }),
+      ],
+      content: content,
+      immediatelyRender: false,
+      onUpdate: ({ editor }) => {
+        onChange(editor.getHTML());
+      },
+      editorProps: {
+        attributes: {
+          class:
+            'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[300px] p-4',
         },
-        orderedList: {
-          keepMarks: true,
-          keepAttributes: false,
-        },
-      }),
-      Placeholder.configure({
-        placeholder,
-      }),
-      Link.configure({
-        openOnClick: false,
-        HTMLAttributes: {
-          class: 'text-blue-500 underline cursor-pointer',
-        },
-      }),
-      Underline,
-    ],
-    content,
-    immediatelyRender: false,
-    onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
-    },
-    editorProps: {
-      attributes: {
-        class: 'prose prose-sm sm:prose lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[300px] p-4',
       },
     },
-  }, [content]);
+    []
+  );
 
-  // Sync content changes when content prop changes
+  // Sync content when it changes externally without recreating editor
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content, { emitUpdate: false });
+      editor.commands.setContent(content, false);
     }
   }, [editor, content]);
 
-  const insertVariable = useCallback((variable: string) => {
-    if (editor) {
-      editor
-        .chain()
-        .focus()
-        .insertContent(variable)
-        .run();
-    }
-  }, [editor]);
+  const insertVariable = useCallback(
+    (variable: string) => {
+      if (editor) {
+        editor.chain().focus().insertContent(variable).run();
+      }
+    },
+    [editor]
+  );
 
   const setLink = useCallback(() => {
     if (!editor) return;
@@ -106,17 +115,41 @@ export function TiptapEditor({
         .setLink({ href: linkUrl })
         .run();
     } else {
-      editor
-        .chain()
-        .focus()
-        .extendMarkRange('link')
-        .unsetLink()
-        .run();
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
     }
     
     setShowLinkInput(false);
     setLinkUrl('');
   }, [editor, linkUrl]);
+
+
+  const handleImageUpload = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file || !editor) return;
+
+      // Check if it's an image
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        return;
+      }
+
+      // Convert to base64
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const base64 = e.target?.result as string;
+
+        // Insert image into editor
+        editor.chain().focus().setImage({ src: base64, alt: file.name }).run();
+      };
+      reader.readAsDataURL(file);
+    },
+    [editor]
+  );
+
+  const triggerImageUpload = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
 
   if (!editor) {
     return null;
@@ -127,132 +160,152 @@ export function TiptapEditor({
       {/* Toolbar */}
       <div className="border-b p-2 flex items-center gap-1 flex-wrap bg-gray-50">
         <div className="flex items-center gap-1">
-          <Button
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleBold().run()}
             className={editor.isActive('bold') ? 'bg-gray-200' : ''}
           >
             <Bold className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleItalic().run()}
             className={editor.isActive('italic') ? 'bg-gray-200' : ''}
           >
             <Italic className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleUnderline().run()}
             className={editor.isActive('underline') ? 'bg-gray-200' : ''}
           >
             <UnderlineIcon className="h-4 w-4" />
-          </Button>
+          </UIButton>
         </div>
 
         <div className="w-px h-6 bg-border mx-1" />
 
         <div className="flex items-center gap-1">
-          <Button
+          <UIButton
             variant="ghost"
             size="sm"
-            onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
-            className={editor.isActive('heading', { level: 1 }) ? 'bg-gray-200' : ''}
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 1 }).run()
+            }
+            className={
+              editor.isActive('heading', { level: 1 }) ? 'bg-gray-200' : ''
+            }
           >
             <Heading1 className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
-            onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
-            className={editor.isActive('heading', { level: 2 }) ? 'bg-gray-200' : ''}
+            onClick={() =>
+              editor.chain().focus().toggleHeading({ level: 2 }).run()
+            }
+            className={
+              editor.isActive('heading', { level: 2 }) ? 'bg-gray-200' : ''
+            }
           >
             <Heading2 className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().setParagraph().run()}
             className={editor.isActive('paragraph') ? 'bg-gray-200' : ''}
           >
             <Type className="h-4 w-4" />
-          </Button>
+          </UIButton>
         </div>
 
         <div className="w-px h-6 bg-border mx-1" />
 
         <div className="flex items-center gap-1">
-          <Button
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleBulletList().run()}
             className={editor.isActive('bulletList') ? 'bg-gray-200' : ''}
           >
             <List className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleOrderedList().run()}
             className={editor.isActive('orderedList') ? 'bg-gray-200' : ''}
           >
             <ListOrdered className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleBlockquote().run()}
             className={editor.isActive('blockquote') ? 'bg-gray-200' : ''}
           >
             <Quote className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().toggleCode().run()}
             className={editor.isActive('code') ? 'bg-gray-200' : ''}
           >
             <Code className="h-4 w-4" />
-          </Button>
+          </UIButton>
         </div>
 
         <div className="w-px h-6 bg-border mx-1" />
 
         <div className="flex items-center gap-1">
-          <Button
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => setShowLinkInput(!showLinkInput)}
             className={editor.isActive('link') ? 'bg-gray-200' : ''}
           >
             <LinkIcon className="h-4 w-4" />
-          </Button>
+          </UIButton>
+          <UIButton variant="ghost" size="sm" onClick={triggerImageUpload}>
+            <ImageIcon className="h-4 w-4" />
+          </UIButton>
         </div>
 
         <div className="w-px h-6 bg-border mx-1" />
 
         <div className="flex items-center gap-1">
-          <Button
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().undo().run()}
             disabled={!editor.can().undo()}
           >
             <Undo className="h-4 w-4" />
-          </Button>
-          <Button
+          </UIButton>
+          <UIButton
             variant="ghost"
             size="sm"
             onClick={() => editor.chain().focus().redo().run()}
             disabled={!editor.can().redo()}
           >
             <Redo className="h-4 w-4" />
-          </Button>
+          </UIButton>
         </div>
       </div>
+
+      {/* Hidden file input for image upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        onChange={handleImageUpload}
+        className="hidden"
+      />
 
       {/* Link Input */}
       {showLinkInput && (
@@ -270,10 +323,10 @@ export function TiptapEditor({
                 }
               }}
             />
-            <Button size="sm" onClick={setLink}>
+            <UIButton size="sm" onClick={setLink}>
               Set Link
-            </Button>
-            <Button 
+            </UIButton>
+            <UIButton
               size="sm" 
               variant="outline" 
               onClick={() => {
@@ -282,7 +335,7 @@ export function TiptapEditor({
               }}
             >
               Cancel
-            </Button>
+            </UIButton>
           </div>
         </div>
       )}
@@ -299,7 +352,7 @@ export function TiptapEditor({
           <p className="text-xs text-gray-600 mb-2">Click to insert template variables:</p>
           <div className="flex flex-wrap gap-2">
             {availableVariables.map((variable) => (
-              <Button
+              <UIButton
                 key={variable}
                 variant="outline"
                 size="sm"
@@ -307,7 +360,7 @@ export function TiptapEditor({
                 onClick={() => insertVariable(variable)}
               >
                 {variable}
-              </Button>
+              </UIButton>
             ))}
           </div>
         </div>
