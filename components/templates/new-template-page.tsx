@@ -16,27 +16,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { 
-  Eye, 
-  Code, 
-  Save, 
-  Type, 
-  Paperclip, 
-  X, 
+import {
+  Eye,
+  Save,
+  Paperclip,
+  X,
   Upload,
   FileText,
   Image as ImageIcon,
   File,
   ArrowLeft,
-  Bold,
-  Italic,
-  Underline,
-  Link,
-  List,
-  AlignLeft,
-  AlignCenter,
-  AlignRight,
-  Palette
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { createTemplateSchema } from '@/lib/validators';
@@ -72,7 +61,6 @@ export function NewTemplatePage() {
   const [name, setName] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
-  const [activeTab, setActiveTab] = useState('code');
 
   const [editorMode, setEditorMode] = useState<'notion' | 'code'>('notion');
 
