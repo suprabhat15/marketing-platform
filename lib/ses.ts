@@ -1,4 +1,5 @@
-import { SESClient, SendEmailCommand, SendBulkTemplatedEmailCommand } from '@aws-sdk/client-ses';
+import { SESClient, SendEmailCommand, SendBulkTemplatedEmailCommand, SendRawEmailCommand } from '@aws-sdk/client-ses';
+import { prepareEmailWithAttachments, createSESCommandWithAttachments } from './email-attachments';
 
 // Function to wrap text content in full HTML structure
 function wrapInFullHtml(content: string, isHtml: boolean = false): string {
@@ -66,6 +67,10 @@ export interface SendEmailParams {
   configurationSetName?: string;
   campaignId?: string;
   messageId?: string;
+}
+
+export interface SendEmailWithAttachmentsParams extends SendEmailParams {
+  extractAttachments?: boolean; // Whether to extract base64 images as attachments
 }
 
 export async function sendEmail({
@@ -184,6 +189,205 @@ export async function sendEmail({
     // Race between SES call and timeout
     const result = await Promise.race([
       sesClient.send(command),
+      timeoutPromise,
+    ]);
+
+    return { success: true };
+  } catch (error: any) {
+    // Handle timeout specifically
+    if (error.message === 'SES request timeout') {
+      return {
+        success: false,
+        error: {
+          code: 'TimeoutError',
+          message: 'SES request timed out after 25 seconds',
+        },
+      };
+    }
+
+    // Return structured error instead of throwing
+    return {
+      success: false,
+      error: {
+        code: error.code || error.name || 'UnknownError',
+        message: error.message || 'Unknown SES error',
+      },
+    };
+  }
+}
+
+export async function sendEmailWithAttachments({
+  to,
+  subject,
+  html,
+  text,
+  from = process.env.FROM_EMAIL!,
+  replyTo = process.env.REPLY_TO_EMAIL!,
+  configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
+  campaignId,
+  messageId,
+  extractAttachments = true,
+}: SendEmailWithAttachmentsParams): Promise<{
+  success: boolean;
+  error?: { code: string; message: string };
+}> {
+  // Add timeout wrapper
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('SES request timeout')), 25000); // 25 second timeout
+  });
+
+  // Get the recipient email for tracking
+  const recipientEmail = to[0]; // Assuming single recipient per call
+
+  // Always ensure we have HTML content - wrap text in full HTML if needed
+  let fullHtml = html;
+  if (!html && text) {
+    // Convert text to HTML format
+    fullHtml = wrapInFullHtml(text, false);
+  } else if (html) {
+    // Ensure HTML is in full document format
+    fullHtml = wrapInFullHtml(html, true);
+  } else {
+    // Fallback to empty HTML structure
+    fullHtml = wrapInFullHtml('', false);
+  }
+
+  // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
+  // const trackingData = campaignId
+  //   ? Buffer.from(
+  //       JSON.stringify({
+  //         email: recipientEmail,
+  //         campaignId,
+  //         messageId: messageId || Date.now().toString(),
+  //       })
+  //     ).toString('base64')
+  //   : '';
+
+  // const trackingPixel = campaignId
+  //   ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
+  //   : '';
+
+  // Process HTML to add click tracking
+  let processedHtml = campaignId
+    ? addClickTracking(fullHtml, campaignId, messageId)
+    : fullHtml;
+
+  // Replace {{email}} placeholder in tracking URLs with actual email
+  if (campaignId) {
+    processedHtml = processedHtml.replace(
+      /{{email}}/g,
+      encodeURIComponent(recipientEmail)
+    );
+  }
+
+  // Add tracking pixel before closing body tag
+  // if (trackingPixel) {
+  //   processedHtml = processedHtml.replace(
+  //     '</body>',
+  //     `  ${trackingPixel}\n</body>`
+  //   );
+  // }
+
+  try {
+    let command: SendRawEmailCommand | SendEmailCommand;
+
+    if (extractAttachments) {
+      // Check if HTML contains base64 images
+      const hasBase64Images = /data:image\/[^;]+;base64,/.test(processedHtml);
+      
+      if (hasBase64Images) {
+        // Use raw email with attachments
+        const emailWithAttachments = prepareEmailWithAttachments(
+          to,
+          from,
+          subject,
+          processedHtml,
+          text
+        );
+
+        command = createSESCommandWithAttachments(emailWithAttachments, configurationSetName);
+      } else {
+        // Fall back to regular email sending
+        command = new SendEmailCommand({
+          Source: from,
+          Destination: {
+            ToAddresses: to,
+          },
+          Message: {
+            Subject: {
+              Data: subject,
+              Charset: 'UTF-8',
+            },
+            Body: {
+              Html: {
+                Data: processedHtml,
+                Charset: 'UTF-8',
+              },
+            },
+          },
+          ReplyToAddresses: replyTo ? [replyTo] : undefined,
+          ConfigurationSetName: configurationSetName,
+          Tags: campaignId
+            ? [
+                {
+                  Name: 'campaignId',
+                  Value: campaignId,
+                },
+                ...(messageId
+                  ? [
+                      {
+                        Name: 'messageId',
+                        Value: messageId,
+                      },
+                    ]
+                  : []),
+              ]
+            : undefined,
+        });
+      }
+    } else {
+      // Use regular email sending without attachment processing
+      command = new SendEmailCommand({
+        Source: from,
+        Destination: {
+          ToAddresses: to,
+        },
+        Message: {
+          Subject: {
+            Data: subject,
+            Charset: 'UTF-8',
+          },
+          Body: {
+            Html: {
+              Data: processedHtml,
+              Charset: 'UTF-8',
+            },
+          },
+        },
+        ReplyToAddresses: replyTo ? [replyTo] : undefined,
+        ConfigurationSetName: configurationSetName,
+        Tags: campaignId
+          ? [
+              {
+                Name: 'campaignId',
+                Value: campaignId,
+              },
+              ...(messageId
+                ? [
+                    {
+                      Name: 'messageId',
+                      Value: messageId,
+                    },
+                  ]
+                : []),
+            ]
+          : undefined,
+      });
+    }
+
+    // Race between SES call and timeout
+    const result = await Promise.race([
+      sesClient.send(command as any),
       timeoutPromise,
     ]);
 

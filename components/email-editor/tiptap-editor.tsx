@@ -91,7 +91,7 @@ export function TiptapEditor({
   // Sync content when it changes externally without recreating editor
   useEffect(() => {
     if (editor && content !== editor.getHTML()) {
-      editor.commands.setContent(content, false);
+      editor.commands.setContent(content, { emitUpdate: false });
     }
   }, [editor, content]);
 
