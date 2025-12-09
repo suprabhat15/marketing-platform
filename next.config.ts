@@ -14,6 +14,32 @@ const nextConfig: NextConfig = {
     ],
   },
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Handle Node.js built-in modules with node: prefix
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'node:module': 'module',
+      'node:crypto': 'crypto',
+      'node:fs': 'fs',
+      'node:path': 'path',
+      'node:url': 'url',
+      'node:util': 'util',
+    };
+
+    // Ensure Node.js built-ins are marked as external for server builds
+    if (isServer) {
+      config.externals = config.externals || [];
+      if (Array.isArray(config.externals)) {
+        config.externals.push({
+          'node:module': 'module',
+          'node:crypto': 'crypto',
+          'node:fs': 'fs',
+          'node:path': 'path',
+          'node:url': 'url',
+          'node:util': 'util',
+        });
+      }
+    }
+
     // API route optimization
     if (isServer && !dev) {
       // Optimize server-side chunks for faster API compilation
