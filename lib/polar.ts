@@ -1,18 +1,26 @@
 import { Polar } from '@polar-sh/sdk';
 import crypto from 'crypto';
 
+const isSandbox = process.env.IS_SANDBOX === 'true';
+
 // Initialize Polar SDK with environment configuration
-if (!process.env.POLAR_ACCESS_TOKEN) {
-  throw new Error('POLAR_ACCESS_TOKEN environment variable is required');
+const accessToken = isSandbox 
+  ? process.env.POLAR_ACCESS_TOKEN_SANDBOX
+  : process.env.POLAR_ACCESS_TOKEN;
+
+if (!accessToken) {
+  const envVar = isSandbox ? 'POLAR_ACCESS_TOKEN_SANDBOX' : 'POLAR_ACCESS_TOKEN';
+  throw new Error(`${envVar} environment variable is required`);
 }
 
 export const polar = new Polar({
-  accessToken: process.env.POLAR_ACCESS_TOKEN,
-  // server: 'sandbox',
+  accessToken,
+  ...(isSandbox && { server: 'sandbox' })
 });
 
-// Organization ID for your Polar organization
-// export const POLAR_ORGANIZATION_ID_SANDBOX = process.env.POLAR_ORGANIZATION_ID_SANDBOX ?? '';
+// export const POLAR_ORGANIZATION_ID = isSandbox
+//   ? (process.env.POLAR_ORGANIZATION_ID_SANDBOX ?? '')
+//   : (process.env.POLAR_ORGANIZATION_ID ?? '');
 
 // Types for checkout session
 export interface CheckoutSessionData {
@@ -217,20 +225,20 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
   let usedCredits = 0;
   let meterId = null;
 
-  console.log(
-    '🔍 [DEBUG] Fetching meters for external customer ID:',
-    externalCustomerId
-  );
+  // console.log(
+  //   '🔍 [DEBUG] Fetching meters for external customer ID:',
+  //   externalCustomerId
+  // );
 
   try {
     // Get meters using Polar customer meters API with organizationId filter
     const metersResponse = await polar.customerMeters.list({
       externalCustomerId,
     });
-    console.log(
-      '🔍 [DEBUG] Meters response received:',
-      JSON.stringify(metersResponse, null, 2)
-    );
+    // console.log(
+    //   '🔍 [DEBUG] Meters response received:',
+    //   JSON.stringify(metersResponse, null, 2)
+    // );
     let meterCount = 0;
 
     // Iterate through paginated response
@@ -244,9 +252,9 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
           const meterCredits = meter.creditedUnits || 0;
           const meterUsed = meter.consumedUnits || 0;
 
-          console.log(
-            `🔍 [DEBUG] Meter ${i + 1}: ID=${meter.meterId}, credited=${meterCredits}, consumed=${meterUsed}`
-          );
+          // console.log(
+          //   `🔍 [DEBUG] Meter ${i + 1}: ID=${meter.meterId}, credited=${meterCredits}, consumed=${meterUsed}`
+          // );
 
           totalCredits += meterCredits;
           usedCredits += meterUsed;
@@ -267,9 +275,7 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
       console.log('🔍 [DEBUG] No meters found');
     }
   } catch (error) {
-    console.error('Error fetching customer meters from API:', error);
-    // No fallback available - return zero credits if API call fails
-    console.log('🔍 [DEBUG] No fallback available, returning zero credits');
+    throw new Error('Failed to fetch customer meters from Polar API');
   }
 
   const remainingCredits = totalCredits - usedCredits;
@@ -664,8 +670,12 @@ export const CREDIT_PRICING = {
 } as const;
 
 // Product ID environment variables
-const PRODUCT_ID_10000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '';
-const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '';
+const PRODUCT_ID_10000 = isSandbox
+  ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '')
+  : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '');
+const PRODUCT_ID_20000 = isSandbox
+  ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '')
+  : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '');
 
 // Product ID to credit mapping (matching auth.ts products)
 export const PRODUCT_CREDIT_MAPPING = {
