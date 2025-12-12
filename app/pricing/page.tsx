@@ -4,17 +4,23 @@ import { CheckoutButton } from '@/components/payments/checkout-button';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+const isSandbox = process.env.IS_SANDBOX === 'true';
+
 const creditOptions = [
   {
     credits: 10000,
-    price: 10.00,
-    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K,
+    price: 10.0,
+    productId: isSandbox
+      ? process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K
+      : process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K,
     slug: 'Credits-10000',
   },
   {
     credits: 20000,
-    price: 20.00,
-    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K,
+    price: 20.0,
+    productId: isSandbox
+      ? process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K
+      : process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K,
     slug: 'Credits-20000',
   },
 ];
