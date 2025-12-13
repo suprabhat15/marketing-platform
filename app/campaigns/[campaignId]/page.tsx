@@ -38,7 +38,7 @@ interface Campaign {
   name: string;
   subject: string;
   content?: string;
-  status: 'DRAFT' | 'QUEUED' | 'SENDING' | 'SENT' | 'FAILED';
+  status: 'DRAFT' | 'SCHEDULED' | 'QUEUED' | 'SENDING' | 'SENT' | 'COMPLETED' | 'CANCELLED' | 'FAILED';
   createdAt: string;
   sentAt: string | null;
   list: {
