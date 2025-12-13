@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
     };
 
     // Available event types for frontend filtering
-    const availableEventTypes = ['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED'];
+    const availableEventTypes = ['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'FAILED', 'SUPPRESSED', 'UNSUBSCRIBED'];
 
     const responseData = { 
       campaigns: groupedCampaigns, 

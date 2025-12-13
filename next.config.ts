@@ -27,6 +27,7 @@ const nextConfig: NextConfig = {
       'node:stream': 'stream',
       'node:buffer': 'buffer',
       'node:process': 'process',
+      'node:async_hooks': 'async_hooks',
     };
 
     // For client-side builds, prevent bundling of Node.js built-ins
@@ -42,6 +43,7 @@ const nextConfig: NextConfig = {
         'util': false,
         'url': false,
         'process': false,
+        'async_hooks': false,
       };
     }
 
@@ -57,6 +59,7 @@ const nextConfig: NextConfig = {
         'node:stream',
         'node:buffer',
         'node:process',
+        'node:async_hooks',
       ];
 
       const originalExternals = config.externals;

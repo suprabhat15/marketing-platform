@@ -17,7 +17,7 @@ export const updateCampaignSchema = z.object({
   name: z.string().optional(),
   subject: z.string().optional(),
   content: z.string().optional(),
-  status: z.enum(['DRAFT', 'QUEUED', 'SENDING', 'SENT', 'FAILED']).optional(),
+  status: z.enum(['DRAFT', 'SCHEDULED', 'QUEUED', 'SENDING', 'SENT', 'COMPLETED', 'CANCELLED', 'FAILED']).optional(),
 });
 
 export type CreateCampaignData = z.infer<typeof createCampaignSchema>;
