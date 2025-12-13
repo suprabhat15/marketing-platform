@@ -215,21 +215,18 @@ export class BatchEmailProcessor {
       console.log(
         `✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`
       );
-
       // Check campaign completion after batch processing (more efficient than per-email checks)
-      setTimeout(async () => {
-        try {
-          const queueHelpers = await import('./queue-helpers');
-          if (queueHelpers.checkCampaignCompletionByBatch) {
-            await queueHelpers.checkCampaignCompletionByBatch(campaignId);
-          }
-        } catch (error) {
-          console.error(
-            `Error checking campaign completion for ${campaignId}:`,
-            error
-          );
+      try {
+        const queueHelpers = await import('./queue-helpers');
+        if (queueHelpers.checkCampaignCompletionByBatch) {
+          await queueHelpers.checkCampaignCompletionByBatch(campaignId);
         }
-      }, 1000);
+      } catch (error) {
+        console.error(
+          `Error checking campaign completion for ${campaignId}:`,
+          error
+        );
+      }
     } catch (error) {
       console.error(
         `❌ Error processing batch ${batchNumber} for campaign ${campaignId}:`,
