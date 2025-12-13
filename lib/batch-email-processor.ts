@@ -471,15 +471,11 @@ export class BatchEmailProcessor {
 
     // Mark email as successfully sent to prevent duplicates
     const sentKey = `sent:${campaignId}:${subscriber.id}`;
-    await redis.setex(sentKey, 2 * 24 * 60 * 60, messageId); // 2 days expiration
+    
+    const wasAlreadyCounted = await redis.set(sentKey, messageId, 'EX', 2 * 24 * 60 * 60, 'NX');
 
-    // Update Redis count for SENT events
-    try {
-      await redis.incr(`campaign_stats:${campaignId}:SENT`);
-      await redis.incr(`campaign_stats:${campaignId}:total`);
-      console.log(`📊 Updated SENT count in Redis for campaign ${campaignId}`);
-    } catch (redisError) {
-      console.error(`Error updating SENT count in Redis:`, redisError);
+    if (wasAlreadyCounted !== 'OK') {
+      console.log(`Email ${subscriber.email} already counted, skipping duplicate`);
     }
 
     // Check if this campaign might be ready for completion
@@ -681,17 +677,6 @@ export class BatchEmailProcessor {
       // All other failures (temporary, rate_limit, unknown, etc.) are FAILED
       else {
         eventType = 'FAILED';
-      }
-
-      // Store event in Redis with pattern campaign_stats:${campaignId}:${eventType}
-      try {
-        await redis.incr(`campaign_stats:${campaignId}:${eventType}`);
-        await redis.incr(`campaign_stats:${campaignId}:total`);
-        console.log(
-          `📊 Stored ${eventType} event in Redis for campaign ${campaignId}`
-        );
-      } catch (redisError) {
-        console.error(`Error storing ${eventType} event in Redis:`, redisError);
       }
 
       await prisma.event.create({
