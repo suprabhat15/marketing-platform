@@ -5,9 +5,11 @@ import { CreditService } from '@/lib/credit-service';
 import { z } from 'zod';
 import { EventType } from '@prisma/client';
 import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
- // why ?? 
+
+// Event schema - terminal events (FAILED, BOUNCED, COMPLAINED, SUPPRESSED) are stored in the Event table
+// as defined in schema.prisma. These events represent final states of email delivery attempts.
 const createEventSchema = z.object({
-  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED']),
+  type: z.enum(['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'FAILED', 'SUPPRESSED', 'UNSUBSCRIBED']),
   campaignId: z.string().optional(),
   subscriberId: z.string().optional(),
   data: z.record(z.any()).optional(),

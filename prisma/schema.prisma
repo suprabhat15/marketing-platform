@@ -183,6 +183,7 @@ enum CampaignStatus {
   QUEUED
   SENDING
   SENT
+  COMPLETED
   CANCELLED
   FAILED
 }
@@ -194,6 +195,8 @@ enum EventType {
   CLICKED
   BOUNCED
   COMPLAINED
+  FAILED
+  SUPPRESSED
   UNSUBSCRIBED
 }
 
