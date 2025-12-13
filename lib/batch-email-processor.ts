@@ -4,6 +4,7 @@ import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
 import { dlqQueue } from './queue';
+import { EventType } from '@prisma/client';
 
 export interface BatchEmailData {
   campaignId: string;
@@ -472,6 +473,30 @@ export class BatchEmailProcessor {
     const sentKey = `sent:${campaignId}:${subscriber.id}`;
     await redis.setex(sentKey, 2 * 24 * 60 * 60, messageId); // 2 days expiration
 
+    // Update Redis count for SENT events
+    try {
+      await redis.incr(`campaign_stats:${campaignId}:SENT`);
+      await redis.incr(`campaign_stats:${campaignId}:total`);
+      console.log(`📊 Updated SENT count in Redis for campaign ${campaignId}`);
+    } catch (redisError) {
+      console.error(`Error updating SENT count in Redis:`, redisError);
+    }
+
+    // Check if this campaign might be ready for completion
+    setTimeout(async () => {
+      try {
+        const queueHelpers = await import('./queue-helpers');
+        if (queueHelpers.checkCampaignCompletionByEvents) {
+          await queueHelpers.checkCampaignCompletionByEvents(campaignId);
+        }
+      } catch (error) {
+        console.error(
+          `Error checking campaign completion for ${campaignId}:`,
+          error
+        );
+      }
+    }, 1000);
+
     // SENT events are created by SES webhooks, not here to avoid duplicates
     console.log(
       `📧 Email sent successfully for ${subscriber.email}, messageId: ${messageId}`
@@ -497,25 +522,25 @@ export class BatchEmailProcessor {
 
           const eventId = `${messageId}`;
 
-            await sendPolarEventToSQS({
-              userId: resolvedUserId,
-              eventType: 'SENT',
-              metadata: {
-                eventId,
-                campaignId,
-                subscriberId: subscriber.id,
-                recipientEmail: subscriber.email,
-                timestamp: new Date().toISOString(),
-              },
-            });
-          } catch (sqsError) {
-            console.warn(
-              '⚠️ Failed to send event to SQS, but email was sent successfully:',
-              sqsError
-            );
-            // Don't throw - email sending should succeed even if SQS fails
-            // Lambda will miss this event, but it's better than failing email delivery
-          }
+          await sendPolarEventToSQS({
+            userId: resolvedUserId,
+            eventType: 'SENT',
+            metadata: {
+              eventId,
+              campaignId,
+              subscriberId: subscriber.id,
+              recipientEmail: subscriber.email,
+              timestamp: new Date().toISOString(),
+            },
+          });
+        } catch (sqsError) {
+          console.warn(
+            '⚠️ Failed to send event to SQS, but email was sent successfully:',
+            sqsError
+          );
+          // Don't throw - email sending should succeed even if SQS fails
+          // Lambda will miss this event, but it's better than failing email delivery
+        }
 
         // console.log(
         //   `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
@@ -545,9 +570,10 @@ export class BatchEmailProcessor {
     }
   }
 
-
   /**
    * Handle final failure after all retries exhausted
+   * Terminal events (FAILED, BOUNCED, COMPLAINED, SUPPRESSED) are stored in the Event table
+   * as defined in schema.prisma. These events represent final states of email delivery attempts.
    */
   private async handleFinalFailure(
     campaignId: string,
@@ -622,38 +648,101 @@ export class BatchEmailProcessor {
       }
     }
 
-    // Only create BOUNCED event if it's actually a bounce (not just a retry failure)
-    if (errorHandlingResult.classified.shouldSuppress) {
-      try {
-        const bouncedEvent = await prisma.event.create({
-          data: {
-            type: 'BOUNCED',
-            data: {
-              email: subscriber.email,
-              messageId: `${campaignId}-${subscriber.id}-permanent-bounce`,
-              timestamp: new Date().toISOString(),
-              error: errorMessage,
-              errorType: errorHandlingResult.classified.type,
-              retryAttempts: maxRetries,
-            },
-            subscriberId: subscriber.id,
-            campaignId,
-          },
-          include: {
-            subscriber: {
-              select: {
-                email: true,
-                firstName: true,
-                lastName: true,
-              },
-            },
-          },
-        });
+    // Create appropriate terminal event based on error type
+    try {
+      let eventType: EventType = 'FAILED';
 
-        // await broadcastEvent(campaignId, bouncedEvent); // Removed - using aggregated stats
-      } catch (eventError) {
-        console.error('Error creating bounced event:', eventError);
+      // Determine event type based on error classification and message
+      const errorMessageLower = errorMessage.toLowerCase();
+
+      // Check for complaints first (from error message)
+      if (
+        errorMessageLower.includes('complaint') ||
+        errorMessageLower.includes('spam complaint')
+      ) {
+        eventType = 'COMPLAINED';
       }
+      // Check if suppression was added (permanent bounces)
+      else if (
+        errorHandlingResult.suppressionAdded ||
+        errorHandlingResult.classified.shouldSuppress
+      ) {
+        // If it's a permanent error that was suppressed, it's a bounce
+        if (errorHandlingResult.classified.type === 'permanent') {
+          eventType = 'BOUNCED';
+        } else {
+          eventType = 'SUPPRESSED';
+        }
+      }
+      // Permanent errors that weren't suppressed yet (shouldn't happen, but handle it)
+      else if (errorHandlingResult.classified.type === 'permanent') {
+        eventType = 'BOUNCED';
+      }
+      // All other failures (temporary, rate_limit, unknown, etc.) are FAILED
+      else {
+        eventType = 'FAILED';
+      }
+
+      // Store event in Redis with pattern campaign_stats:${campaignId}:${eventType}
+      try {
+        await redis.incr(`campaign_stats:${campaignId}:${eventType}`);
+        await redis.incr(`campaign_stats:${campaignId}:total`);
+        console.log(
+          `📊 Stored ${eventType} event in Redis for campaign ${campaignId}`
+        );
+      } catch (redisError) {
+        console.error(`Error storing ${eventType} event in Redis:`, redisError);
+      }
+
+      await prisma.event.create({
+        data: {
+          type: eventType,
+          data: {
+            email: subscriber.email,
+            messageId: `${campaignId}-${subscriber.id}-${eventType.toLowerCase()}-${Date.now()}`,
+            timestamp: new Date().toISOString(),
+            error: errorMessage,
+            errorType: errorHandlingResult.classified.type,
+            retryAttempts: maxRetries,
+            finalFailure: true,
+          },
+          subscriberId: subscriber.id,
+          campaignId,
+        },
+        include: {
+          subscriber: {
+            select: {
+              email: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      console.log(
+        `📊 Created ${eventType} event for ${subscriber.email} in campaign ${campaignId}`
+      );
+
+      // Check if this campaign might be ready for completion
+      setTimeout(async () => {
+        try {
+          const queueHelpers = await import('./queue-helpers');
+          if (queueHelpers.checkCampaignCompletionByEvents) {
+            await queueHelpers.checkCampaignCompletionByEvents(campaignId);
+          }
+        } catch (error) {
+          console.error(
+            `Error checking campaign completion for ${campaignId}:`,
+            error
+          );
+        }
+      }, 1000);
+    } catch (eventError) {
+      console.error(
+        `Error creating terminal event for ${subscriber.email}:`,
+        eventError
+      );
     }
   }
 

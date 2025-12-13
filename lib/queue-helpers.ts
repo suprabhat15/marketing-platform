@@ -88,7 +88,93 @@ export async function checkCampaignCompletion(campaignId: string) {
   }
 }
 
-export async function markCampaignComplete(campaignId: string) {
+// New function: Check campaign completion based on terminal events
+export async function checkCampaignCompletionByEvents(campaignId: string) {
+  try {
+    // Get campaign data and total recipients
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { 
+        status: true, 
+        subscriberIds: true,
+        list: {
+          select: {
+            subscribers: {
+              where: { status: 'ACTIVE' },
+              select: { id: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!campaign || campaign.status === 'COMPLETED' || campaign.status === 'SENT' || campaign.status === 'FAILED') {
+      console.log(`Campaign ${campaignId} already complete or not found, skipping completion check`);
+      return;
+    }
+
+    // Get total active subscribers for this campaign
+    const subscriberIds = Array.isArray(campaign.subscriberIds) 
+      ? campaign.subscriberIds as string[]
+      : JSON.parse(campaign.subscriberIds as string);
+    
+    const totalRecipients = subscriberIds.length;
+
+    if (totalRecipients === 0) {
+      console.log(`Campaign ${campaignId} has no recipients, marking as complete`);
+      await markCampaignComplete(campaignId, 'COMPLETED');
+      return;
+    }
+
+    // Get SENT count from Redis (successful events only tracked in Redis)
+    const sentCount = await redis.get(`campaign_stats:${campaignId}:SENT`) || '0';
+    
+    // Count terminal failure events from database: BOUNCED, COMPLAINED, FAILED, SUPPRESSED
+    const terminalEventCounts = await prisma.event.groupBy({
+      by: ['type'],
+      where: {
+        campaignId: campaignId,
+        type: { in: ['BOUNCED', 'COMPLAINED', 'FAILED', 'SUPPRESSED'] }
+      },
+      _count: {
+        type: true
+      }
+    });
+
+    const eventCounts = terminalEventCounts.reduce((acc, stat) => {
+      acc[stat.type] = stat._count.type;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // Add SENT count from Redis
+    eventCounts.SENT = parseInt(sentCount);
+
+    const totalTerminalEvents = Object.values(eventCounts).reduce((sum, count) => sum + count, 0);
+
+    console.log(`📊 Campaign ${campaignId} terminal events:`, {
+      sent: eventCounts.SENT || 0,
+      bounced: eventCounts.BOUNCED || 0,
+      complained: eventCounts.COMPLAINED || 0,
+      failed: eventCounts.FAILED || 0,
+      suppressed: eventCounts.SUPPRESSED || 0,
+      total: totalTerminalEvents,
+      recipients: totalRecipients
+    });
+
+    // Check if all recipients have reached terminal state
+    if (totalTerminalEvents >= totalRecipients) {
+      console.log(`✅ Campaign ${campaignId} all recipients processed: ${totalTerminalEvents}/${totalRecipients} - marking as COMPLETED`);
+      await markCampaignComplete(campaignId, 'COMPLETED');
+    } else {
+      console.log(`📊 Campaign ${campaignId} still processing: ${totalTerminalEvents}/${totalRecipients} terminal events`);
+    }
+
+  } catch (error) {
+    console.error(`Error checking campaign completion by events for ${campaignId}:`, error);
+  }
+}
+
+export async function markCampaignComplete(campaignId: string, status: 'SENT' | 'COMPLETED' = 'SENT') {
   try {
     // Get campaign data first to get userId for SQS polling
     const campaign = await prisma.campaign.findUnique({
@@ -96,7 +182,7 @@ export async function markCampaignComplete(campaignId: string) {
       select: { userId: true, status: true }
     });
 
-    if (!campaign || campaign.status === 'SENT') {
+    if (!campaign || campaign.status === 'SENT' || campaign.status === 'COMPLETED') {
       console.log(`Campaign ${campaignId} already complete or not found`);
       return;
     }
@@ -107,11 +193,14 @@ export async function markCampaignComplete(campaignId: string) {
         id: campaignId,
         status: { in: ['SENDING', 'QUEUED'] } // Only update if not already complete
       },
-      data: { status: 'SENT', sentAt: new Date() }
+      data: { 
+        status: status,
+        sentAt: new Date() 
+      }
     });
     
     if (updatedCampaign.count > 0) {
-      console.log(`🎉 Campaign ${campaignId} marked as SENT`);
+      console.log(`🎉 Campaign ${campaignId} marked as ${status}`);
       
       // Broadcast campaign completion via SSE for real-time UI updates
       try {

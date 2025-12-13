@@ -75,6 +75,8 @@ export async function GET(
         clicked: eventCounts.clicked || 0,
         bounced: eventCounts.bounced || 0,
         complained: eventCounts.complained || 0,
+        failed: eventCounts.failed || 0,
+        suppressed: eventCounts.suppressed || 0,
         unsubscribed: eventCounts.unsubscribed || 0,
       }
     });
