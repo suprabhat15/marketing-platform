@@ -13,10 +13,7 @@
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
-    "db:migrate:deploy": "prisma migrate deploy",
-    "queue:worker": "tsx scripts/queue-worker.js",
-    "queue:dev": "nodemon --exec \"tsx scripts/queue-worker.js\"",
-    "queue:manual": "echo 'Note: Queue worker now starts automatically when campaigns are queued. Use npm run queue:worker for manual/development mode.'"
+    "db:migrate:deploy": "prisma migrate deploy"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -66,7 +63,7 @@
     "dotenv": "^17.2.2",
     "ioredis": "^5.7.0",
     "lucide-react": "^0.518.0",
-    "next": "^15.4.8",
+    "next": "15.4.10",
     "react": "^19.2.1",
     "react-dom": "^19.2.1",
     "react-hook-form": "^7.62.0",
