@@ -170,12 +170,6 @@ export class BatchEmailProcessor {
         `📊 Retrieved ${subscribers.length} active subscribers for batch ${batchNumber} of campaign ${campaignId}`
       );
 
-      // if (subscribers.length === 0) {
-      //   console.log(`⚠️ No active subscribers found for batch ${batchNumber}`);
-      //   await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
-      //   return;
-      // }
-
       // Process subscribers in memory-efficient chunks to avoid Promise array buildup
       const CHUNK_SIZE = 10; // Process 10 emails at a time to limit memory usage
       const semaphore = new Semaphore(this.concurrency);
@@ -218,9 +212,6 @@ export class BatchEmailProcessor {
         }
       }
 
-      // Mark batch as completed
-      // await CampaignProgressTracker.completeBatch(campaignId, batchNumber);
-
       console.log(
         `✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`
       );
@@ -230,8 +221,6 @@ export class BatchEmailProcessor {
         error
       );
 
-      // Mark failed emails
-      // await CampaignProgressTracker.incrementFailed(campaignId, subscriberIds.length);
       throw error;
     }
   }
