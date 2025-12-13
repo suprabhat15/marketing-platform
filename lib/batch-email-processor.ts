@@ -215,6 +215,21 @@ export class BatchEmailProcessor {
       console.log(
         `✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`
       );
+
+      // Check campaign completion after batch processing (more efficient than per-email checks)
+      setTimeout(async () => {
+        try {
+          const queueHelpers = await import('./queue-helpers');
+          if (queueHelpers.checkCampaignCompletionByBatch) {
+            await queueHelpers.checkCampaignCompletionByBatch(campaignId);
+          }
+        } catch (error) {
+          console.error(
+            `Error checking campaign completion for ${campaignId}:`,
+            error
+          );
+        }
+      }, 1000);
     } catch (error) {
       console.error(
         `❌ Error processing batch ${batchNumber} for campaign ${campaignId}:`,
@@ -467,20 +482,6 @@ export class BatchEmailProcessor {
       console.log(`Email ${subscriber.email} already counted, skipping duplicate`);
     }
 
-    // Check if this campaign might be ready for completion
-    setTimeout(async () => {
-      try {
-        const queueHelpers = await import('./queue-helpers');
-        if (queueHelpers.checkCampaignCompletionByEvents) {
-          await queueHelpers.checkCampaignCompletionByEvents(campaignId);
-        }
-      } catch (error) {
-        console.error(
-          `Error checking campaign completion for ${campaignId}:`,
-          error
-        );
-      }
-    }, 1000);
 
     // SENT events are created by SES webhooks, not here to avoid duplicates
     console.log(
@@ -694,24 +695,20 @@ export class BatchEmailProcessor {
         },
       });
 
+      // Only track FAILED events in Redis from code side
+      // Other terminal events (SENT, BOUNCED, COMPLAINED, SUPPRESSED) come from external sources like SES webhooks
+      if (eventType === 'FAILED') {
+        try {
+          await redis.incr(`campaign_stats:${campaignId}:${eventType}`);
+          console.log(`📊 Incremented ${eventType} counter for campaign ${campaignId}`);
+        } catch (redisError) {
+          console.error(`Error incrementing ${eventType} counter:`, redisError);
+        }
+      }
+
       console.log(
         `📊 Created ${eventType} event for ${subscriber.email} in campaign ${campaignId}`
       );
-
-      // Check if this campaign might be ready for completion
-      setTimeout(async () => {
-        try {
-          const queueHelpers = await import('./queue-helpers');
-          if (queueHelpers.checkCampaignCompletionByEvents) {
-            await queueHelpers.checkCampaignCompletionByEvents(campaignId);
-          }
-        } catch (error) {
-          console.error(
-            `Error checking campaign completion for ${campaignId}:`,
-            error
-          );
-        }
-      }, 1000);
     } catch (eventError) {
       console.error(
         `Error creating terminal event for ${subscriber.email}:`,
