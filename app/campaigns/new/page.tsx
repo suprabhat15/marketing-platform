@@ -9,8 +9,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ArrowLeft, Send, Clock, Users } from "lucide-react";
+import { ArrowLeft, Send, Clock, Users, X } from "lucide-react";
 import SendNowFlyout from '@/components/campaigns/send-now-flyout';
+import dynamic from 'next/dynamic';
+
+const TiptapEditor = dynamic(() => import('@/components/email-editor/tiptap-editor'), {
+  ssr: false,
+});
 
 interface Template {
   id: string;
@@ -232,21 +237,42 @@ export default function NewCampaignPage() {
 
             <div>
               <Label htmlFor="template-select">Email Template</Label>
-              <Select
-                value={selectedTemplate}
-                onValueChange={handleTemplateSelect}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a template (optional)" />
-                </SelectTrigger>
-                <SelectContent>
-                  {templates.map((template) => (
-                    <SelectItem key={template.id} value={template.id}>
-                      {template.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex gap-2">
+                <Select
+                  value={selectedTemplate}
+                  onValueChange={handleTemplateSelect}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a template (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {templates.map((template) => (
+                      <SelectItem key={template.id} value={template.id}>
+                        {template.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedTemplate && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setSelectedTemplate('');
+                      setSubject('');
+                      setContent('');
+                    }}
+                    className="px-3"
+                  >
+                    <X className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+              {selectedTemplate && (
+                <p className="text-xs text-green-600 mt-1">
+                  ✓ Template content loaded in editor below
+                </p>
+              )}
             </div>
 
             <div>
@@ -261,13 +287,13 @@ export default function NewCampaignPage() {
 
             <div>
               <Label htmlFor="content">Email Content *</Label>
-              <Textarea
-                id="content"
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                placeholder="Enter email content"
-                rows={8}
-              />
+              <div className="border rounded-md">
+                <TiptapEditor
+                  content={content}
+                  onChange={setContent}
+                  placeholder={selectedTemplate ? "Edit your template content here..." : "Create your email content here..."}
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">

@@ -221,7 +221,8 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
             <div>
               <CardTitle className="text-xl">{subscription.product.name}</CardTitle>
               <CardDescription>
-                {formatAmount()}/{subscription.price.recurring?.interval || 'month'}
+                {formatAmount()} /{' '}
+                {subscription.price.recurring?.interval || 'month'}
               </CardDescription>
             </div>
           </div>
@@ -231,18 +232,27 @@ export function SubscriptionCard({ subscription, onUpdate }: SubscriptionCardPro
       
       <CardContent className="space-y-4">
         {/* Subscription Details */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-          <div>
+        <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+          {/* <div>
             <span className="font-medium text-muted-foreground">Subscription ID:</span>
             <p className="font-mono text-xs">{subscription.id}</p>
+          </div> */}
+          <div>
+            <span className="text-muted-foreground font-medium">
+              Billing Cycle:
+            </span>
+            <p className="capitalize">
+              {subscription.price.recurring?.interval || 'month'}ly
+            </p>
           </div>
           <div>
-            <span className="font-medium text-muted-foreground">Billing Cycle:</span>
-            <p className="capitalize">{subscription.price.recurring?.interval || 'month'}ly</p>
-          </div>
-          <div>
-            <span className="font-medium text-muted-foreground">Current Period:</span>
-            <p>{new Date(subscription.currentPeriodStart).toLocaleDateString()} - {new Date(subscription.currentPeriodEnd).toLocaleDateString()}</p>
+            <span className="text-muted-foreground font-medium">
+              Current Period:
+            </span>
+            <p>
+              {new Date(subscription.currentPeriodStart).toLocaleDateString()} -{' '}
+              {new Date(subscription.currentPeriodEnd).toLocaleDateString()}
+            </p>
           </div>
           <div>
             <span className="font-medium text-muted-foreground">Amount:</span>

@@ -14,6 +14,85 @@ const nextConfig: NextConfig = {
     ],
   },
   webpack: (config, { buildId, dev, isServer, defaultLoaders, webpack }) => {
+    // Handle Node.js built-in modules with node: prefix
+    // This alias converts node:module to module, etc.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      'node:module': 'module',
+      'node:crypto': 'crypto',
+      'node:fs': 'fs',
+      'node:path': 'path',
+      'node:url': 'url',
+      'node:util': 'util',
+      'node:stream': 'stream',
+      'node:buffer': 'buffer',
+      'node:process': 'process',
+    };
+
+    // For client-side builds, prevent bundling of Node.js built-ins
+    if (!isServer) {
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        'module': false,
+        'fs': false,
+        'path': false,
+        'crypto': false,
+        'stream': false,
+        'buffer': false,
+        'util': false,
+        'url': false,
+        'process': false,
+      };
+    }
+
+    // For server builds, mark node: prefixed modules as externals
+    if (isServer) {
+      const nodeModules = [
+        'node:module',
+        'node:crypto',
+        'node:fs',
+        'node:path',
+        'node:url',
+        'node:util',
+        'node:stream',
+        'node:buffer',
+        'node:process',
+      ];
+
+      const originalExternals = config.externals;
+      config.externals = [
+        ...(Array.isArray(originalExternals) ? originalExternals : [originalExternals]),
+        (
+          { context, request }: { context: string; request: string },
+          callback: (err?: Error | null, result?: string) => void
+        ) => {
+          if (nodeModules.includes(request)) {
+            const moduleName = request.replace(/^node:/, '');
+            return callback(null, `commonjs ${moduleName}`);
+          }
+          if (typeof originalExternals === 'function') {
+            return (originalExternals as (
+              { context, request }: { context: string; request: string },
+              callback: (err?: Error | null, result?: string) => void
+            ) => void)({ context, request }, callback);
+          }
+          callback();
+        },
+      ];
+    }
+
+    // Use NormalModuleReplacementPlugin to handle node: URI scheme in imports
+    // This converts node:module imports to module imports before webpack processes them
+    config.plugins.push(
+      new webpack.NormalModuleReplacementPlugin(
+        /^(node:)(.+)$/,
+        (resource: { request: string }) => {
+          // Remove node: prefix, webpack will use the alias to resolve it
+          resource.request = resource.request.replace(/^node:/, '');
+        }
+      )
+    );
+
     // API route optimization
     if (isServer && !dev) {
       // Optimize server-side chunks for faster API compilation

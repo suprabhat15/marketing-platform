@@ -256,7 +256,7 @@ async function handleOrderCreated(data: any) {
         status: data.status?.toUpperCase() || 'PENDING',
         productId: data.product?.id,
         amount: calculatedAmount,
-        currency: data.subscription.currency?.toUpperCase() || 'USD',
+        currency: data.subscription?.currency?.toUpperCase() || 'USD',
         credits: totalCredits,
         userId: userId,
       },

@@ -123,8 +123,10 @@ export function TiptapEditor({
   }, [editor, linkUrl]);
 
 
+  // Removed heavy image compression function that was causing performance issues
+
   const handleImageUpload = useCallback(
-    (event: React.ChangeEvent<HTMLInputElement>) => {
+    async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file || !editor) return;
 
@@ -134,15 +136,23 @@ export function TiptapEditor({
         return;
       }
 
-      // Convert to base64
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const base64 = e.target?.result as string;
-
-        // Insert image into editor
-        editor.chain().focus().setImage({ src: base64, alt: file.name }).run();
-      };
-      reader.readAsDataURL(file);
+      try {
+        // For now, use simple base64 conversion to avoid performance issues
+        // TODO: Add image compression in a web worker later
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const base64 = e.target?.result as string;
+          editor.chain().focus().setImage({ src: base64, alt: file.name }).run();
+        };
+        reader.readAsDataURL(file);
+        
+      } catch (error) {
+        console.error('Error compressing image:', error);
+        alert('Error processing image. Please try again.');
+      }
+      
+      // Reset file input
+      event.target.value = '';
     },
     [editor]
   );
@@ -368,3 +378,5 @@ export function TiptapEditor({
     </div>
   );
 }
+
+export default TiptapEditor;

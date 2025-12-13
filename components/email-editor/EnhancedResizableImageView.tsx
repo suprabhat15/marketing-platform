@@ -25,6 +25,7 @@ export default function EnhancedResizableImageView({
   const startY = useRef(0);
   const startWidth = useRef(0);
   const startHeight = useRef(0);
+  const lastUpdateTime = useRef(0);
 
   // Current attributes with defaults
   const width = (node.attrs.width as string) || 'auto';
@@ -64,13 +65,18 @@ export default function EnhancedResizableImageView({
       }
     }
 
-    try {
-      updateAttributes({ 
-        width: `${Math.round(newWidth)}px`, 
-        height: `${Math.round(newHeight)}px` 
-      });
-    } catch (err) {
-      // Ignore transient errors
+    // Throttle updates to improve performance (max 60fps)
+    const now = Date.now();
+    if (now - lastUpdateTime.current > 16) {
+      lastUpdateTime.current = now;
+      try {
+        updateAttributes({ 
+          width: `${Math.round(newWidth)}px`, 
+          height: `${Math.round(newHeight)}px` 
+        });
+      } catch (err) {
+        // Ignore transient errors
+      }
     }
   };
 
