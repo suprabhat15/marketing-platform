@@ -4,7 +4,7 @@ import { CheckoutButton } from '@/components/payments/checkout-button';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const isSandbox = process.env.IS_SANDBOX === 'true';
+const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
 
 const creditOptions = [
   {
@@ -24,6 +24,15 @@ const creditOptions = [
     slug: 'Credits-20000',
   },
 ];
+
+// Validate that all product IDs are configured
+creditOptions.forEach((option) => {
+  if (!option.productId) {
+    throw new Error(
+      `Missing product ID configuration for ${option.credits} credits`
+    );
+  }
+});
 
 export default function PricingPage() {
   const [selectedCredits, setSelectedCredits] = useState<number>(10000);

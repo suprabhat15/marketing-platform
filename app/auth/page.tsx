@@ -7,8 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Mail, Eye, EyeOff, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
+import { Mail, Eye, EyeOff } from 'lucide-react';
 
 // Import auth functions
 import { signIn, signUp } from '@/lib/auth-client';
