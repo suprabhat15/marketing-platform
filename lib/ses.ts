@@ -87,11 +87,6 @@ export async function sendEmail({
   success: boolean;
   error?: { code: string; message: string };
 }> {
-  // Add timeout wrapper
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('SES request timeout')), 25000); // 25 second timeout
-  });
-
   // Get the recipient email for tracking
   const recipientEmail = to[0]; // Assuming single recipient per call
 
@@ -109,19 +104,19 @@ export async function sendEmail({
   }
 
   // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
-  const trackingData = campaignId
-    ? Buffer.from(
-        JSON.stringify({
-          email: recipientEmail,
-          campaignId,
-          messageId: messageId || Date.now().toString(),
-        })
-      ).toString('base64')
-    : '';
+  // const trackingData = campaignId
+  //   ? Buffer.from(
+  //       JSON.stringify({
+  //         email: recipientEmail,
+  //         campaignId,
+  //         messageId: messageId || Date.now().toString(),
+  //       })
+  //     ).toString('base64')
+  //   : '';
 
-  const trackingPixel = campaignId
-    ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
-    : '';
+  // const trackingPixel = campaignId
+  //   ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
+  //   : '';
 
   // Process HTML to add click tracking
   let processedHtml = campaignId
@@ -137,12 +132,12 @@ export async function sendEmail({
   }
 
   // Add tracking pixel before closing body tag
-  if (trackingPixel) {
-    processedHtml = processedHtml.replace(
-      '</body>',
-      `  ${trackingPixel}\n</body>`
-    );
-  }
+  // if (trackingPixel) {
+  //   processedHtml = processedHtml.replace(
+  //     '</body>',
+  //     `  ${trackingPixel}\n</body>`
+  //   );
+  // }
 
   // Use the original subject without campaign metadata (tracking is done via SES tags)
   const trackedSubject = subject;
@@ -186,25 +181,11 @@ export async function sendEmail({
   });
 
   try {
-    // Race between SES call and timeout
-    const result = await Promise.race([
-      sesClient.send(command),
-      timeoutPromise,
-    ]);
+    // Send email via SES
+    const result = await sesClient.send(command);
 
     return { success: true };
   } catch (error: any) {
-    // Handle timeout specifically
-    if (error.message === 'SES request timeout') {
-      return {
-        success: false,
-        error: {
-          code: 'TimeoutError',
-          message: 'SES request timed out after 25 seconds',
-        },
-      };
-    }
-
     // Return structured error instead of throwing
     return {
       success: false,

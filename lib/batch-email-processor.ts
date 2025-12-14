@@ -53,7 +53,7 @@ export class BatchEmailProcessor {
   private readonly maxRetries: number = 3; // Add explicit max retries
   private readonly timeoutMs: number = 30000; // 30 second timeout per email
 
-  constructor(concurrency: number = 5, batchDelayMs: number = 500) {
+  constructor(concurrency: number = 2, batchDelayMs: number = 1000) {
     this.concurrency = concurrency;
     this.batchDelayMs = batchDelayMs;
   }
@@ -171,7 +171,7 @@ export class BatchEmailProcessor {
       );
 
       // Process subscribers in memory-efficient chunks to avoid Promise array buildup
-      const CHUNK_SIZE = 10; // Process 10 emails at a time to limit memory usage
+      const CHUNK_SIZE = 5; // Reduced chunk size to be more conservative with rate limits
       const semaphore = new Semaphore(this.concurrency);
 
       for (let i = 0; i < subscribers.length; i += CHUNK_SIZE) {
@@ -206,9 +206,9 @@ export class BatchEmailProcessor {
         // Wait for this chunk to complete before starting the next
         await Promise.allSettled(chunkPromises);
 
-        // Small delay between chunks to allow GC and reduce memory pressure
+        // Longer delay between chunks to reduce rate limit pressure and allow system recovery
         if (i + CHUNK_SIZE < subscribers.length) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased from 100ms to 2s
         }
       }
 
@@ -280,15 +280,15 @@ export class BatchEmailProcessor {
       await redis.del(lockKey);
       return;
     }
-    
+
     console.log(
       `🚀 Starting email send process for ${subscriber.email} in campaign ${campaignId}`
     );
-    
+
     let lastError: Error | null = null;
     // Use consistent messageId across all attempts
     const baseMessageId = `${campaignId}-${subscriber.id}-${Date.now()}`;
-  
+
     for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
       const messageId = `${baseMessageId}-attempt${attempt}`;
 
@@ -360,10 +360,15 @@ export class BatchEmailProcessor {
         // Exponential backoff with error-specific adjustments
         let backoffDelay = Math.min(1000 * Math.pow(2, attempt - 1), 10000);
         if (
-          lastError.message.includes('rate limit') ||
-          lastError.message.includes('throttle')
+          lastError.message.includes('rate_limit') ||
+          lastError.message.includes('throttle') ||
+          lastError.message.includes('Maximum sending rate exceeded')
         ) {
-          backoffDelay = Math.min(2000 * Math.pow(2, attempt - 1), 20000);
+          // Much longer backoff for rate limit errors
+          backoffDelay = Math.min(10000 * Math.pow(2, attempt - 1), 60000);
+          console.warn(
+            `🚫 Rate limit detected, backing off for ${backoffDelay}ms`
+          );
         } else if (
           lastError.message.includes('network') ||
           lastError.message.includes('timeout')
@@ -472,13 +477,20 @@ export class BatchEmailProcessor {
 
     // Mark email as successfully sent to prevent duplicates
     const sentKey = `sent:${campaignId}:${subscriber.id}`;
-    
-    const wasAlreadyCounted = await redis.set(sentKey, messageId, 'EX', 2 * 24 * 60 * 60, 'NX');
+
+    const wasAlreadyCounted = await redis.set(
+      sentKey,
+      messageId,
+      'EX',
+      2 * 24 * 60 * 60,
+      'NX'
+    );
 
     if (wasAlreadyCounted !== 'OK') {
-      console.log(`Email ${subscriber.email} already counted, skipping duplicate`);
+      console.log(
+        `Email ${subscriber.email} already counted, skipping duplicate`
+      );
     }
-
 
     // SENT events are created by SES webhooks, not here to avoid duplicates
     console.log(
@@ -578,11 +590,11 @@ export class BatchEmailProcessor {
       campaignId,
       subscriber.id
     );
-    
+
     console.log(`🔍 Final failure classification for ${subscriber.email}:`, {
       errorType: errorHandlingResult.classified.type,
       shouldSuppress: errorHandlingResult.classified.shouldSuppress,
-      suppressionAdded: errorHandlingResult.suppressionAdded
+      suppressionAdded: errorHandlingResult.suppressionAdded,
     });
 
     // Store in Redis for DLQ tracking with classification
@@ -603,7 +615,10 @@ export class BatchEmailProcessor {
     });
 
     // Only add to DLQ if it's retryable
-    if (errorHandlingResult.shouldRetry && !errorHandlingResult.suppressionAdded) {
+    if (
+      errorHandlingResult.shouldRetry &&
+      !errorHandlingResult.suppressionAdded
+    ) {
       try {
         await dlqQueue.add(
           'failed-email',
@@ -697,7 +712,9 @@ export class BatchEmailProcessor {
       if (eventType === 'FAILED') {
         try {
           await redis.incr(`campaign_stats:${campaignId}:${eventType}`);
-          console.log(`📊 Incremented ${eventType} counter for campaign ${campaignId}`);
+          console.log(
+            `📊 Incremented ${eventType} counter for campaign ${campaignId}`
+          );
         } catch (redisError) {
           console.error(`Error incrementing ${eventType} counter:`, redisError);
         }

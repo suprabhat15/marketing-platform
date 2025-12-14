@@ -193,16 +193,26 @@ export class SESQuotaManager {
     const availableRate = quotaInfo.maxSendRate;
     
     // Simple allocation based on email type
+    let allocatedRate: number;
     switch (emailType) {
       case 'transactional':
-        return Math.max(1, Math.ceil(availableRate * 0.3));
+        allocatedRate = Math.max(1, Math.ceil(availableRate * 0.3));
+        break;
       case 'marketing':
-        return Math.max(1, Math.ceil(availableRate * 0.6));
+        // Use 30% to be very conservative and account for AWS rate enforcement variations
+        allocatedRate = Math.max(1, Math.floor(availableRate * 0.3));
+        break;
       case 'system':
-        return Math.max(1, Math.ceil(availableRate * 0.1));
+        allocatedRate = Math.max(1, Math.ceil(availableRate * 0.1));
+        break;
       default:
-        return Math.max(1, Math.ceil(availableRate * 0.6));
+        allocatedRate = Math.max(1, Math.ceil(availableRate * 0.6));
     }
+    
+    console.log(
+      `📊 Rate limit for ${emailType}: ${allocatedRate}/sec (AWS max: ${availableRate}/sec)`
+    );
+    return allocatedRate;
   }
 
   /**
