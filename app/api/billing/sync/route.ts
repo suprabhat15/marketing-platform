@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
 
       // Cache the result in Redis (fail silently if Redis is down)
       const syncResults = await Promise.all(
-        userSubscriptions.map(async (subscription) => {
+        userSubscriptions.map(async (subscription: any) => {
           try {
             const synced = await syncSubscriptionFromPolar(
               subscription.polarSubscriptionId
@@ -231,7 +231,7 @@ export async function GET(request: NextRequest) {
       lastSyncAt:
         subscriptions.length > 0
           ? subscriptions.reduce(
-              (latest, sub) =>
+              (latest: any, sub: any) =>
                 !latest || sub.updatedAt > latest ? sub.updatedAt : latest,
               null as Date | null
             )

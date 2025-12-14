@@ -1,6 +1,6 @@
 import { CreditService } from './credit-service';
 import { prisma } from './prisma';
-import { EventType } from '@prisma/client';
+import type { EventType } from '@prisma/client';
 import { trackEmailCreditUsage, checkCreditAvailability } from './polar';
 
 export class EmailService {

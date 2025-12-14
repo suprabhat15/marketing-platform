@@ -1,4 +1,4 @@
-import { EventType } from '@prisma/client';
+import type { EventType } from '@prisma/client';
 
 // Credit deduction service for email events
 export class CreditService {

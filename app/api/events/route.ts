@@ -3,7 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { CreditService } from '@/lib/credit-service';
 import { z } from 'zod';
-import { EventType } from '@prisma/client';
+import type { EventType } from '@prisma/client';
 import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
 
 // Event schema - terminal events (FAILED, BOUNCED, COMPLAINED, SUPPRESSED) are stored in the Event table

@@ -4,7 +4,7 @@ import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
 import { dlqQueue } from './queue';
-import { EventType } from '@prisma/client';
+import type { EventType } from '@prisma/client';
 
 export interface BatchEmailData {
   campaignId: string;
