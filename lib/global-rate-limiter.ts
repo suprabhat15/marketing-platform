@@ -99,9 +99,9 @@ export class EnhancedRateLimiter {
       await redis.zadd(key, now, requestId);
       await redis.expire(key, Math.ceil(this.windowMs / 1000) + 1);
 
-      // Calculate even spacing hint for optimal throughput
+      // Calculate conservative spacing hint with minimum delay
       const nextRequestDelay =
-        limit > 0 ? Math.floor(this.windowMs / limit) : 200;
+        limit > 0 ? Math.max(500, Math.floor(this.windowMs / limit)) : 500;
 
       const quotaInfo = await sesQuotaManager.getQuotaInfo();
 
