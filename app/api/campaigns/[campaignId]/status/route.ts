@@ -54,7 +54,7 @@ export async function GET(
       }
     });
 
-    const eventCounts = eventStats.reduce((acc, stat) => {
+    const eventCounts = eventStats.reduce((acc: Record<string, number>, stat: any) => {
       acc[stat.type.toLowerCase()] = stat._count.type;
       return acc;
     }, {} as Record<string, number>);

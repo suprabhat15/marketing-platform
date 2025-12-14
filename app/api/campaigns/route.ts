@@ -44,8 +44,8 @@ export async function GET(request: NextRequest) {
     });
 
     // Group campaigns by name (keeping campaign name unique)
-    const groupedCampaigns = campaigns.reduce((acc, campaign) => {
-      const existingGroup = acc.find(group => group.name === campaign.name);
+    const groupedCampaigns = campaigns.reduce((acc: any[], campaign: any) => {
+      const existingGroup = acc.find((group: any) => group.name === campaign.name);
       
       if (existingGroup) {
         // Merge events from campaigns with same name
@@ -76,7 +76,7 @@ export async function GET(request: NextRequest) {
           totalEvents: campaign._count.events,
           campaignIds: [campaign.id],
           // Group event counts by type for easy access
-          eventsByType: campaign.events.reduce((eventAcc, event) => {
+          eventsByType: campaign.events.reduce((eventAcc: Record<string, number>, event: any) => {
             eventAcc[event.type] = (eventAcc[event.type] || 0) + 1;
             return eventAcc;
           }, {} as Record<string, number>),
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     }>);
 
     // Recalculate eventsByType for merged campaigns
-    groupedCampaigns.forEach(group => {
+    groupedCampaigns.forEach((group: any) => {
       group.eventsByType = group.events.reduce((eventAcc: Record<string, number>, event: any) => {
         eventAcc[event.type] = (eventAcc[event.type] || 0) + 1;
         return eventAcc;
@@ -112,17 +112,17 @@ export async function GET(request: NextRequest) {
     });
 
     // Sort by latest activity
-    groupedCampaigns.sort((a, b) => 
+    groupedCampaigns.sort((a: any, b: any) => 
       new Date(b.latestCreatedAt).getTime() - new Date(a.latestCreatedAt).getTime()
     );
 
     // Calculate overall stats
     const stats = {
       total: groupedCampaigns.length,
-      sent: groupedCampaigns.filter(c => c.latestStatus === 'SENT').length,
-      scheduled: groupedCampaigns.filter(c => c.latestStatus === 'SCHEDULED').length,
-      draft: groupedCampaigns.filter(c => c.latestStatus === 'DRAFT').length,
-      totalEvents: groupedCampaigns.reduce((sum, c) => sum + c.totalEvents, 0),
+      sent: groupedCampaigns.filter((c: any) => c.latestStatus === 'SENT').length,
+      scheduled: groupedCampaigns.filter((c: any) => c.latestStatus === 'SCHEDULED').length,
+      draft: groupedCampaigns.filter((c: any) => c.latestStatus === 'DRAFT').length,
+      totalEvents: groupedCampaigns.reduce((sum: number, c: any) => sum + c.totalEvents, 0),
     };
 
     // Available event types for frontend filtering

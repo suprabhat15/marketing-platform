@@ -103,7 +103,7 @@ export async function GET(request: NextRequest) {
       });
 
       // Transform subscriptions to match SubscriptionCard interface
-      const transformedSubscriptions = subscriptions.map(sub => ({
+      const transformedSubscriptions = subscriptions.map((sub: any) => ({
         id: sub.polarSubscriptionId,
         status: sub.status.toLowerCase() as 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete',
         product: {
