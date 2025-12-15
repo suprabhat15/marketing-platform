@@ -98,8 +98,31 @@ model Campaign {
   replyTo String?
 
   events     Event[]
+  stats      CampaignStats?
   
   @@map("campaign")
+}
+
+model CampaignStats {
+  id          String   @id @default(cuid())
+  campaignId  String   @unique
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  sent        Int      @default(0)
+  delivered   Int      @default(0)
+  opened      Int      @default(0)
+  clicked     Int      @default(0)
+  bounced     Int      @default(0)
+  complained  Int      @default(0)
+  failed      Int      @default(0)
+  suppressed  Int      @default(0)
+  unsubscribed Int     @default(0)
+  
+  totalEvents Int      @default(0)
+  lastSyncAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("campaign_stats")
 }
 
 model Template {
