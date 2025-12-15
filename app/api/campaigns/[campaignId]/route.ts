@@ -54,28 +54,65 @@ export async function GET(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    // Get aggregated event stats from Redis
-    const campaignKeys = await redis.keys(`campaign_stats:${campaignId}:*`);
-    const eventsByType: Record<string, number> = {};
-    
-    if (campaignKeys.length > 0) {
-      const values = await redis.mget(...campaignKeys);
-      campaignKeys.forEach((key, index) => {
-        const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
-        if (eventType !== 'total') { // Exclude total from eventsByType
-          eventsByType[eventType] = parseInt(values[index] || '0');
-        }
-      });
-    }
+    // Get aggregated event stats from database (with Redis fallback)
+    let eventsByType: Record<string, number> = {};
+    let totalEvents = 0;
 
-    // Get total events from Redis
-    const totalEvents = await redis.get(`campaign_stats:${campaignId}:total`);
+    // Try to get stats from database first
+    const campaignStats = await prisma.campaignStats.findUnique({
+      where: { campaignId },
+      select: {
+        sent: true,
+        delivered: true,
+        opened: true,
+        clicked: true,
+        bounced: true,
+        complained: true,
+        failed: true,
+        suppressed: true,
+        unsubscribed: true,
+        totalEvents: true,
+        lastSyncAt: true,
+      }
+    });
+
+    if (campaignStats) {
+      // Use database stats
+      eventsByType = {
+        SENT: campaignStats.sent,
+        DELIVERED: campaignStats.delivered,
+        OPENED: campaignStats.opened,
+        CLICKED: campaignStats.clicked,
+        BOUNCED: campaignStats.bounced,
+        COMPLAINED: campaignStats.complained,
+        FAILED: campaignStats.failed,
+        SUPPRESSED: campaignStats.suppressed,
+        UNSUBSCRIBED: campaignStats.unsubscribed,
+      };
+      totalEvents = campaignStats.totalEvents;
+    } else {
+      // Fallback to Redis if no database stats
+      const campaignKeys = await redis.keys(`campaign_stats:${campaignId}:*`);
+      
+      if (campaignKeys.length > 0) {
+        const values = await redis.mget(...campaignKeys);
+        campaignKeys.forEach((key, index) => {
+          const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
+          if (eventType !== 'total') {
+            eventsByType[eventType] = parseInt(values[index] || '0');
+          }
+        });
+        
+        // Calculate total from Redis stats
+        totalEvents = Object.values(eventsByType).reduce((sum, count) => sum + count, 0);
+      }
+    }
 
     return NextResponse.json({ 
       campaign: {
         ...campaign,
         eventsByType,
-        totalEvents: parseInt(totalEvents || '0'),
+        totalEvents,
         subscriberCount: campaign.list._count.subscribers
       }
     });
