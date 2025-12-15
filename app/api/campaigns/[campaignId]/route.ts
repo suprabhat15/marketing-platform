@@ -92,14 +92,28 @@ export async function GET(
       totalEvents = campaignStats.totalEvents;
     } else {
       // Fallback to Redis if no database stats
-      const campaignKeys = await redis.keys(`campaign_stats:${campaignId}:*`);
-      
+      const campaignKeys: string[] = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await redis.scan(
+          cursor,
+          'MATCH',
+          `campaign_stats:${campaignId}:*`,
+          'COUNT',
+          500
+        );
+        cursor = nextCursor;
+        campaignKeys.push(...batch);
+      } while (cursor !== '0');
+
       if (campaignKeys.length > 0) {
         const values = await redis.mget(...campaignKeys);
         campaignKeys.forEach((key, index) => {
           const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
           if (eventType !== 'total') {
-            eventsByType[eventType] = parseInt(values[index] || '0');
+            eventsByType[eventType.toUpperCase()] = parseInt(
+              values[index] || '0'
+            );
           }
         });
         
