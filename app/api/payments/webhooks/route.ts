@@ -13,6 +13,7 @@ import {
 
 // Import centralized credit pricing from polar.ts
 // All credit and pricing mappings are now centralized in @/lib/polar
+const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
 
 export async function POST(request: NextRequest) {
   try {
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
       'webhook-signature': request.headers.get('webhook-signature') ?? '',
     };
 
-    const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
+    const webhookSecret = isSandbox
+      ? process.env.POLAR_WEBHOOK_SECRET_SANDBOX
+      : process.env.POLAR_WEBHOOK_SECRET;
+    
     if (!webhookSecret) {
       console.error('POLAR_WEBHOOK_SECRET environment variable not set');
       return NextResponse.json(
