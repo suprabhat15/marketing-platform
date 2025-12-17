@@ -25,23 +25,6 @@ function wrapInFullHtml(content: string, isHtml: boolean = false): string {
 </html>`;
 }
 
-// Function to add click tracking to HTML content
-function addClickTracking(html: string, campaignId: string, messageId?: string): string {
-  // Replace all href attributes with tracking URLs
-  return html.replace(
-    /href\s*=\s*["']([^"']+)["']/gi,
-    (match, url) => {
-      // Skip if it's already a tracking URL or if it's a mailto/tel link
-      if (url.includes('/api/track/click') || url.startsWith('mailto:') || url.startsWith('tel:')) {
-        return match;
-      }
-      
-      const trackingUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/track/click?cid=${campaignId}&url=${encodeURIComponent(url)}&email={{email}}&mid=${messageId || Date.now()}`;
-      return `href="${trackingUrl}"`;
-    }
-  );
-}
-
 export const sesClient = new SESClient({
   region: process.env.AWS_REGION!,
   credentials: {
@@ -103,41 +86,8 @@ export async function sendEmail({
     fullHtml = wrapInFullHtml('', false);
   }
 
-  // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
-  // const trackingData = campaignId
-  //   ? Buffer.from(
-  //       JSON.stringify({
-  //         email: recipientEmail,
-  //         campaignId,
-  //         messageId: messageId || Date.now().toString(),
-  //       })
-  //     ).toString('base64')
-  //   : '';
-
-  // const trackingPixel = campaignId
-  //   ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
-  //   : '';
-
-  // Process HTML to add click tracking
-  let processedHtml = campaignId
-    ? addClickTracking(fullHtml, campaignId, messageId)
-    : fullHtml;
-
-  // Replace {{email}} placeholder in tracking URLs with actual email
-  if (campaignId) {
-    processedHtml = processedHtml.replace(
-      /{{email}}/g,
-      encodeURIComponent(recipientEmail)
-    );
-  }
-
-  // Add tracking pixel before closing body tag
-  // if (trackingPixel) {
-  //   processedHtml = processedHtml.replace(
-  //     '</body>',
-  //     `  ${trackingPixel}\n</body>`
-  //   );
-  // }
+  // Use HTML content directly - AWS SES handles click tracking automatically
+  let processedHtml = fullHtml;
 
   // Use the original subject without campaign metadata (tracking is done via SES tags)
   const trackedSubject = subject;
@@ -233,41 +183,8 @@ export async function sendEmailWithAttachments({
     fullHtml = wrapInFullHtml('', false);
   }
 
-  // Add tracking pixel for open tracking (hide campaignId but include in encrypted payload)
-  // const trackingData = campaignId
-  //   ? Buffer.from(
-  //       JSON.stringify({
-  //         email: recipientEmail,
-  //         campaignId,
-  //         messageId: messageId || Date.now().toString(),
-  //       })
-  //     ).toString('base64')
-  //   : '';
-
-  // const trackingPixel = campaignId
-  //   ? `<img src="${process.env.NEXT_PUBLIC_APP_URL}/api/track/open?t=${trackingData}" width="1" height="1" alt="" style="display:block!important;border:0!important;outline:none!important;" />`
-  //   : '';
-
-  // Process HTML to add click tracking
-  let processedHtml = campaignId
-    ? addClickTracking(fullHtml, campaignId, messageId)
-    : fullHtml;
-
-  // Replace {{email}} placeholder in tracking URLs with actual email
-  if (campaignId) {
-    processedHtml = processedHtml.replace(
-      /{{email}}/g,
-      encodeURIComponent(recipientEmail)
-    );
-  }
-
-  // Add tracking pixel before closing body tag
-  // if (trackingPixel) {
-  //   processedHtml = processedHtml.replace(
-  //     '</body>',
-  //     `  ${trackingPixel}\n</body>`
-  //   );
-  // }
+  // Use HTML content directly - AWS SES handles click tracking automatically
+  let processedHtml = fullHtml;
 
   try {
     let command: SendRawEmailCommand | SendEmailCommand;
