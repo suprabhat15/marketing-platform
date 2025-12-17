@@ -111,11 +111,11 @@ export async function GET(request: NextRequest) {
         status: sub.status.toLowerCase() as 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete',
         product: {
           id: sub.productId || 'unknown',
-          name: `${sub.credits.toLocaleString()} Email Credits`,
+          name: `${(sub.credits ?? 0).toLocaleString()} Email Credits`,
         },
         price: {
-          id: sub.priceId || sub.id, // Use Polar price ID or fallback to subscription ID
-          amount: sub.amount, // Now we store the actual amount
+          id: sub.priceId || sub.polarSubscriptionId, // Use Polar price ID or fallback to subscription ID
+          amount: sub.amount ?? 0, // Now we store the actual amount
           currency: 'USD',
           recurring: {
             interval: 'month' as 'month' | 'year'

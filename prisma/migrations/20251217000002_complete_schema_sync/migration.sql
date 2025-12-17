@@ -110,8 +110,8 @@ ALTER TABLE "public"."campaign" ADD COLUMN IF NOT EXISTS "fromEmail" TEXT;
 ALTER TABLE "public"."campaign" ADD COLUMN IF NOT EXISTS "fromName" TEXT;
 ALTER TABLE "public"."campaign" ADD COLUMN IF NOT EXISTS "replyTo" TEXT;
 
--- Update fromEmail to NOT NULL with default for existing records
-UPDATE "public"."campaign" SET "fromEmail" = 'noreply@example.com' WHERE "fromEmail" IS NULL;
+-- NOTE: Replace with your actual default sending domain
+UPDATE "public"."campaign" SET "fromEmail" = 'noreply@mailpackr.net' WHERE "fromEmail" IS NULL;
 ALTER TABLE "public"."campaign" ALTER COLUMN "fromEmail" SET NOT NULL;
 
 -- CreateTable CampaignStats
@@ -406,7 +406,7 @@ EXCEPTION
     WHEN duplicate_object THEN null;
 END $$;
 
--- Data migration: Copy totalCredits to credits for existing subscriptions
+-- Only for newly-added credits column (not for legitimately spent credits)
 UPDATE "public"."subscription" 
 SET "credits" = "totalCredits" 
-WHERE "credits" = 0 AND "totalCredits" > 0;
+WHERE "credits" = 0 AND "totalCredits" > 0 AND "usedCredits" = 0;
