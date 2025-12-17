@@ -87,7 +87,7 @@ export async function sendEmail({
   }
 
   // Use HTML content directly - AWS SES handles click tracking automatically
-  let processedHtml = fullHtml;
+  const processedHtml = fullHtml;
 
   // Use the original subject without campaign metadata (tracking is done via SES tags)
   const trackedSubject = subject;
@@ -184,7 +184,7 @@ export async function sendEmailWithAttachments({
   }
 
   // Use HTML content directly - AWS SES handles click tracking automatically
-  let processedHtml = fullHtml;
+  const processedHtml = fullHtml;
 
   try {
     let command: SendRawEmailCommand | SendEmailCommand;
