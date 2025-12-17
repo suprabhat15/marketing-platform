@@ -90,6 +90,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
     }
     const checkoutData: any = {
       products: [productId],
+      customer_email: data.customerEmail,
     };
 
     // Automatically ensure meter exists for the product before creating checkout

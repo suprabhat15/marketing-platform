@@ -284,10 +284,13 @@ model Subscription {
   polarSubscriptionId String @unique // Polar's subscription ID
   customerId        String   // Polar customer ID
   productId         String   // Polar product ID
+  priceId           String?  // Polar price ID
   status            SubscriptionStatus @default(ACTIVE)
-  totalCredits      Int      @default(0)
+  credits           Int      @default(0) // Credits for this specific subscription
+  totalCredits      Int      @default(0) // Keep for backward compatibility
   usedCredits       Int      @default(0)
   remainingCredits  Int      @default(0)
+  amount            Float    @default(0) // Price amount in cents
   meterId           String?  // Polar meter ID for usage tracking
   meterName         String?  @default("credits")
   currentPeriodStart DateTime?

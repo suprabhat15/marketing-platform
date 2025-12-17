@@ -91,9 +91,12 @@ export async function GET(request: NextRequest) {
           polarSubscriptionId: true,
           status: true,
           productId: true,
+          priceId: true,
+          credits: true,
           totalCredits: true,
           usedCredits: true,
           remainingCredits: true,
+          amount: true,
           currentPeriodStart: true,
           currentPeriodEnd: true,
           canceledAt: true,
@@ -108,11 +111,11 @@ export async function GET(request: NextRequest) {
         status: sub.status.toLowerCase() as 'active' | 'canceled' | 'past_due' | 'trialing' | 'incomplete',
         product: {
           id: sub.productId || 'unknown',
-          name: `${sub.totalCredits.toLocaleString()} Email Credits`,
+          name: `${(sub.credits ?? 0).toLocaleString()} Email Credits`,
         },
         price: {
-          id: sub.id, // Use our subscription ID as price ID
-          amount: 0, // We don't store amount in our schema
+          id: sub.priceId || sub.polarSubscriptionId, // Use Polar price ID or fallback to subscription ID
+          amount: sub.amount ?? 0, // Now we store the actual amount
           currency: 'USD',
           recurring: {
             interval: 'month' as 'month' | 'year'
@@ -121,7 +124,8 @@ export async function GET(request: NextRequest) {
         currentPeriodStart: sub.currentPeriodStart?.toISOString() || new Date().toISOString(),
         currentPeriodEnd: sub.currentPeriodEnd?.toISOString() || new Date().toISOString(),
         cancelAtPeriodEnd: !!sub.canceledAt,
-        totalCredits: sub.totalCredits,
+        credits: sub.credits, // Show subscription-specific credits
+        totalCredits: sub.totalCredits, // Keep for backward compatibility
         usedCredits: sub.usedCredits,
         remainingCredits: sub.remainingCredits,
         meterId: sub.meterId,
