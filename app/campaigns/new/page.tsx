@@ -88,7 +88,7 @@ export default function NewCampaignPage() {
   };
 
   const handleSendNowClick = () => {
-    if (!campaignName || !subject || !content || !selectedList) {
+    if (!campaignName || !subject || !content || !selectedList || !selectedTemplate) {
       alert('Please fill in all required fields');
       return;
     }
@@ -121,7 +121,7 @@ export default function NewCampaignPage() {
         subject,
         content,
         listId: selectedList,
-        templateId: selectedTemplate || undefined,
+        templateId: selectedTemplate,
         subscriberIds: subscriberIds,
         fromEmail: senderConfig.fromEmail,
         fromName: senderConfig.fromName,
@@ -157,7 +157,7 @@ export default function NewCampaignPage() {
   };
 
   const handleCreateCampaign = async (sendNow: boolean = false) => {
-    if (!campaignName || !subject || !content || !selectedList) {
+    if (!campaignName || !subject || !content || !selectedList || !selectedTemplate) {
       alert('Please fill in all required fields');
       return;
     }
@@ -170,7 +170,7 @@ export default function NewCampaignPage() {
         subject,
         content,
         listId: selectedList,
-        templateId: selectedTemplate || undefined,
+        templateId: selectedTemplate,
         scheduledAt: sendNow ? undefined : `${scheduleDate}T${scheduleTime}`,
         subscriberIds: [], // Empty for drafts - will be populated when sending
         fromEmail: 'placeholder@example.com', // Placeholder for drafts
@@ -236,14 +236,14 @@ export default function NewCampaignPage() {
             </div>
 
             <div>
-              <Label htmlFor="template-select">Email Template</Label>
+              <Label htmlFor="template-select">Email Template *</Label>
               <div className="flex gap-2">
                 <Select
                   value={selectedTemplate}
                   onValueChange={handleTemplateSelect}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a template (optional)" />
+                    <SelectValue placeholder="Select a template" />
                   </SelectTrigger>
                   <SelectContent>
                     {templates.map((template) => (
