@@ -1,7 +1,7 @@
 import { Polar } from '@polar-sh/sdk';
 import crypto from 'crypto';
 
-const isSandbox = process.env.IS_SANDBOX === 'true';
+const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
 
 // Initialize Polar SDK with environment configuration
 const accessToken = isSandbox 
@@ -90,6 +90,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
     }
     const checkoutData: any = {
       products: [productId],
+      customerEmail: data.customerEmail,
     };
 
     // Automatically ensure meter exists for the product before creating checkout
