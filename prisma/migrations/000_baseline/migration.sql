@@ -214,7 +214,7 @@ CREATE TABLE "subscription" (
     "totalCredits" INTEGER NOT NULL DEFAULT 0,
     "usedCredits" INTEGER NOT NULL DEFAULT 0,
     "remainingCredits" INTEGER NOT NULL DEFAULT 0,
-    "amount" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "amount" DECIMAL(10,2) NOT NULL DEFAULT 0,
     "meterId" TEXT,
     "meterName" TEXT DEFAULT 'credits',
     "currentPeriodStart" TIMESTAMP(3),
