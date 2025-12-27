@@ -13,7 +13,7 @@ import {
 
 // Import centralized credit pricing from polar.ts
 // All credit and pricing mappings are now centralized in @/lib/polar
-const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
+const isSandbox = process.env.IS_SANDBOX === 'true';
 
 export async function POST(request: NextRequest) {
   try {

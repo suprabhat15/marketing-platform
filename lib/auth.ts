@@ -5,7 +5,7 @@ import { prisma } from './prisma';
 import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 
-const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
+const isSandbox = process.env.IS_SANDBOX === 'true';
 
 const polarClient = new Polar({
   accessToken: isSandbox 
