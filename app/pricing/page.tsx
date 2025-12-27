@@ -4,7 +4,7 @@ import { CheckoutButton } from '@/components/payments/checkout-button';
 import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
-const isSandbox = process.env.IS_SANDBOX === 'true';
+const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
 
 const creditOptions = [
   {
