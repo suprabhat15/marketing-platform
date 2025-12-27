@@ -90,7 +90,16 @@ export const campaignWorker = new Worker<CampaignJobData>(
     try {
       const campaign = await prisma.campaign.findUnique({
         where: { id: campaignId },
-        include: {
+        select: {
+          id: true,
+          templateId: true,
+          content: true,
+          subject: true,
+          fromEmail: true,
+          fromName: true,
+          replyTo: true, // Add replyTo field
+          userId: true,
+          listId: true,
           template: { select: { id: true } }, // Only load template ID to reduce memory
           list: { include: { subscribers: { where: { status: 'ACTIVE' } } } },
         },
@@ -179,7 +188,7 @@ export const campaignWorker = new Worker<CampaignJobData>(
             subject: campaign.subject,
             fromEmail: campaign.fromEmail || process.env.FROM_EMAIL!,
             fromName: campaign.fromName || process.env.FROM_NAME!,
-            replyTo: process.env.REPLY_TO_EMAIL!,
+            replyTo: campaign.replyTo,
             startIndex: 0,
             endIndex: slice.length,
             userId: userId,

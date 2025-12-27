@@ -91,7 +91,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
   };
 
   const handleSend = async () => {
-    if (!selectedDomain || !fromEmail || !fromName) {
+    if (!selectedDomain || !fromEmail || !fromName || !replyTo) {
       setError('All required fields must be filled');
       return;
     }
@@ -101,7 +101,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
       return;
     }
 
-    if (replyTo && !replyTo.includes('@')) {
+    if (!replyTo.includes('@')) {
       setError('Please enter a valid reply-to email address');
       return;
     }
@@ -133,7 +133,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
     onClose();
   };
 
-  const isFormValid = selectedDomain && fromEmail && fromName && fromEmail.endsWith(`@${selectedDomain}`);
+  const isFormValid = selectedDomain && fromEmail && fromName && replyTo && fromEmail.endsWith(`@${selectedDomain}`);
 
   return (
     <Sheet open={open} onOpenChange={handleClose}>
@@ -223,7 +223,7 @@ export default function SendNowFlyout({ open, onClose, onSend }: SendNowFlyoutPr
 
                 <div className="space-y-3">
                   <Label htmlFor="reply-to" className="text-sm font-medium">
-                    Reply To
+                    Reply To *
                   </Label>
                   <Input
                     id="reply-to"
