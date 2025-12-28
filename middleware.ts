@@ -2,24 +2,31 @@ import { NextRequest, NextResponse, NextFetchEvent } from 'next/server';
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+const redis =
+  process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN
+    ? new Redis({
+        url: process.env.UPSTASH_REDIS_REST_URL,
+        token: process.env.UPSTASH_REDIS_REST_TOKEN,
+      })
+    : null;
 
-const authRateLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(5, '1 m'), // login / register / reset
-  prefix: 'ratelimit:auth',
-  analytics: true,
-});
+const authRateLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(5, '1 m'), // login / register / reset
+      prefix: 'ratelimit:auth',
+      analytics: true,
+    })
+  : null;
 
-const billingRateLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(10, '1 m'), // user-initiated billing ops
-  prefix: 'ratelimit:billing',
-  analytics: true,
-});
+const billingRateLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(10, '1 m'), // user-initiated billing ops
+      prefix: 'ratelimit:billing',
+      analytics: true,
+    })
+  : null;
 
 const PUBLIC_PATH_PREFIXES = [
   '/auth',
@@ -34,7 +41,6 @@ function getIp(request: NextRequest): string {
   return (
     request.headers.get('cf-connecting-ip') ??
     request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ??
-    request.ip ??
     '127.0.0.1'
   );
 }
@@ -76,7 +82,9 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   // IMPORTANT:
   // Middleware only distinguishes anonymous vs authenticated.
   // Fine-grained per-user limits belong inside API handlers.
-  const identifier = sessionToken ? 'user:authenticated' : `ip:${ip}`;
+  const identifier = sessionToken
+    ? `session:${sessionToken.slice(0, 43)}`
+    : `ip:${ip}`;
 
   // Never rate-limit OAuth callbacks
   if (pathname.startsWith('/api/auth/callback')) {
@@ -99,7 +107,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     rateLimiter = billingRateLimiter;
   }
 
-  if (rateLimiter) {
+  if (rateLimiter && redis) {
     const { success, pending, reset } = await rateLimiter.limit(identifier);
 
     event.waitUntil(pending);
