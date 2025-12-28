@@ -13,8 +13,8 @@ export async function GET(
       headers: request.headers,
     });
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { listId } = await params;
@@ -92,8 +92,8 @@ export async function POST(
       headers: request.headers,
     });
 
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // ✅ Lazy import zod only when POST is called
