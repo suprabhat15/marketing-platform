@@ -54,7 +54,7 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
     process.env.NODE_ENV === 'production' &&
     process.env.NEXT_PUBLIC_IS_SANDBOX !== 'true';
 
-  if (isProduction && hostname !== allowedDomain) {
+  if (isProduction && allowedDomain && hostname !== allowedDomain) {
     if (hostname?.includes('railway.app')) {
       return new NextResponse('Access Denied: Please use the main domain.', {
         status: 403,
