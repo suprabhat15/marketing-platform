@@ -22,14 +22,14 @@ export async function POST(
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const campaign = await prisma.campaign.findFirst({
       where: {
         id: campaignId,
-        userId: session?.user.id,
+        userId: session.user.id,
       },
       include: {
         template: true,

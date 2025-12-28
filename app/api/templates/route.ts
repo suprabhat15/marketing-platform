@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -88,7 +88,7 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         subject,
         content,
         attachments: attachments || [],
-        userId: session?.user.id,
+        userId: session.user.id,
       },
     });
 

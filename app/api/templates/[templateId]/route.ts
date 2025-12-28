@@ -15,7 +15,7 @@ export async function DELETE(
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -34,7 +34,7 @@ export async function DELETE(
     await prisma.template.delete({
       where: {
         id: templateId,
-        userId: session?.user.id,
+        userId: session.user.id,
       },
     });
 
@@ -59,10 +59,14 @@ export async function GET(
       headers: request.headers,
     });
 
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const template = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id,
+        userId: session.user.id,
       },
     });
 
@@ -92,6 +96,10 @@ export async function PUT(
       headers: request.headers,
     });
 
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Validate the request body
     const validatedData = templateUpdateSchema.parse(body);
 
@@ -99,7 +107,7 @@ export async function PUT(
     const existingTemplate = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id,
+        userId: session.user.id,
       },
     });
 

@@ -10,10 +10,23 @@ export async function GET(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId } = await params;
 
-    const list = await prisma.list.findUnique({
-      where: { id: listId },
+    // Verify user owns the list
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
       include: {
         _count: {
           select: { subscribers: true },
@@ -44,6 +57,15 @@ export async function PUT(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId } = await params;
     const body = await request.json();
     
@@ -53,6 +75,21 @@ export async function PUT(
     if (isBasicUpdate) {
       // Handle basic list updates (name/description only)
       const { name, description } = updateListBasicSchema.parse(body);
+      
+      // Verify user owns the list before updating
+      const existingList = await prisma.list.findFirst({
+        where: {
+          id: listId,
+          userId: session.user.id,
+        },
+      });
+
+      if (!existingList) {
+        return NextResponse.json(
+          { error: 'List not found' },
+          { status: 404 }
+        );
+      }
       
       const updatedList = await prisma.list.update({
         where: { id: listId },
@@ -73,9 +110,12 @@ export async function PUT(
       // Handle full update with subscribers (existing logic)
       const { name, description, subscribers } = updateListSchema.parse(body);
 
-      // Check if list exists
-      const existingList = await prisma.list.findUnique({
-        where: { id: listId },
+      // Verify user owns the list before updating
+      const existingList = await prisma.list.findFirst({
+        where: {
+          id: listId,
+          userId: session.user.id,
+        },
         include: { subscribers: true },
       });
 
@@ -175,13 +215,16 @@ export async function DELETE(
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if list exists
-    const existingList = await prisma.list.findUnique({
-      where: { id: listId },
+    // Verify user owns the list before deletion
+    const existingList = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
     });
 
     if (!existingList) {
