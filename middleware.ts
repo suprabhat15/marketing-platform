@@ -117,7 +117,10 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
             status: 429,
             headers: {
               'content-type': 'application/json',
-              'retry-after': Math.ceil((reset - Date.now()) / 1000).toString(),
+              'retry-after': Math.max(
+                0,
+                Math.ceil((reset - Date.now()) / 1000)
+              ).toString(),
             },
           }
         );

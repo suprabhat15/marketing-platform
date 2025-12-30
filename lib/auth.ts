@@ -21,11 +21,15 @@ export const auth = betterAuth({
   }),
   emailVerification: {
     sendVerificationEmail: async ({ user, url }) => {
-      await sendVerificationEmail({
-        email: user.email,
-        url,
-        name: user.name,
-      });
+      try {
+        await sendVerificationEmail({
+          email: user.email,
+          url,
+          name: user.name,
+        });
+      } catch (error) {
+        throw new Error('Failed to send verification email. Please try again.');
+      }
     },
     sendOnSignUp: true,
     autoSignInAfterVerification: true,
