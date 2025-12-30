@@ -59,9 +59,6 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
       return new NextResponse('Access Denied: Please use the main domain.', {
         status: 403,
       });
-
-      // OR Redirect them properly:
-      // return NextResponse.redirect(`https://${allowedDomain}${pathname}`);
     }
   }
   // A. Asset Bypass
@@ -108,18 +105,26 @@ export async function middleware(request: NextRequest, event: NextFetchEvent) {
   }
 
   if (rateLimiter && redis) {
-    const { success, pending, reset } = await rateLimiter.limit(identifier);
+    try {
+      const { success, pending, reset } = await rateLimiter.limit(identifier);
 
-    event.waitUntil(pending);
+      event.waitUntil(pending);
 
-    if (!success) {
-      return new NextResponse(JSON.stringify({ error: 'Too Many Requests' }), {
-        status: 429,
-        headers: {
-          'content-type': 'application/json',
-          'retry-after': Math.ceil((reset - Date.now()) / 1000).toString(),
-        },
-      });
+      if (!success) {
+        return new NextResponse(
+          JSON.stringify({ error: 'Too Many Requests' }),
+          {
+            status: 429,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after': Math.ceil((reset - Date.now()) / 1000).toString(),
+            },
+          }
+        );
+      }
+    } catch (error) {
+      // Fail open: allow request through if rate limiting fails
+      console.error('Rate limiting error:', error);
     }
   }
 
