@@ -45,7 +45,11 @@ export default function AuthPage() {
       });
 
       if (result.error) {
-        setError(result.error.message || 'Login failed');
+        if (result.error.status === 403) {
+          setError('Please verify your email address before signing in.');
+        } else {
+          setError(result.error.message || 'Login failed');
+        }
       } else {
         // Redirect to campaigns dashboard
         router.push('/campaigns');

@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Eye, Code, Save, Type } from 'lucide-react';
 import { templateSchema, Template } from '@/lib/validators';
 import { ZodError } from 'zod';
+import DOMPurify from 'dompurify';
 
 {
   /* <EmailTemplateBuilder 
@@ -225,7 +226,9 @@ export function EmailTemplateBuilder({
                     {activeTab === 'html' ? (
                       <div
                         className="prose max-w-none"
-                        dangerouslySetInnerHTML={{ __html: generatePreview() }}
+                        dangerouslySetInnerHTML={{
+                          __html: DOMPurify.sanitize(generatePreview()),
+                        }}
                       />
                     ) : (
                       <pre className="text-sm whitespace-pre-wrap">

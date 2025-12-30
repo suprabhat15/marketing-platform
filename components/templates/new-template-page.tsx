@@ -30,6 +30,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { createTemplateSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
+import DOMPurify from 'dompurify';
 import dynamic from 'next/dynamic';
 
 const TiptapEditor = dynamic(
@@ -529,7 +530,9 @@ export function NewTemplatePage() {
                       </div>
                       <div
                         dangerouslySetInnerHTML={{
-                          __html: content || '<p>No content</p>',
+                          __html: DOMPurify.sanitize(
+                            content || '<p>No content</p>'
+                          ),
                         }}
                       />
                       {attachments.length > 0 && (
