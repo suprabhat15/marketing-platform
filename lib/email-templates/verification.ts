@@ -9,7 +9,9 @@ export async function sendVerificationEmail({
   url: string; 
   name?: string; 
 }) {
-  const subject = `${name}, Final step to Onboard!`;
+  const subject = name
+    ? `${name}, Final step to Onboard!`
+    : 'Final step to Onboard!';
   const html = `<!DOCTYPE html>
   <html lang="en">
   <head>
