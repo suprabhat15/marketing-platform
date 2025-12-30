@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 
 // GET /api/lists/[listId]/subscribers/export - Export subscribers as CSV
 export async function GET(
@@ -7,11 +8,23 @@ export async function GET(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId } = await params;
 
-    // Check if list exists
-    const list = await prisma.list.findUnique({
-      where: { id: listId },
+    // Verify user owns the list
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
     });
 
     if (!list) {

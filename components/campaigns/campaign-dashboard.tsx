@@ -95,7 +95,13 @@ export function CampaignDashboard() {
 
   // Use global SSE manager directly to monitor all active campaigns
   useEffect(() => {
-    if (!session?.user?.id || activeCampaigns.length === 0) return;
+    if (
+      !session ||
+      !session.user ||
+      !session.user.id ||
+      activeCampaigns.length === 0
+    )
+      return;
 
     const unsubscribers: (() => void)[] = [];
 

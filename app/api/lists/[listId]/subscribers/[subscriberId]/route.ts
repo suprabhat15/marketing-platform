@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 import { updateSubscriberSchema } from "@/lib/validators";
 import { ZodError } from 'zod';
 
@@ -9,9 +10,30 @@ export async function PATCH(
   { params }: { params: Promise<{ listId: string; subscriberId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId, subscriberId } = await params;
     const body = await request.json();
     const updates = updateSubscriberSchema.parse(body);
+
+    // Verify user owns the list before allowing subscriber modification
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!list) {
+      return NextResponse.json({ error: 'List not found' }, { status: 404 });
+    }
 
     // Check if subscriber exists and belongs to the list
     const existingSubscriber = await prisma.subscriber.findFirst({
@@ -60,7 +82,28 @@ export async function DELETE(
   { params }: { params: Promise<{ listId: string; subscriberId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId, subscriberId } = await params;
+
+    // Verify user owns the list before allowing subscriber deletion
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!list) {
+      return NextResponse.json({ error: 'List not found' }, { status: 404 });
+    }
 
     // Check if subscriber exists and belongs to the list
     const existingSubscriber = await prisma.subscriber.findFirst({

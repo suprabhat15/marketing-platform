@@ -13,8 +13,7 @@ export async function GET(
     const session = await auth.api.getSession({
       headers: request.headers,
     });
-    
-    if (!session?.user?.id) {
+    if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -150,7 +149,7 @@ export async function DELETE(
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
@@ -190,7 +189,7 @@ export async function DELETE(
     await prisma.campaign.delete({
       where: {
         id: campaignId,
-        userId: session?.user.id,
+        userId: session.user.id,
       },
     });
 

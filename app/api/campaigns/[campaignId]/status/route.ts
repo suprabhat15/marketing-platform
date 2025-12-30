@@ -13,14 +13,11 @@ export async function GET(
       headers: request.headers,
     });
 
-    if (!session) {
+    if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const userId = session.user?.id;
-    if (!userId) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+    const userId = session.user.id;
 
     // Verify campaign ownership
     const campaign = await prisma.campaign.findFirst({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { auth } from "@/lib/auth";
 
 // GET /api/lists/[listId]/subscribers
 export async function GET(
@@ -7,7 +8,28 @@ export async function GET(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId } = await params;
+
+    // Verify user owns the list
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
+    });
+
+    if (!list) {
+      return NextResponse.json({ error: "List not found" }, { status: 404 });
+    }
     const { searchParams } = new URL(request.url);
 
     const page = Math.max(1, parseInt(searchParams.get("page") || "1"));
@@ -65,6 +87,15 @@ export async function POST(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // ✅ Lazy import zod only when POST is called
     const { z } = await import("zod");
 
@@ -83,7 +114,14 @@ export async function POST(
     const body = await request.json();
     const { subscribers } = importSubscribersSchema.parse(body);
 
-    const list = await prisma.list.findUnique({ where: { id: listId } });
+    // Verify user owns the list
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
+    });
+
     if (!list) {
       return NextResponse.json({ error: "List not found" }, { status: 404 });
     }

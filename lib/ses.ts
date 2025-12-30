@@ -46,7 +46,7 @@ export interface SendEmailParams {
   html: string;
   text?: string;
   from?: string;
-  replyTo?: string;
+  replyTo: string;
   configurationSetName?: string;
   campaignId?: string;
   messageId?: string;
@@ -61,8 +61,8 @@ export async function sendEmail({
   subject,
   html,
   text,
-  from = process.env.FROM_EMAIL!,
-  replyTo = process.env.REPLY_TO_EMAIL!,
+  from,
+  replyTo,
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
   campaignId,
   messageId,
@@ -323,7 +323,7 @@ export interface SendBulkEmailParams {
   template: string;
   defaultReplacementData?: Record<string, string>;
   from?: string;
-  replyTo?: string;
+  replyTo: string;
   configurationSetName?: string;
   campaignId?: string;
 }
