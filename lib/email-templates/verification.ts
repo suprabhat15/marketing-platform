@@ -10,7 +10,7 @@ export async function sendVerificationEmail({
   name?: string; 
 }) {
   const subject = name
-    ? `${name}, Final step to Onboard!`
+    ? `${name.replace(/[<>"'&]/g, '')}, Final step to Onboard!`
     : 'Final step to Onboard!';
   const html = `<!DOCTYPE html>
   <html lang="en">
