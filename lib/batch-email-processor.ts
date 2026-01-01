@@ -434,7 +434,7 @@ export class BatchEmailProcessor {
       subject: personalizedSubject,
       html: personalizedHtml,
       from: `${fromName} <${fromEmail}>`,
-      replyTo,
+      replyTo: replyTo || '',
       campaignId,
       messageId,
     });

@@ -188,7 +188,7 @@ export const campaignWorker = new Worker<CampaignJobData>(
             subject: campaign.subject,
             fromEmail: campaign.fromEmail || process.env.FROM_EMAIL!,
             fromName: campaign.fromName || process.env.FROM_NAME!,
-            replyTo: campaign.replyTo,
+            replyTo: campaign.replyTo || '',
             startIndex: 0,
             endIndex: slice.length,
             userId: userId,

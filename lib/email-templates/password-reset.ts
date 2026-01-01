@@ -47,7 +47,7 @@ export async function sendPasswordResetEmail({
     text,
     html,
     from: process.env.FROM_EMAIL!,
-    replyTo: process.env.REPLY_TO_EMAIL!,
+    replyTo: process.env.REPLY_TO_EMAIL || '',
   });
 
   if (!res.success) {

@@ -323,7 +323,7 @@ export interface SendBulkEmailParams {
   template: string;
   defaultReplacementData?: Record<string, string>;
   from?: string;
-  replyTo?: string | null;
+  replyTo?: string;
   configurationSetName?: string;
   campaignId?: string;
 }

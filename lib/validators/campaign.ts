@@ -10,7 +10,7 @@ export const createCampaignSchema = z.object({
   // subscriberIds: z.array(z.string()).min(1, 'At least one subscriber must be selected'),
   fromEmail: z.string().email(),
   fromName: z.string().optional(),
-  replyTo: z.string().email('Invalid reply-to email format').optional()
+  replyTo: z.string().email('Invalid reply-to email format').optional().default('')
 });
 
 export const updateCampaignSchema = z.object({

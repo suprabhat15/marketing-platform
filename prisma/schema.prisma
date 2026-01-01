@@ -95,7 +95,7 @@ model Campaign {
   
   fromEmail String
   fromName String?
-  replyTo String?
+  replyTo String
 
   events     Event[]
   stats      CampaignStats?
