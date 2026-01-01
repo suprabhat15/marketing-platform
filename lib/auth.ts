@@ -6,13 +6,12 @@ import { sendVerificationEmail } from './email-templates/verification';
 import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 
-const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
+if (!process.env.POLAR_ACCESS_TOKEN) {
+  throw new Error('POLAR_ACCESS_TOKEN environment variable is required');
+}
 
 const polarClient = new Polar({
-  accessToken: isSandbox 
-    ? process.env.POLAR_ACCESS_TOKEN_SANDBOX 
-    : process.env.POLAR_ACCESS_TOKEN,
-  ...(isSandbox && { server: 'sandbox' })
+  accessToken: process.env.POLAR_ACCESS_TOKEN,
 });
 
 export const auth = betterAuth({
@@ -57,15 +56,11 @@ export const auth = betterAuth({
         checkout({
           products: [
             {
-              productId: isSandbox 
-                ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '')
-                : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || ''),
+              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '',
               slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
             {
-              productId: isSandbox 
-                ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '')
-                : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || ''),
+              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '',
               slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
             },
           ],

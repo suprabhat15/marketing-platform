@@ -1,26 +1,16 @@
 import { Polar } from '@polar-sh/sdk';
 import crypto from 'crypto';
 
-const isSandbox = process.env.NEXT_PUBLIC_IS_SANDBOX === 'true';
-
 // Initialize Polar SDK with environment configuration
-const accessToken = isSandbox 
-  ? process.env.POLAR_ACCESS_TOKEN_SANDBOX
-  : process.env.POLAR_ACCESS_TOKEN;
+const accessToken = process.env.POLAR_ACCESS_TOKEN;
 
 if (!accessToken) {
-  const envVar = isSandbox ? 'POLAR_ACCESS_TOKEN_SANDBOX' : 'POLAR_ACCESS_TOKEN';
-  throw new Error(`${envVar} environment variable is required`);
+  throw new Error(`POLAR_ACCESS_TOKEN environment variable is required`);
 }
 
 export const polar = new Polar({
   accessToken,
-  ...(isSandbox && { server: 'sandbox' })
 });
-
-// export const POLAR_ORGANIZATION_ID = isSandbox
-//   ? (process.env.POLAR_ORGANIZATION_ID_SANDBOX ?? '')
-//   : (process.env.POLAR_ORGANIZATION_ID ?? '');
 
 // Types for checkout session
 export interface CheckoutSessionData {
@@ -527,22 +517,19 @@ export async function updateCreditUsage(userId: string, creditsUsed: number) {
       );
     }
 
-    const newUsedCredits = subscription.usedCredits + creditsUsed;
-    const newRemainingCredits = subscription.totalCredits - newUsedCredits;
-
-    // Update the subscription with new usage
-    await prisma.subscription.update({
+    // Update the subscription with new usage using atomic operations
+    const updatedSubscription = await prisma.subscription.update({
       where: { id: subscription.id },
       data: {
-        usedCredits: newUsedCredits,
-        remainingCredits: newRemainingCredits,
+        usedCredits: { increment: creditsUsed },
+        remainingCredits: { decrement: creditsUsed },
       },
     });
 
     return {
-      totalCredits: subscription.totalCredits,
-      usedCredits: newUsedCredits,
-      remainingCredits: newRemainingCredits,
+      totalCredits: updatedSubscription.totalCredits,
+      usedCredits: updatedSubscription.usedCredits,
+      remainingCredits: updatedSubscription.remainingCredits,
     };
   } catch (error) {
     console.error('Error updating credit usage:', error);
@@ -671,12 +658,8 @@ export const CREDIT_PRICING = {
 } as const;
 
 // Product ID environment variables
-const PRODUCT_ID_10000 = isSandbox
-  ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_10K || '')
-  : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '');
-const PRODUCT_ID_20000 = isSandbox
-  ? (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_SANDBOX_20K || '')
-  : (process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '');
+const PRODUCT_ID_10000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '';
+const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '';
 
 // Product ID to credit mapping (matching auth.ts products)
 export const PRODUCT_CREDIT_MAPPING = {
