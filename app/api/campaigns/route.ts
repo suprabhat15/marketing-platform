@@ -194,7 +194,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
         userId: session?.user.id,
         fromEmail,
         fromName,
-        replyTo,
+        replyTo: replyTo || '',
       },
     });
 

@@ -46,7 +46,7 @@ export interface SendEmailParams {
   html: string;
   text?: string;
   from?: string;
-  replyTo: string;
+  replyTo?: string;
   configurationSetName?: string;
   campaignId?: string;
   messageId?: string;
@@ -323,7 +323,7 @@ export interface SendBulkEmailParams {
   template: string;
   defaultReplacementData?: Record<string, string>;
   from?: string;
-  replyTo: string;
+  replyTo?: string;
   configurationSetName?: string;
   campaignId?: string;
 }
