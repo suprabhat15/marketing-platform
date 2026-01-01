@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "nm": "nodemon --exec \"next dev\"",
-    "build": "rm -rf .next && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
@@ -17,6 +17,9 @@
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
+  },
+  "engines": {
+    "node": ">=20.9.0 <21.0.0"
   },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.830.0",
