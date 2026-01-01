@@ -18,6 +18,9 @@
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   },
+  "engines": {
+    "node": ">=20.9.0 <21.0.0"
+  },
   "dependencies": {
     "@aws-sdk/client-ses": "^3.830.0",
     "@aws-sdk/client-sqs": "^3.940.0",
