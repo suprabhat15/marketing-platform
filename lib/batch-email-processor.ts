@@ -16,7 +16,7 @@ export interface BatchEmailData {
   subject: string;
   fromEmail: string;
   fromName: string;
-  replyTo: string;
+  replyTo?: string;
   startIndex: number;
   endIndex: number;
   userId?: string; // Add userId to track credit usage
@@ -256,7 +256,7 @@ export class BatchEmailProcessor {
     subject: string;
     fromEmail: string;
     fromName: string;
-    replyTo: string;
+    replyTo?: string;
     userId?: string;
   }): Promise<void> {
     // Atomically check and mark as in-progress to prevent duplicates
@@ -333,7 +333,7 @@ export class BatchEmailProcessor {
               subject,
               fromEmail,
               fromName,
-              replyTo,
+              replyTo || '',
               'Email send timeout'
             );
             return;
@@ -351,7 +351,7 @@ export class BatchEmailProcessor {
             subject,
             fromEmail,
             fromName,
-            replyTo,
+            replyTo || '',
             lastError.message
           );
           return;
@@ -401,7 +401,7 @@ export class BatchEmailProcessor {
     subject: string;
     fromEmail: string;
     fromName: string;
-    replyTo: string;
+    replyTo?: string;
     userId?: string;
     messageId: string;
   }): Promise<void> {
