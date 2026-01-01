@@ -31,7 +31,7 @@ export async function getSession(request: NextRequest): Promise<AuthSession | nu
 
 export async function requireAuth(request: NextRequest): Promise<AuthSession> {
   const session = await getSession(request);
-  if (!session || !session.user || !session.user.id) {
+  if (!session?.user?.id) {
     throw new Error('Unauthorized');
   }
   return session;

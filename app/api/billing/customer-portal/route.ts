@@ -10,11 +10,8 @@ export async function POST(request: NextRequest) {
       headers: request.headers,
     });
 
-    if (!session || !session.user || !session.user.id) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // Get user's Polar customer ID

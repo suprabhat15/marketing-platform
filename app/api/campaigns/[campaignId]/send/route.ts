@@ -22,7 +22,7 @@ export async function POST(
       headers: request.headers,
     });
 
-    if (!session || !session.user || !session.user.id) {
+    if (!session?.user?.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 

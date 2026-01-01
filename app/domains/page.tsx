@@ -11,7 +11,7 @@ export default async function DomainsPage() {
     headers: headersList,
   });
 
-  if (!session || !session.user || !session.user.id) {
+  if (!session?.user?.id) {
     redirect('/login');
   }
 
