@@ -6,6 +6,10 @@ import { sendVerificationEmail } from './email-templates/verification';
 import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
 
+if (!process.env.POLAR_ACCESS_TOKEN) {
+  throw new Error('POLAR_ACCESS_TOKEN environment variable is required');
+}
+
 const polarClient = new Polar({
   accessToken: process.env.POLAR_ACCESS_TOKEN,
 });
