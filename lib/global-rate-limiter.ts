@@ -14,8 +14,7 @@ export interface RateLimitResult {
 export class EnhancedRateLimiter {
   private readonly baseKey: string;
   private readonly windowMs: number;
-  private lastQuotaCheck: number = 0;
-  private readonly QUOTA_CHECK_INTERVAL = 60000; // Check quota every minute
+  private cachedLimits: Map<EmailType, number> = new Map();
 
   constructor(
     baseKey: string = 'ses:rate-limit',
@@ -33,15 +32,8 @@ export class EnhancedRateLimiter {
   }
 
   /**
-   * Check if we should refresh quota info
-   */
-  private shouldCheckQuota(): boolean {
-    const now = Date.now();
-    return now - this.lastQuotaCheck > this.QUOTA_CHECK_INTERVAL;
-  }
-
-  /**
-   * Attempt to acquire a permit to send an email with SES quota awareness
+   * Attempt to acquire a permit to send an email (rate limiting only, no quota checks)
+   * Quota should be checked ONCE before campaign starts via canSendCampaign()
    */
   async tryAcquire(emailType: EmailType): Promise<RateLimitResult> {
     try {
@@ -49,27 +41,12 @@ export class EnhancedRateLimiter {
       const min = now - this.windowMs;
       const key = this.getRateLimitKey(emailType);
 
-      // Check daily quota first (most restrictive)
-      const canSendToday = await sesQuotaManager.canSendToday(1);
-      if (!canSendToday) {
-        const quotaInfo = await sesQuotaManager.getQuotaInfo();
-        return {
-          allowed: false,
-          waitTimeMs: 0, // No point waiting if daily quota is exhausted
-          currentCount: 0,
-          quotaRemaining: quotaInfo.remainingQuota,
-          emailType,
-        };
-      }
-
-      // Get current rate limit for this email type
-      let limit: number;
-      if (this.shouldCheckQuota()) {
+      // Get cached rate limit (no API calls)
+      let limit = this.cachedLimits.get(emailType);
+      if (!limit) {
+        // First time - fetch and cache
         limit = await sesQuotaManager.getCurrentRate(emailType);
-        this.lastQuotaCheck = now;
-      } else {
-        // Use cached rate or fallback
-        limit = await sesQuotaManager.getCurrentRate(emailType);
+        this.cachedLimits.set(emailType, limit);
       }
 
       // Clean up expired entries and get current count
@@ -99,29 +76,25 @@ export class EnhancedRateLimiter {
       await redis.zadd(key, now, requestId);
       await redis.expire(key, Math.ceil(this.windowMs / 1000) + 1);
 
-      // Calculate conservative spacing hint with minimum delay
+      // Calculate conservative spacing hint
       const nextRequestDelay =
         limit > 0 ? Math.max(500, Math.floor(this.windowMs / limit)) : 500;
-
-      const quotaInfo = await sesQuotaManager.getQuotaInfo();
 
       return {
         allowed: true,
         waitTimeMs: 0,
         currentCount: currentCount + 1,
         nextRequestDelay,
-        quotaRemaining: quotaInfo.remainingQuota,
         emailType,
       };
     } catch (error) {
-      console.error('Enhanced rate limiter error:', error);
+      console.error('Rate limiter error:', error);
       // Fail open but with conservative defaults
-      console.warn('⚠️ Rate limiter failing open due to error');
       return {
         allowed: true,
         waitTimeMs: 0,
         currentCount: 0,
-        nextRequestDelay: 200, // Conservative fallback
+        nextRequestDelay: 200,
         emailType,
       };
     }
@@ -143,11 +116,6 @@ export class EnhancedRateLimiter {
         return result;
       }
 
-      // If daily quota is exhausted, don't wait
-      if (result.quotaRemaining === 0) {
-        return result;
-      }
-
       // Wait based on rate limit or use intelligent backoff
       const waitTime = result.waitTimeMs > 0 ? result.waitTimeMs : 1000;
       const cappedWaitTime = Math.min(waitTime, 5000); // Max 5 second wait
@@ -166,8 +134,6 @@ export class EnhancedRateLimiter {
     currentCount: number;
     limit: number;
     windowMs: number;
-    quotaRemaining: number;
-    dailyUsagePercent: number;
   }> {
     try {
       const now = Date.now();
@@ -178,27 +144,22 @@ export class EnhancedRateLimiter {
       await redis.zremrangebyscore(key, 0, min);
       const currentCount = await redis.zcard(key);
 
-      const [limit, quotaInfo, dailyUsagePercent] = await Promise.all([
-        sesQuotaManager.getCurrentRate(emailType),
-        sesQuotaManager.getQuotaInfo(),
-        sesQuotaManager.getDailyQuotaUsagePercent(),
-      ]);
+      // Use cached limit
+      const limit =
+        this.cachedLimits.get(emailType) ||
+        (await sesQuotaManager.getCurrentRate(emailType));
 
       return {
         currentCount,
         limit,
         windowMs: this.windowMs,
-        quotaRemaining: quotaInfo.remainingQuota,
-        dailyUsagePercent,
       };
     } catch (error) {
-      console.error('Error getting enhanced rate limit status:', error);
+      console.error('Error getting rate limit status:', error);
       return {
         currentCount: 0,
         limit: 1,
         windowMs: this.windowMs,
-        quotaRemaining: 0,
-        dailyUsagePercent: 100,
       };
     }
   }
@@ -243,8 +204,8 @@ export class EnhancedRateLimiter {
    */
   async refreshQuotaLimits(): Promise<void> {
     console.log('🔄 Refreshing SES quota and rate limits...');
-    this.lastQuotaCheck = 0; // Force quota check on next acquire
     await sesQuotaManager.refreshQuota();
+    this.cachedLimits.clear(); // Will be lazily repopulated on next tryAcquire()
   }
 }
 
