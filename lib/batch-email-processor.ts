@@ -482,7 +482,7 @@ export class BatchEmailProcessor {
       sentKey,
       messageId,
       'EX',
-      2 * 24 * 60 * 60,
+      60 * 24 * 60 * 60,
       'NX'
     );
 
