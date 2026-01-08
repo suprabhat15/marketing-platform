@@ -183,7 +183,7 @@ export class SESQuotaManager {
    * Falls back to fetching once if not yet cached
    */
   public async getRateLimit(): Promise<number> {
-    if (this.cachedRateLimit) {
+    if (this.cachedRateLimit !== null) {
       return this.cachedRateLimit;
     }
 

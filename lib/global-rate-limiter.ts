@@ -41,7 +41,6 @@ export class EnhancedRateLimiter {
       const min = now - this.windowMs;
       const key = this.getRateLimitKey(emailType);
 
-      // Get cached rate limit (no API calls)
       let limit = this.cachedLimits.get(emailType);
       if (!limit) {
         // First time - fetch and cache
@@ -144,10 +143,12 @@ export class EnhancedRateLimiter {
       await redis.zremrangebyscore(key, 0, min);
       const currentCount = await redis.zcard(key);
 
-      // Use cached limit
-      const limit =
-        this.cachedLimits.get(emailType) ||
-        (await sesQuotaManager.getCurrentRate(emailType));
+      // Use cached limit or fetch and cache
+      let limit = this.cachedLimits.get(emailType);
+      if (!limit) {
+        limit = await sesQuotaManager.getCurrentRate(emailType);
+        this.cachedLimits.set(emailType, limit);
+      }
 
       return {
         currentCount,
