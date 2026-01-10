@@ -49,7 +49,7 @@ export const batchQueue = new Queue<BatchEmailData>(
 
 export const emailQueue = batchQueue; // Alias for backward compatibility
 
-export const dlqQueue = new Queue<any>('email-dlq', {
+export const dlqQueue = new Queue<any, any, string>('email-dlq', {
   connection: redisForDlq,
   defaultJobOptions: {
     removeOnComplete: 10,
@@ -58,7 +58,7 @@ export const dlqQueue = new Queue<any>('email-dlq', {
   },
 });
 
-export const batchDlqQueue = new Queue<any>('batch-dlq', {
+export const batchDlqQueue = new Queue<any, any, string>('batch-dlq', {
   connection: redisForDlq,
   defaultJobOptions: {
     removeOnComplete: 10,
@@ -68,7 +68,7 @@ export const batchDlqQueue = new Queue<any>('batch-dlq', {
 });
 
 // Polar ingestion queue for handling SENT events to avoid 429 rate limits
-export const polarIngestionQueue = new Queue<any>('polar-ingestion', {
+export const polarIngestionQueue = new Queue<any, any, string>('polar-ingestion', {
   connection: connectionForQueue,
   defaultJobOptions: {
     removeOnComplete: 20,
