@@ -1,11 +1,13 @@
 import { Queue, Worker, Job } from 'bullmq';
+import type { EventType } from '@prisma/client';
 import { prisma } from './prisma';
 import { BatchEmailProcessor, BatchEmailData } from './batch-email-processor';
 import { redis, getRedisInstance } from './redis';
 
-const redisForDlq = redis;
-
-// ----------------- Interfaces -----------------
+export type CampaignJobName = 'process-campaign';
+export type BatchJobName = 'process-batch';
+export type DlqJobName = 'failed-email' | 'failed-batch';
+export type PolarJobName = 'ingest-sent-event';
 
 interface CampaignJobData {
   campaignId: string;
@@ -13,9 +15,40 @@ interface CampaignJobData {
   batchSize?: number;
 }
 
-// ----------------- Queue Setup -----------------
+export interface FailedEmailJobData {
+  campaignId: string;
+  subscriberId: string;
+  email: string;
+  templateHtml: string;
+  subject: string;
+  fromEmail: string;
+  fromName: string;
+  replyTo: string;
+  error: string;
+  attempts: number;
+  failedAt: string;
+  errorType: string;
+}
 
-// Use centralized Redis connection manager - share connections for better stability
+export interface FailedBatchJobData {
+  originalJobData: BatchEmailData;
+  failedReason: string;
+  failedAt: string;
+  attemptsMade: number;
+  jobId?: string | number;
+}
+
+export interface PolarIngestionJobData {
+  userId: string;
+  eventType: EventType;
+  eventData: {
+    campaignId: string;
+    subscriberId: string;
+    metadata?: Record<string, any>;
+  };
+  queuedAt: string;
+}
+
 const sharedRedisConnection = getRedisInstance('default');
 const connectionForQueue = sharedRedisConnection;
 const connectionForWorker = getRedisInstance('worker');
@@ -24,10 +57,9 @@ const defaultJobOptions = {
   removeOnComplete: true,
   removeOnFail: 100,
   attempts: 3,
-  backoff: { type: 'exponential', delay: 5000 }
+  backoff: { type: 'exponential', delay: 5000 },
 };
 
-// Email sending queue configuration
 const emailQueueConfig = {
   connection: connectionForQueue,
   defaultJobOptions: {
@@ -35,54 +67,61 @@ const emailQueueConfig = {
   },
 };
 
-// ----------------- Email Sending Queues -----------------
-
-export const campaignQueue = new Queue<CampaignJobData>(
+export const campaignQueue = new Queue<CampaignJobData, void, CampaignJobName>(
   'campaign-processing',
   emailQueueConfig
 );
 
-export const batchQueue = new Queue<BatchEmailData>(
+export const batchQueue = new Queue<BatchEmailData, void, BatchJobName>(
   'batch-processing',
   emailQueueConfig
 );
 
-export const emailQueue = batchQueue; // Alias for backward compatibility
+export const dlqQueue = new Queue<FailedEmailJobData, void, DlqJobName>(
+  'email-dlq',
+  {
+    connection: redis,
+    defaultJobOptions: {
+      removeOnComplete: 10,
+      removeOnFail: 50,
+      attempts: 1,
+    },
+  }
+);
 
-export const dlqQueue = new Queue<any, any, string>('email-dlq', {
-  connection: redisForDlq,
-  defaultJobOptions: {
-    removeOnComplete: 10,
-    removeOnFail: 50,
-    attempts: 1, // DLQ jobs shouldn't retry again
-  },
-});
+export const batchDlqQueue = new Queue<FailedBatchJobData, void, DlqJobName>(
+  'batch-dlq',
+  {
+    connection: redis,
+    defaultJobOptions: {
+      removeOnComplete: 10,
+      removeOnFail: 50,
+      attempts: 1,
+    },
+  }
+);
 
-export const batchDlqQueue = new Queue<any, any, string>('batch-dlq', {
-  connection: redisForDlq,
-  defaultJobOptions: {
-    removeOnComplete: 10,
-    removeOnFail: 50,
-    attempts: 1,
-  },
-});
-
-// Polar ingestion queue for handling SENT events to avoid 429 rate limits
-export const polarIngestionQueue = new Queue<any, any, string>('polar-ingestion', {
+export const polarIngestionQueue = new Queue<
+  PolarIngestionJobData,
+  void,
+  PolarJobName
+>('polar-ingestion', {
   connection: connectionForQueue,
   defaultJobOptions: {
     removeOnComplete: 20,
     removeOnFail: 100,
-    attempts: 5, // More attempts for rate limit retries
+    attempts: 5,
     backoff: { type: 'exponential', delay: 2000 },
   },
 });
 
-// ----------------- Email Sending Workers -----------------
-
-export const campaignWorker = new Worker<CampaignJobData>(
+export const campaignWorker = new Worker<
+  CampaignJobData,
+  void,
+  CampaignJobName
+>(
   'campaign-processing',
-  async (job: Job<CampaignJobData>) => {
+  async (job: Job<CampaignJobData, void, CampaignJobName>) => {
     if (job.name !== 'process-campaign') return;
 
     const { campaignId, userId, batchSize = 100 } = job.data;
@@ -97,10 +136,10 @@ export const campaignWorker = new Worker<CampaignJobData>(
           subject: true,
           fromEmail: true,
           fromName: true,
-          replyTo: true, // Add replyTo field
+          replyTo: true,
           userId: true,
           listId: true,
-          template: { select: { id: true } }, // Only load template ID to reduce memory
+          template: { select: { id: true } },
           list: { include: { subscribers: { where: { status: 'ACTIVE' } } } },
         },
       });
@@ -113,7 +152,6 @@ export const campaignWorker = new Worker<CampaignJobData>(
       const subscribers = campaign.list.subscribers;
       if (!subscribers.length) return;
 
-      // Check credits before processing campaign
       const { EmailService } = await import('./email-service');
       const creditCheck = await EmailService.checkCreditsBeforeSending(
         userId,
@@ -121,9 +159,6 @@ export const campaignWorker = new Worker<CampaignJobData>(
       );
 
       if (!creditCheck.canSend) {
-        console.error(
-          `❌ Insufficient credits for campaign ${campaignId}: need ${creditCheck.creditsRequired}, have ${creditCheck.creditsAvailable}`
-        );
         await prisma.campaign.update({
           where: { id: campaignId },
           data: { status: 'FAILED' },
@@ -133,16 +168,13 @@ export const campaignWorker = new Worker<CampaignJobData>(
         );
       }
 
-      // Reserve credits upfront for the entire campaign
       const creditsReserved = await EmailService.reserveCreditsForCampaign(
         userId,
         campaignId,
         subscribers.length
       );
+
       if (!creditsReserved) {
-        console.error(
-          `❌ Failed to reserve credits for campaign ${campaignId}`
-        );
         await prisma.campaign.update({
           where: { id: campaignId },
           data: { status: 'FAILED' },
@@ -150,16 +182,12 @@ export const campaignWorker = new Worker<CampaignJobData>(
         throw new Error('Failed to reserve credits for campaign');
       }
 
-      console.log(
-        `✅ Reserved ${subscribers.length} credits for campaign ${campaignId}`
-      );
-
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'SENDING', sentAt: new Date() },
       });
 
-      const pageSize = 5000; // Larger pages for efficiency at 1M scale
+      const pageSize = 5000;
       const sendBatchSize = batchSize;
       let cursor: { id?: string } | undefined;
       let batchNumber = 0;
@@ -171,32 +199,32 @@ export const campaignWorker = new Worker<CampaignJobData>(
           where: { listId: campaign.listId, status: 'ACTIVE' },
           take: pageSize,
           ...(cursor && { cursor: { id: cursor.id }, skip: 1 }),
-          orderBy: { id: 'asc' }, // Ensure consistent cursor
+          orderBy: { id: 'asc' },
         });
         if (!page.length) break;
 
         for (let i = 0; i < page.length; i += sendBatchSize) {
           batchNumber++;
           const slice = page.slice(i, i + sendBatchSize);
-          const batchData: BatchEmailData = {
-            campaignId,
-            batchNumber,
-            totalBatches,
-            subscriberIds: slice.map((s) => s.id),
-            templateId: campaign.templateId || undefined,
-            templateHtml: campaign.content,
-            subject: campaign.subject,
-            fromEmail: campaign.fromEmail || process.env.FROM_EMAIL!,
-            fromName: campaign.fromName || process.env.FROM_NAME!,
-            replyTo: campaign.replyTo || '',
-            startIndex: 0,
-            endIndex: slice.length,
-            userId: userId,
-          };
+
           bulkBuffer.push({
-            name: 'process-batch' as const,
-            data: batchData,
-            opts: { delay: batchNumber * 1000 }, // 1s staggered start per batch
+            name: 'process-batch',
+            data: {
+              campaignId,
+              batchNumber,
+              totalBatches,
+              subscriberIds: slice.map((s) => s.id),
+              templateId: campaign.templateId || undefined,
+              templateHtml: campaign.content,
+              subject: campaign.subject,
+              fromEmail: campaign.fromEmail || process.env.FROM_EMAIL!,
+              fromName: campaign.fromName || process.env.FROM_NAME!,
+              replyTo: campaign.replyTo || '',
+              startIndex: 0,
+              endIndex: slice.length,
+              userId,
+            },
+            opts: { delay: batchNumber * 1000 },
           });
 
           if (bulkBuffer.length >= 50) {
@@ -210,7 +238,6 @@ export const campaignWorker = new Worker<CampaignJobData>(
 
       if (bulkBuffer.length) await batchQueue.addBulk(bulkBuffer);
     } catch (error) {
-      // Credit refund logic here (same as original)
       await prisma.campaign.update({
         where: { id: campaignId },
         data: { status: 'FAILED' },
@@ -221,29 +248,20 @@ export const campaignWorker = new Worker<CampaignJobData>(
   { connection: connectionForWorker, concurrency: 1 }
 );
 
-export const batchWorker = new Worker<BatchEmailData>(
+export const batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
   'batch-processing',
-  async (job: Job<BatchEmailData>) => {
+  async (job: Job<BatchEmailData, void, BatchJobName>) => {
     if (job.name !== 'process-batch') return;
 
-    // Add job timeout - increased to 15 minutes for large campaigns
     const jobTimeout = new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error('Batch job timeout')), 900000);
     });
 
     try {
-      // Optimized config: higher concurrency (10), lower delay (50ms) for faster processing
       const processor = new BatchEmailProcessor(10, 50);
-      console.log('-------------- PROCESSING BATCH ---------------- ');
-
       const processPromise = processor.processBatch(job.data);
       await Promise.race([processPromise, jobTimeout]);
 
-      console.log(
-        `Batch ${job.data.batchNumber}/${job.data.totalBatches} completed for campaign ${job.data.campaignId}`
-      );
-
-      // Check campaign completion for last batch
       if (job.data.batchNumber === job.data.totalBatches) {
         const { checkCampaignCompletion } = await import('./queue-helpers');
         setTimeout(() => {
@@ -274,15 +292,18 @@ export const batchWorker = new Worker<BatchEmailData>(
   { connection: connectionForWorker, concurrency: 7 }
 );
 
-export const emailWorker = batchWorker; // Alias for backward compatibility
+export const emailWorker = batchWorker;
 
-// Polar ingestion worker for processing SENT events with rate limiting
-export const polarIngestionWorker = new Worker<any>(
+export const polarIngestionWorker = new Worker<
+  PolarIngestionJobData,
+  void,
+  PolarJobName
+>(
   'polar-ingestion',
-  async (job: Job<any>) => {
+  async (job) => {
     if (job.name !== 'ingest-sent-event') return;
 
-    const { userId, eventType, eventData, attempt = 1 } = job.data;
+    const { userId, eventType, eventData } = job.data;
 
     try {
       const { CreditService } = await import('./credit-service');
@@ -294,7 +315,7 @@ export const polarIngestionWorker = new Worker<any>(
         error.message?.includes('Too Many Requests')
       ) {
         console.warn(
-          `⚠️ Rate limit hit for Polar ingestion (attempt ${attempt}/5), will retry with exponential backoff`
+          `⚠️ Rate limit hit for Polar ingestion, will retry with exponential backoff`
         );
         throw error;
       }
@@ -306,7 +327,7 @@ export const polarIngestionWorker = new Worker<any>(
         error.message?.includes('502')
       ) {
         console.warn(
-          `⚠️ Temporary error for Polar ingestion (attempt ${attempt}/5): ${error.message}`
+          `⚠️ Temporary error for Polar ingestion: ${error.message}`
         );
         throw error;
       }
@@ -328,9 +349,6 @@ export const polarIngestionWorker = new Worker<any>(
     concurrency: 2,
   }
 );
-
-// ----------------- Queue Management Functions -----------------
-
 export async function addCampaignToQueue(
   campaignId: string,
   userId: string,
@@ -346,7 +364,7 @@ export async function addCampaignToQueue(
 
 export async function addPolarIngestionJob(
   userId: string,
-  eventType: string,
+  eventType: EventType,
   eventData: {
     campaignId: string;
     subscriberId: string;
@@ -369,8 +387,6 @@ export async function addPolarIngestionJob(
   return job;
 }
 
-// ----------------- Worker Event Listeners -----------------
-
 campaignWorker.on('completed', (job) =>
   console.log(`✅ Campaign job ${job.id} completed (batches queued)`)
 );
@@ -392,10 +408,7 @@ polarIngestionWorker.on('failed', (job, err) =>
   console.error(`❌ Polar ingestion job ${job?.id} failed: ${err.message}`)
 );
 
-// ----------------- Graceful Shutdown -----------------
-
 export const shutdownEmailQueues = async () => {
-  console.log('👋 Closing email queues/workers...');
   await Promise.all([
     campaignQueue.close(),
     batchQueue.close(),

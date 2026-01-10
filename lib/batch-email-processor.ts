@@ -621,7 +621,7 @@ export class BatchEmailProcessor {
     ) {
       try {
         await dlqQueue.add(
-          'failed-email' as const,
+          'failed-email',
           {
             campaignId,
             subscriberId: subscriber.id,
