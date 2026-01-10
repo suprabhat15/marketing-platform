@@ -261,7 +261,7 @@ export const batchWorker = new Worker<BatchEmailData>(
         error
       );
 
-      await batchDlqQueue.add('failed-batch', {
+      await batchDlqQueue.add('failed-batch' as const, {
         originalJobData: job.data,
         failedReason: (error as Error).message,
         failedAt: new Date().toISOString(),
