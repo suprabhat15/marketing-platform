@@ -3,7 +3,7 @@ import type { EventType } from '@prisma/client';
 import { prisma } from './prisma';
 import { BatchEmailProcessor, BatchEmailData } from './batch-email-processor';
 import { redis, getRedisInstance } from './redis';
-
+import { dlqQueue, batchDlqQueue } from './dlq-queues';
 export type CampaignJobName = 'process-campaign';
 export type BatchJobName = 'process-batch';
 export type DlqJobName = 'failed-email' | 'failed-batch';
@@ -13,29 +13,6 @@ interface CampaignJobData {
   campaignId: string;
   userId: string;
   batchSize?: number;
-}
-
-export interface FailedEmailJobData {
-  campaignId: string;
-  subscriberId: string;
-  email: string;
-  templateHtml: string;
-  subject: string;
-  fromEmail: string;
-  fromName: string;
-  replyTo: string;
-  error: string;
-  attempts: number;
-  failedAt: string;
-  errorType: string;
-}
-
-export interface FailedBatchJobData {
-  originalJobData: BatchEmailData;
-  failedReason: string;
-  failedAt: string;
-  attemptsMade: number;
-  jobId?: string | number;
 }
 
 export interface PolarIngestionJobData {
@@ -75,30 +52,6 @@ export const campaignQueue = new Queue<CampaignJobData, void, CampaignJobName>(
 export const batchQueue = new Queue<BatchEmailData, void, BatchJobName>(
   'batch-processing',
   emailQueueConfig
-);
-
-export const dlqQueue = new Queue<FailedEmailJobData, void, DlqJobName>(
-  'email-dlq',
-  {
-    connection: redis,
-    defaultJobOptions: {
-      removeOnComplete: 10,
-      removeOnFail: 50,
-      attempts: 1,
-    },
-  }
-);
-
-export const batchDlqQueue = new Queue<FailedBatchJobData, void, DlqJobName>(
-  'batch-dlq',
-  {
-    connection: redis,
-    defaultJobOptions: {
-      removeOnComplete: 10,
-      removeOnFail: 50,
-      attempts: 1,
-    },
-  }
 );
 
 export const polarIngestionQueue = new Queue<

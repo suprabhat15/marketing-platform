@@ -223,7 +223,8 @@ export async function markCampaignComplete(campaignId: string, status: 'SENT' = 
 // ----------------- DLQ Retry Helpers -----------------
 
 export async function retryFailedBatches(campaignId?: string, limit = 100) {
-  const { batchDlqQueue, batchQueue } = await import('./email-queues');
+  const { batchQueue } = await import('./email-queues');
+  const { batchDlqQueue } = await import('./dlq-queues');
   const jobs = await batchDlqQueue.getJobs(['waiting', 'failed'], 0, limit - 1);
 
   let retriedCount = 0;

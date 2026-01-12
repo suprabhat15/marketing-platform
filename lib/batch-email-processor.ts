@@ -3,7 +3,7 @@ import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
-import { dlqQueue } from './email-queues';
+import { dlqQueue } from './dlq-queues';
 import type { EventType } from '@prisma/client';
 
 export interface BatchEmailData {
