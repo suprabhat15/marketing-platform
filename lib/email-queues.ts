@@ -253,8 +253,12 @@ export const batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
   async (job: Job<BatchEmailData, void, BatchJobName>) => {
     if (job.name !== 'process-batch') return;
 
+    let timeoutId: NodeJS.Timeout | undefined;
     const jobTimeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Batch job timeout')), 900000);
+      timeoutId = setTimeout(
+        () => reject(new Error('Batch job timeout')),
+        900000
+      );
     });
 
     try {
@@ -287,6 +291,8 @@ export const batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
         jobId: job.id,
       });
       throw error;
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   },
   { connection: connectionForWorker, concurrency: 7 }
