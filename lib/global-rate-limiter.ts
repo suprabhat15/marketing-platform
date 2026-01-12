@@ -93,7 +93,7 @@ export class EnhancedRateLimiter {
         allowed: true,
         waitTimeMs: 0,
         currentCount: 0,
-        nextRequestDelay: 200,
+        nextRequestDelay: 1000,
         emailType,
       };
     }
