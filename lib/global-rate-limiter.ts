@@ -145,7 +145,7 @@ export class EnhancedRateLimiter {
 
       // Use cached limit or fetch and cache
       let limit = this.cachedLimits.get(emailType);
-      if (!limit) {
+      if (limit === undefined) {
         limit = await sesQuotaManager.getCurrentRate(emailType);
         this.cachedLimits.set(emailType, limit);
       }
