@@ -6,7 +6,6 @@ export {
   // Queues
   campaignQueue,
   batchQueue,
-  dlqQueue,
   batchDlqQueue,
   polarIngestionQueue,
 

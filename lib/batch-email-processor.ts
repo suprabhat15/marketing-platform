@@ -3,7 +3,7 @@ import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
-import { dlqQueue } from './queue';
+import { dlqQueue } from './email-queues';
 import type { EventType } from '@prisma/client';
 
 export interface BatchEmailData {
@@ -774,15 +774,15 @@ class Semaphore {
     return new Promise((resolve, reject) => {
       const tryAcquire = () => {
         if (this.permits > 0) {
-          this.permits--;
+          this.permits--; // acquire permit
           fn()
             .then(resolve)
             .catch(reject)
             .finally(() => {
-              this.permits++;
+              this.permits++; // release permit
               if (this.waitQueue.length > 0) {
                 const next = this.waitQueue.shift();
-                if (next) next();
+                if (next) next(); // wake up next waiting task
               }
             });
         } else {
