@@ -34,7 +34,7 @@ export const dlqQueue = new Queue<FailedEmailJobData, void, DlqJobName>(
     connection: redis,
     defaultJobOptions: {
       removeOnComplete: 10,
-      removeOnFail: 50,
+      removeOnFail: 1000,
       attempts: 1,
     },
   }
@@ -46,7 +46,7 @@ export const batchDlqQueue = new Queue<FailedBatchJobData, void, DlqJobName>(
     connection: redis,
     defaultJobOptions: {
       removeOnComplete: 10,
-      removeOnFail: 50,
+      removeOnFail: 1000,
       attempts: 1,
     },
   }
