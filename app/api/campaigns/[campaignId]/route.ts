@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { emailQueue, batchQueue } from '@/lib/queue';
+import { batchQueue } from '@/lib/queue';
 import { invalidateUserCache } from '@/lib/redis-cache';
 import { redis } from '@/lib/redis';
 
@@ -167,7 +167,11 @@ export async function DELETE(
 
     // Cancel any pending queue jobs for this campaign
     try {
-      const pendingJobs = await emailQueue.getJobs(['waiting', 'delayed', 'active']);
+      const pendingJobs = await batchQueue.getJobs([
+        'waiting',
+        'delayed',
+        'active',
+      ]);
       const campaignJobs = pendingJobs.filter(job => job.data.campaignId === campaignId);
       
       for (const job of campaignJobs) {
