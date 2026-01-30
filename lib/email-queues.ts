@@ -32,7 +32,7 @@ const connectionForWorker = getRedisInstance('worker');
 
 const defaultJobOptions = {
   removeOnComplete: true,
-  removeOnFail: 100,
+  removeOnFail: 1000,
   attempts: 3,
   backoff: { type: 'exponential', delay: 5000 },
 };
@@ -62,7 +62,7 @@ export const polarIngestionQueue = new Queue<
   connection: connectionForQueue,
   defaultJobOptions: {
     removeOnComplete: 20,
-    removeOnFail: 100,
+    removeOnFail: 1000,
     attempts: 5,
     backoff: { type: 'exponential', delay: 2000 },
   },
