@@ -28,7 +28,6 @@ const billingRateLimiter = new Ratelimit({
 
 // ---------- Constants ----------
 const PUBLIC_PATH_PREFIXES = ['/auth', '/pricing', '/privacy', '/terms'];
-const WEBHOOK_PATHS = ['/api/stripe/webhook', '/api/ses/webhook'];
 
 // ---------- Cloudflare Ingress Guard ----------
 function assertCloudflare(req: NextRequest): boolean {
@@ -85,11 +84,6 @@ export async function middleware(req: NextRequest) {
     if (!isAllowed) {
       return new NextResponse('Access Denied', { status: 403 });
     }
-  }
-
-  // ---------- Webhook bypass ----------
-  if (WEBHOOK_PATHS.includes(pathname)) {
-    return NextResponse.next();
   }
 
   // ---------- Session ----------
