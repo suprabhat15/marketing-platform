@@ -8,6 +8,11 @@ const redis = new Redis({
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
 
+// ---------- Environment ----------
+const isProduction =
+  process.env.NODE_ENV === 'production' &&
+  process.env.NEXT_PUBLIC_IS_SANDBOX !== 'true';
+
 // ---------- Rate limiters (API ONLY) ----------
 const authRateLimiter = new Ratelimit({
   redis,
@@ -23,16 +28,23 @@ const billingRateLimiter = new Ratelimit({
 
 // ---------- Constants ----------
 const PUBLIC_PATH_PREFIXES = ['/auth', '/pricing', '/privacy', '/terms'];
-
 const WEBHOOK_PATHS = ['/api/stripe/webhook', '/api/ses/webhook'];
+
+// ---------- Cloudflare Ingress Guard ----------
+function assertCloudflare(req: NextRequest): boolean {
+  const cfIp = req.headers.get('cf-connecting-ip');
+  const cfRay = req.headers.get('cf-ray');
+  return Boolean(cfIp && cfRay);
+}
 
 // ---------- Utils ----------
 function getIp(req: NextRequest): string {
-  return req.headers.get('cf-connecting-ip') ?? req.ip ?? '127.0.0.1';
+  // Safe because we enforce Cloudflare-only ingress in prod
+  return req.headers.get('cf-connecting-ip') ?? '127.0.0.1';
 }
 
 // Edge-safe hashing
-async function hash(value: string) {
+async function hash(value: string): Promise<string> {
   const data = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(digest))
@@ -54,11 +66,17 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // ---------- Enforce Cloudflare-only access ----------
+  if (isProduction && !assertCloudflare(req)) {
+    console.error('Blocked non-Cloudflare request', {
+      host: req.headers.get('host'),
+      ua: req.headers.get('user-agent'),
+    });
+    return new NextResponse('Forbidden', { status: 403 });
+  }
+
   // ---------- Domain enforcement ----------
   const allowedDomain = process.env.ALLOWED_DOMAIN;
-  const isProduction =
-    process.env.NODE_ENV === 'production' &&
-    process.env.NEXT_PUBLIC_IS_SANDBOX !== 'true';
 
   if (isProduction && allowedDomain && hostname) {
     const isAllowed =
