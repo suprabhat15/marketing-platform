@@ -1,7 +1,8 @@
 import { Queue } from 'bullmq';
 import { redis } from './redis';
 
-export type DlqJobName = 'failed-email' | 'failed-batch';
+export type DlqFailedEmail = 'failed-email';
+export type DlqFailedBatch = 'failed-batch';
 
 export interface FailedEmailJobData {
   campaignId: string;
@@ -28,7 +29,7 @@ export interface FailedBatchJobData {
 
 /* ---------------- DLQ Queue ---------------- */
 
-export const dlqQueue = new Queue<FailedEmailJobData, void, DlqJobName>(
+export const dlqQueue = new Queue<FailedEmailJobData, void, DlqFailedEmail>(
   'email-dlq',
   {
     connection: redis,
@@ -40,14 +41,15 @@ export const dlqQueue = new Queue<FailedEmailJobData, void, DlqJobName>(
   }
 );
 
-export const batchDlqQueue = new Queue<FailedBatchJobData, void, DlqJobName>(
-  'batch-dlq',
-  {
-    connection: redis,
-    defaultJobOptions: {
-      removeOnComplete: 10,
-      removeOnFail: 1000,
-      attempts: 1,
-    },
-  }
-);
+export const batchDlqQueue = new Queue<
+  FailedBatchJobData,
+  void,
+  DlqFailedBatch
+>('batch-dlq', {
+  connection: redis,
+  defaultJobOptions: {
+    removeOnComplete: 10,
+    removeOnFail: 1000,
+    attempts: 1,
+  },
+});

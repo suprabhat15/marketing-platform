@@ -3,7 +3,7 @@ import { sendEmail } from './ses';
 import { prisma } from './prisma';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
-import { DlqJobName, dlqQueue } from './dlq-queues';
+import { DlqFailedEmail, dlqQueue } from './dlq-queues';
 import type { EventType } from '@prisma/client';
 
 export interface BatchEmailData {
@@ -621,7 +621,7 @@ export class BatchEmailProcessor {
     ) {
       try {
         await dlqQueue.add(
-          'failed-email' as DlqJobName,
+          'failed-email' as DlqFailedEmail,
           {
             campaignId,
             subscriberId: subscriber.id,
