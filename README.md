@@ -27,62 +27,8 @@ MailPackr is a modern, developer-first email marketing platform designed for hig
 
 ## Architecture
 
-MailPackr uses a queue-based architecture to handle high-volume email sending reliably.
+MailPackr uses a queue-driven, event-oriented architecture to process and deliver high-volume email campaigns reliably while maintaining deliverability safeguards and observability.
 
-```mermaid
-graph TD
-    subgraph Client
-        User[User / Browser]
-    end
-
-    subgraph "Next.js Application Server"
-        API[API Routes (app/api/*)]
-        UI[UI Components]
-    end
-
-    subgraph "Data & State"
-        Postgres[(PostgreSQL DB)]
-        Redis[(Redis Cache & Queues)]
-    end
-
-    subgraph "Job Processing (BullMQ)"
-        CampaignQueue[Campaign Queue]
-        BatchQueue[Batch Queue]
-        CampaignWorker[Campaign Worker]
-        BatchWorker[Batch Email Processor]
-    end
-
-    subgraph "External Services"
-        SES[AWS SES]
-        Polar[Polar Billing]
-    end
-
-    %% Flows
-    User -->|Interacts| UI
-    UI -->|Requests| API
-    
-    %% Campaign Sending Flow
-    API -->|1. Validate & Deduct| Polar
-    API -->|2. Enqueue Campaign| CampaignQueue
-    
-    CampaignQueue -->|3. Process Campaign| CampaignWorker
-    CampaignWorker -->|4. Fetch Campaign & Subscribers| Postgres
-    CampaignWorker -->|5. Create Batches| BatchQueue
-    
-    BatchQueue -->|6. Process Batch| BatchWorker
-    BatchWorker -->|7. Check Rate Limit| Redis
-    BatchWorker -->|8. Personalize & Send| SES
-    BatchWorker -->|9. Log Events| Postgres
-    
-    %% Feedback Loop
-    SES -.->|Webhooks (Bounces/Complaints)| API
-    API -->|Update Subscriber Status| Postgres
-
-    %% Connections
-    CampaignWorker -.->|Uses| Redis
-    BatchWorker -.->|Uses| Redis
-    API -.->|Uses| Postgres
-```
 
 ### Core Components
 
