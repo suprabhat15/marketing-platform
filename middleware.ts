@@ -3,10 +3,16 @@ import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
 
 // ---------- Redis (Edge-safe) ----------
-const redis = new Redis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
-});
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+const canUseRateLimit = Boolean(redisUrl && redisToken);
+
+const redis = canUseRateLimit
+  ? new Redis({
+      url: redisUrl,
+      token: redisToken,
+    })
+  : null;
 
 // ---------- Environment ----------
 const isProduction =
@@ -14,17 +20,21 @@ const isProduction =
   process.env.NEXT_PUBLIC_IS_SANDBOX !== 'true';
 
 // ---------- Rate limiters (API ONLY) ----------
-const authRateLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(5, '1 m'),
-  prefix: 'ratelimit:api:auth',
-});
+const authRateLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(5, '1 m'),
+      prefix: 'ratelimit:api:auth',
+    })
+  : null;
 
-const billingRateLimiter = new Ratelimit({
-  redis,
-  limiter: Ratelimit.slidingWindow(10, '1 m'),
-  prefix: 'ratelimit:api:billing',
-});
+const billingRateLimiter = redis
+  ? new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(10, '1 m'),
+      prefix: 'ratelimit:api:billing',
+    })
+  : null;
 
 // ---------- Constants ----------
 const PUBLIC_PATH_PREFIXES = ['/auth', '/pricing', '/privacy', '/terms'];
@@ -123,6 +133,12 @@ export async function middleware(req: NextRequest) {
         }
       );
     }
+  }
+
+  if (!canUseRateLimit && pathname.startsWith('/api')) {
+    console.warn(
+      'Rate limit skipped: missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN'
+    );
   }
 
   // ---------- Auth Routing ----------
