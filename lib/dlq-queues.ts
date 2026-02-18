@@ -1,7 +1,14 @@
 import { Queue } from 'bullmq';
 import { redis } from './redis';
 
-export type DlqFailedEmail = 'failed-email';
+// export type DlqFailedEmail = 'failed-email';
+export const DLQ_JOB_NAMES = {
+  FAILED_EMAIL: 'failed-email',
+} as const;
+
+export type DlqFailedEmail =
+  typeof DLQ_JOB_NAMES.FAILED_EMAIL;
+
 export type DlqFailedBatch = 'failed-batch';
 
 export interface FailedEmailJobData {
