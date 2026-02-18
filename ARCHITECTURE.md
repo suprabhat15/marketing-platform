@@ -53,7 +53,7 @@ The system is a high-performance email marketing platform composed of the follow
 
 *   **Queue-Worker Pattern:** The architectural backbone. Decouples the heavy lifting of sending emails from the user-facing API response.
 *   **Singleton Pattern:** Strictly enforced for database and cache connections (`lib/prisma.ts`, `lib/redis.ts`, `lib/global-rate-limiter.ts`) to prevent connection exhaustion in serverless/hot-reload environments.
-*   **Token Bucket / Sliding Window:** Implemented in `EnhancedRateLimiter` using Redis `ZSET`s to manage distributed rate limiting with precision.
+*   **Sliding Window:** Implemented in `EnhancedRateLimiter` using Redis `ZSET`s to manage distributed rate limiting with precision.
 *   **Facade Pattern:** The `EmailService` and `SES` modules provide a simplified interface over the complex AWS SDK.
 *   **Dead Letter Queue (DLQ):** Implicitly supported by BullMQ configuration to handle permanently failed jobs without clogging the active queues.
 
