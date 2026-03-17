@@ -62,7 +62,7 @@
     "@upstash/ratelimit": "^2.0.7",
     "@upstash/redis": "^1.36.0",
     "better-auth": "1.3.9",
-    "bullmq": "^5.36.5",
+    "bullmq": "^4.18.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",

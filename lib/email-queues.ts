@@ -6,7 +6,6 @@ import { redis, getRedisInstance } from './redis';
 import { dlqQueue, batchDlqQueue } from './dlq-queues';
 export type CampaignJobName = 'process-campaign';
 export type BatchJobName = 'process-batch';
-export type DlqJobName = 'failed-email' | 'failed-batch';
 export type PolarJobName = 'ingest-sent-event';
 
 interface CampaignJobData {
