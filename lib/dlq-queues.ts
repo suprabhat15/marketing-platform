@@ -2,14 +2,16 @@ import { Queue } from 'bullmq';
 import { redis } from './redis';
 
 // export type DlqFailedEmail = 'failed-email';
-export const DLQ_JOB_NAMES = {
-  FAILED_EMAIL: 'failed-email',
-} as const;
+// export type DlqFailedBatch = 'failed-batch';
 
-export type DlqFailedEmail =
-  typeof DLQ_JOB_NAMES.FAILED_EMAIL;
 
-export type DlqFailedBatch = 'failed-batch';
+export type DlqFailedEmailJobMap = {
+  'failed-email': FailedEmailJobData;
+};
+
+export type DlqFailedBatchJobMap = {
+  'failed-batch': FailedBatchJobData;
+};
 
 export interface FailedEmailJobData {
   campaignId: string;
@@ -36,22 +38,23 @@ export interface FailedBatchJobData {
 
 /* ---------------- DLQ Queue ---------------- */
 
-export const dlqQueue = new Queue<FailedEmailJobData, void, DlqFailedEmail>(
-  'email-dlq',
-  {
-    connection: redis,
-    defaultJobOptions: {
-      removeOnComplete: 10,
-      removeOnFail: 1000,
-      attempts: 1,
-    },
-  }
-);
+export const dlqQueue = new Queue<
+  DlqFailedEmailJobMap[keyof DlqFailedEmailJobMap],
+  void,
+  keyof DlqFailedEmailJobMap
+>('email-dlq', {
+  connection: redis,
+  defaultJobOptions: {
+    removeOnComplete: 10,
+    removeOnFail: 1000,
+    attempts: 1,
+  },
+});
 
 export const batchDlqQueue = new Queue<
-  FailedBatchJobData,
+  DlqFailedBatchJobMap[keyof DlqFailedBatchJobMap],
   void,
-  DlqFailedBatch
+  keyof DlqFailedBatchJobMap
 >('batch-dlq', {
   connection: redis,
   defaultJobOptions: {
