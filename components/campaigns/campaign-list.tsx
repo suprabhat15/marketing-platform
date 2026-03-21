@@ -292,10 +292,10 @@ export function CampaignList({
                       <Badge className={getStatusColor(campaign.latestStatus)}>
                         {getStatusLabel(campaign.latestStatus)}
                       </Badge>
-                      <Badge variant="outline" className="text-xs">
+                      {/* <Badge variant="outline" className="text-xs">
                         <Activity className="mr-1 h-3 w-3" />
                         {campaign.totalEvents} events
-                      </Badge>
+                      </Badge> */}
                     </div>
 
                     <p className="text-muted-foreground text-sm">
