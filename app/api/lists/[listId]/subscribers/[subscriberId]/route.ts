@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
 import { updateSubscriberSchema } from "@/lib/validators";
 import { ZodError } from 'zod';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 // PATCH /api/lists/[listId]/subscribers/[subscriberId] - Update a subscriber
 export async function PATCH(
@@ -107,9 +108,9 @@ export async function DELETE(
 
     // Check if subscriber exists and belongs to the list
     const existingSubscriber = await prisma.subscriber.findFirst({
-      where: { 
+      where: {
         id: subscriberId,
-        listId 
+        listId,
       },
     });
 
@@ -125,8 +126,11 @@ export async function DELETE(
       where: { id: subscriberId },
     });
 
-    return NextResponse.json({ 
-      message: 'Subscriber deleted successfully'
+    // Invalidate lists cache so dashboard shows updated count
+    await invalidateUserCache(session.user.id, 'lists');
+
+    return NextResponse.json({
+      message: 'Subscriber deleted successfully',
     });
   } catch (error) {
     console.error('Error deleting subscriber:', error);

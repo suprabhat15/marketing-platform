@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
+import { invalidateUserCache } from "@/lib/redis-cache";
 
 // GET /api/lists/[listId]/subscribers
 export async function GET(
@@ -151,6 +152,9 @@ export async function POST(
         listId,
       })),
     });
+
+    // Invalidate lists cache so dashboard shows updated count
+    await invalidateUserCache(session.user.id, 'lists');
 
     return NextResponse.json({
       message: "Subscribers imported successfully",

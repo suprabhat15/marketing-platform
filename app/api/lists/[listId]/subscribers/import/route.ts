@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { importSubscribersSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 // POST /api/lists/[listId]/subscribers/import - Import subscribers from CSV
 export async function POST(
@@ -75,6 +76,11 @@ export async function POST(
         })),
       });
       importedCount = result.count;
+
+      // Invalidate lists cache so dashboard shows updated count
+      if (list.userId) {
+        await invalidateUserCache(list.userId, 'lists');
+      }
     }
 
     return NextResponse.json({
