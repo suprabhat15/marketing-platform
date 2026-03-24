@@ -83,19 +83,15 @@ export function ListsDashboard() {
       if (response.ok) {
         setLists((prevLists) => prevLists.filter((list) => list.id !== listId));
       } else {
-        let errorMessage = 'Failed to delete list';
-        try {
-          const data = await response.json();
-          errorMessage = data.error || errorMessage;
-        } catch {
-          // Response body is not JSON, use default message
-        }
-        alert(errorMessage);
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete list');
       }
     } catch (error) {
       console.error('Error deleting list:', error);
       alert('Failed to delete list');
     }
+  };
+
   // Memoized function to calculate stats from optimized data structure
   const calculateListStats = useCallback((list: List): ListStats => {
     if (!list.subscribers) {
