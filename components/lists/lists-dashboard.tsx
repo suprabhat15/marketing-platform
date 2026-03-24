@@ -80,12 +80,15 @@ export function ListsDashboard() {
       const response = await fetch(`/api/lists/${listId}`, {
         method: 'DELETE',
       });
-      
       if (response.ok) {
         setLists((prevLists) => prevLists.filter((list) => list.id !== listId));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete list');
       }
     } catch (error) {
       console.error('Error deleting list:', error);
+      alert('Failed to delete list');
     }
   };
 

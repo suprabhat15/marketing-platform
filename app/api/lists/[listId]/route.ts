@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { updateListSchema, updateListBasicSchema } from "@/lib/validators";
+import { updateListSchema, updateListBasicSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 // GET /api/lists/[listId] - Get specific list details
 export async function GET(
@@ -35,10 +36,7 @@ export async function GET(
     });
 
     if (!list) {
-      return NextResponse.json(
-        { error: 'List not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'List not found' }, { status: 404 });
     }
 
     return NextResponse.json(list);
@@ -68,14 +66,14 @@ export async function PUT(
 
     const { listId } = await params;
     const body = await request.json();
-    
+
     // Check if this is a basic update (name/description only) or full update with subscribers
     const isBasicUpdate = !body.hasOwnProperty('subscribers');
-    
+
     if (isBasicUpdate) {
       // Handle basic list updates (name/description only)
       const { name, description } = updateListBasicSchema.parse(body);
-      
+
       // Verify user owns the list before updating
       const existingList = await prisma.list.findFirst({
         where: {
@@ -85,12 +83,9 @@ export async function PUT(
       });
 
       if (!existingList) {
-        return NextResponse.json(
-          { error: 'List not found' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'List not found' }, { status: 404 });
       }
-      
+
       const updatedList = await prisma.list.update({
         where: { id: listId },
         data: {
@@ -104,6 +99,8 @@ export async function PUT(
           },
         },
       });
+
+      await invalidateUserCache(session.user.id, 'lists');
 
       return NextResponse.json(updatedList);
     } else {
@@ -120,10 +117,7 @@ export async function PUT(
       });
 
       if (!existingList) {
-        return NextResponse.json(
-          { error: 'List not found' },
-          { status: 404 }
-        );
+        return NextResponse.json({ error: 'List not found' }, { status: 404 });
       }
 
       // Update list in transaction
@@ -140,14 +134,18 @@ export async function PUT(
 
         if (subscribers) {
           // Handle subscribers updates
-          const existingSubscriberIds = existingList.subscribers.map(s => s.id);
-          const updatedSubscriberIds = subscribers.filter(s => s.id).map(s => s.id!);
-          
+          const existingSubscriberIds = existingList.subscribers.map(
+            (s) => s.id
+          );
+          const updatedSubscriberIds = subscribers
+            .filter((s) => s.id)
+            .map((s) => s.id!);
+
           // Delete removed subscribers
           const subscribersToDelete = existingSubscriberIds.filter(
-            id => !updatedSubscriberIds.includes(id)
+            (id) => !updatedSubscriberIds.includes(id)
           );
-          
+
           if (subscribersToDelete.length > 0) {
             await tx.subscriber.deleteMany({
               where: { id: { in: subscribersToDelete } },
@@ -184,6 +182,8 @@ export async function PUT(
 
         return list;
       });
+
+      await invalidateUserCache(session.user.id, 'lists');
 
       return NextResponse.json(updatedList);
     }
@@ -228,10 +228,7 @@ export async function DELETE(
     });
 
     if (!existingList) {
-      return NextResponse.json(
-        { error: 'List not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'List not found' }, { status: 404 });
     }
 
     // Check if there are campaigns using this list
@@ -241,10 +238,10 @@ export async function DELETE(
     });
 
     if (campaignsUsingList.length > 0) {
-      const campaignNames = campaignsUsingList.map(c => c.name).join(', ');
+      const campaignNames = campaignsUsingList.map((c) => c.name).join(', ');
       return NextResponse.json(
-        { 
-          error: `Cannot delete list. It is being used by ${campaignsUsingList.length} campaign(s): ${campaignNames}. Please delete or update these campaigns first.` 
+        {
+          error: `Cannot delete list. It is being used by ${campaignsUsingList.length} campaign(s): ${campaignNames}. Please delete or update these campaigns first.`,
         },
         { status: 400 }
       );
@@ -254,6 +251,9 @@ export async function DELETE(
     await prisma.list.delete({
       where: { id: listId },
     });
+
+    // Invalidate lists cache
+    await invalidateUserCache(session.user.id, 'lists');
 
     return NextResponse.json({ message: 'List deleted successfully' });
   } catch (error) {
