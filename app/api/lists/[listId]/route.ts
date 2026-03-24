@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { updateListSchema, updateListBasicSchema } from "@/lib/validators";
 import { ZodError } from 'zod';
+import { invalidateUserCache } from '@/lib/redis-cache';
 
 // GET /api/lists/[listId] - Get specific list details
 export async function GET(
@@ -254,6 +255,9 @@ export async function DELETE(
     await prisma.list.delete({
       where: { id: listId },
     });
+
+    // Invalidate lists cache
+    await invalidateUserCache(session.user.id, 'lists');
 
     return NextResponse.json({ message: 'List deleted successfully' });
   } catch (error) {
