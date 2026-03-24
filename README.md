@@ -14,6 +14,23 @@ MailPackr is a modern, developer-first email marketing platform designed for hig
 - **Authentication**: Secure authentication via Better Auth (Email/Password + Google OAuth).
 - **Developer Friendly**: Built with modern tech stack, fully typed, and easy to extend.
 
+## Screenshots
+
+### Campaigns Dashboard
+<img src="public/campaigns.png" alt="Campaigns Dashboard" width="800"/>
+
+### Campaign Detail
+<img src="public/campaign-detail.png" alt="Campaign Detail" width="800"/>
+
+### Subscriber Lists
+<img src="public/lists.png" alt="Subscriber Lists" width="800"/>
+
+### Email Templates
+<img src="public/templates.png" alt="Email Templates" width="800"/>
+
+### Domains
+<img src="public/domains.png" alt="Domains" width="800"/>
+
 ## Tech Stack
 
 - **Framework**: [Next.js 15](https://nextjs.org/) (App Router)
