@@ -49,6 +49,8 @@ export async function POST(request: NextRequest) {
         cnameValue2: dnsRecords.cname[1]?.value,
         cnameKey3: dnsRecords.cname[2]?.key,
         cnameValue3: dnsRecords.cname[2]?.value,
+        mailFromMxRecord: dnsRecords.mailFromMx.value,
+        mailFromTxtRecord: dnsRecords.mailFromTxt.value,
       },
     });
 
@@ -111,10 +113,12 @@ export async function GET(request: NextRequest) {
         { key: domainRecord.cnameKey2, value: domainRecord.cnameValue2 },
         { key: domainRecord.cnameKey3, value: domainRecord.cnameValue3 },
       ],
+      mailFromMx: { key: "mail", value: domainRecord.mailFromMxRecord! },
+      mailFromTxt: { key: "mail", value: domainRecord.mailFromTxtRecord! },
     });
 
     // 3. Lazy import AWS SDK only when needed
-    const { GetIdentityVerificationAttributesCommand, GetIdentityDkimAttributesCommand } =
+    const { GetIdentityVerificationAttributesCommand, GetIdentityDkimAttributesCommand, SetIdentityMailFromDomainCommand } =
       await import("@aws-sdk/client-ses");
     const { sesClient } = await import("@/lib/ses");
 
@@ -141,6 +145,15 @@ export async function GET(request: NextRequest) {
       sesVerification?.VerificationStatus === "Success" &&
       domainRecord.status !== "VERIFIED"
     ) {
+      // Configure custom MAIL FROM domain in SES with fallback to default on MX failure
+      await sesClient.send(
+        new SetIdentityMailFromDomainCommand({
+          Identity: domain,
+          MailFromDomain: `mail.${domain}`,
+          BehaviorOnMXFailure: "UseDefaultValue",
+        })
+      );
+
       await prisma.domain.update({
         where: { id: domainRecord.id },
         data: { status: "VERIFIED", verifiedAt: new Date() },
@@ -164,6 +177,8 @@ export async function GET(request: NextRequest) {
           { key: domainRecord.cnameKey2, value: domainRecord.cnameValue2 },
           { key: domainRecord.cnameKey3, value: domainRecord.cnameValue3 },
         ],
+        mailFromMx: { key: "mail", value: domainRecord.mailFromMxRecord },
+        mailFromTxt: { key: "mail", value: domainRecord.mailFromTxtRecord },
       },
     });
   } catch (error) {

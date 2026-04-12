@@ -180,6 +180,9 @@ model Domain {
   cnameKey3    String?
   cnameValue3  String?
 
+  mailFromMxRecord  String?
+  mailFromTxtRecord String?
+
   userId String
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
