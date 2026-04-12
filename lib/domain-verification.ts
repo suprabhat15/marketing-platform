@@ -15,6 +15,14 @@ export interface DnsRecords {
     key: string;
     value: string;
   }>;
+  mailFromMx: {
+    key: string;
+    value: string;
+  };
+  mailFromTxt: {
+    key: string;
+    value: string;
+  };
 }
 
 export interface VerificationResult {
@@ -27,6 +35,8 @@ export interface VerificationResult {
     value: string;
     verified: boolean;
   }>;
+  mailFromMxVerified: boolean;
+  mailFromTxtVerified: boolean;
   errors: string[];
 }
 
@@ -40,7 +50,10 @@ export async function generateDnsRecords(domain: string): Promise<DnsRecords> {
   // 2. Ask SES to create DKIM records (3 CNAMEs)
   const dkim = await sesClient.send(new VerifyDomainDkimCommand({ Domain: domain }));
 
-  // 3. Build records
+  // 3. Derive region-specific endpoints from configured AWS region
+  const region = process.env.AWS_REGION || "us-east-1";
+
+  // 4. Build records
   return {
     // TXT verification token SES expects
     txt: {
@@ -50,13 +63,23 @@ export async function generateDnsRecords(domain: string): Promise<DnsRecords> {
     // MX record for SES inbound mail (optional, but safe to include)
     mx: {
       key: domain,
-      value: "10 inbound-smtp.us-east-1.amazonaws.com",
+      value: `10 inbound-smtp.${region}.amazonaws.com`,
     },
     // DKIM CNAMEs (3 values)
     cname: dkim.DkimTokens!.map((token) => ({
       key: `${token}._domainkey`,
       value: `${token}.dkim.amazonses.com`,
     })),
+    // MAIL FROM domain MX record
+    mailFromMx: {
+      key: "mail",
+      value: `10 feedback-smtp.${region}.amazonses.com`,
+    },
+    // MAIL FROM domain SPF TXT record
+    mailFromTxt: {
+      key: "mail",
+      value: "v=spf1 include:amazonses.com ~all",
+    },
   };
 }
 
@@ -70,6 +93,8 @@ export async function verifyDnsRecords(
     mxVerified: false,
     cnameVerified: false,
     cnameDetails: [],
+    mailFromMxVerified: false,
+    mailFromTxtVerified: false,
     errors: [],
   };
 
@@ -83,13 +108,20 @@ export async function verifyDnsRecords(
     // Verify CNAME (DKIM) records
     const cnameResults = await Promise.all(
       expectedRecords.cname.map(async (record) => {
-        const verified = await verifyCnameRecord(domain, record.key, record.value);
+        const verified = await verifyCnameRecord(record.key, record.value);
         return { ...record, verified };
       })
     );
 
     result.cnameDetails = cnameResults;
     result.cnameVerified = cnameResults.every((r) => r.verified);
+
+    // Verify MAIL FROM MX record (key is "mail", resolve against mail.{domain})
+    const mailFromDomain = `${expectedRecords.mailFromMx.key}.${domain}`;
+    result.mailFromMxVerified = await verifyMxRecord(mailFromDomain, expectedRecords.mailFromMx.value);
+
+    // Verify MAIL FROM SPF TXT record
+    result.mailFromTxtVerified = await verifyTxtRecord(mailFromDomain, expectedRecords.mailFromTxt.value);
 
     // Overall verification
     result.verified = result.txtVerified && result.cnameVerified;
@@ -121,7 +153,7 @@ async function verifyMxRecord(domain: string, expectedValue: string): Promise<bo
   }
 }
 
-async function verifyCnameRecord(domain: string, recordKey: string, expectedValue: string): Promise<boolean> {
+async function verifyCnameRecord(recordKey: string, expectedValue: string): Promise<boolean> {
   try {
     const records = await dns.resolveCname(recordKey);
     return records.some(record => record === expectedValue);

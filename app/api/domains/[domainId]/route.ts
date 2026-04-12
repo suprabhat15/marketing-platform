@@ -5,6 +5,7 @@ import { verifyDnsRecords } from "@/lib/domain-verification";
 import {
   GetIdentityVerificationAttributesCommand,
   GetIdentityDkimAttributesCommand,
+  SetIdentityMailFromDomainCommand,
 } from "@aws-sdk/client-ses";
 import { sesClient } from "@/lib/ses";
 
@@ -46,6 +47,8 @@ export async function GET(
         { key: domainRecord.cnameKey2!, value: domainRecord.cnameValue2! },
         { key: domainRecord.cnameKey3!, value: domainRecord.cnameValue3! },
       ],
+      mailFromMx: { key: "mail", value: domainRecord.mailFromMxRecord! },
+      mailFromTxt: { key: "mail", value: domainRecord.mailFromTxtRecord! },
     });
 
     // 3. Ask SES for authoritative status
@@ -69,6 +72,15 @@ export async function GET(
 
     // 4. Update DB status if SES confirmed verification
     if (sesVerification?.VerificationStatus === "Success" && domainRecord.status !== "VERIFIED") {
+      // Configure custom MAIL FROM domain in SES with fallback to default on MX failure
+      await sesClient.send(
+        new SetIdentityMailFromDomainCommand({
+          Identity: domainRecord.domain,
+          MailFromDomain: `mail.${domainRecord.domain}`,
+          BehaviorOnMXFailure: "UseDefaultValue",
+        })
+      );
+
       await prisma.domain.update({
         where: { id: domainRecord.id },
         data: { status: "VERIFIED", verifiedAt: new Date() },
@@ -92,6 +104,8 @@ export async function GET(
           { key: domainRecord.cnameKey2!, value: domainRecord.cnameValue2! },
           { key: domainRecord.cnameKey3!, value: domainRecord.cnameValue3! },
         ],
+        mailFromMx: { key: "mail", value: domainRecord.mailFromMxRecord! },
+        mailFromTxt: { key: "mail", value: domainRecord.mailFromTxtRecord! },
       },
     });
   } catch (error) {

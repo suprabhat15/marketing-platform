@@ -22,6 +22,8 @@ interface DomainDetailData {
     txt: DnsRecord;
     mx: DnsRecord;
     cname: DnsRecord[];
+    mailFromMx: DnsRecord;
+    mailFromTxt: DnsRecord;
   };
 }
 
@@ -169,7 +171,7 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
   }
 
   return (
-    <div className="flex h-screen bg-background">
+    <div className="bg-background flex h-screen">
       <main className="flex-1 overflow-auto">
         <div className="space-y-6">
           {/* Header */}
@@ -193,11 +195,11 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
             <CardContent className="space-y-4">
               <div className="flex items-center gap-4">
                 {getStatusBadge(domain.status)}
-                <span className="text-sm text-muted-foreground">
+                <span className="text-muted-foreground text-sm">
                   Added: {new Date(domain.createdAt).toLocaleDateString()}
                 </span>
                 {domain.verifiedAt && (
-                  <span className="text-sm text-muted-foreground">
+                  <span className="text-muted-foreground text-sm">
                     Verified: {new Date(domain.verifiedAt).toLocaleDateString()}
                   </span>
                 )}
@@ -207,12 +209,12 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
                   <Button
                     onClick={handleCheckVerification}
                     disabled={isVerifying}
-                    className="bg-blue-600 hover:bg-blue-700 text-white"
+                    className="bg-blue-600 text-white hover:bg-blue-700"
                   >
                     {isVerifying ? (
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     ) : (
-                      <RefreshCw className="w-4 h-4 mr-2" />
+                      <RefreshCw className="mr-2 h-4 w-4" />
                     )}
                     Check Verification
                   </Button>
@@ -221,12 +223,12 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
                   variant="outline"
                   onClick={handleDeleteDomain}
                   disabled={isDeleting}
-                  className="text-red-600 hover:text-red-700 border-red-200 hover:border-red-300"
+                  className="border-red-200 text-red-600 hover:border-red-300 hover:text-red-700"
                 >
                   {isDeleting ? (
-                    <Loader2 className="w-4 h-4 animate-spin mr-2" />
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
-                    <Trash2 className="w-4 h-4 mr-2" />
+                    <Trash2 className="mr-2 h-4 w-4" />
                   )}
                   Delete Domain
                 </Button>
@@ -238,9 +240,10 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
           {domain.status === 'PENDING' && (
             <Card>
               <CardContent className="pt-6">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-4">
                   <p className="text-yellow-800">
-                    Add these DNS records to your domain to verify ownership. Once added, click "Check Verification" above.
+                    Add these DNS records to your domain to verify ownership.
+                    Once added, click "Check Verification" above.
                   </p>
                 </div>
               </CardContent>
@@ -250,9 +253,10 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
           {domain.status === 'VERIFIED' && (
             <Card>
               <CardContent className="pt-6">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="rounded-lg border border-green-200 bg-green-50 p-4">
                   <p className="text-green-800">
-                    🎉 Your domain has been successfully verified! You can now send emails from this domain.
+                    🎉 Your domain has been successfully verified! You can now
+                    send emails from this domain.
                   </p>
                 </div>
               </CardContent>
@@ -264,99 +268,177 @@ export default function DomainDetail({ domainId }: DomainDetailProps) {
             <CardHeader>
               <CardTitle>DNS Records</CardTitle>
             </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {/* Table Header */}
-            <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 rounded-lg font-medium">
-              <div>Type</div>
-              <div>Name</div>
-              <div>Value</div>
-            </div>
+            <CardContent>
+              <div className="space-y-4">
+                {/* Table Header */}
+                <div className="grid grid-cols-3 gap-4 rounded-lg bg-gray-50 p-4 font-medium">
+                  <div>Type</div>
+                  <div>Name</div>
+                  <div>Value</div>
+                </div>
 
-            {/* TXT Record */}
-            <div className="border rounded-lg p-4">
-              <div className="grid grid-cols-3 gap-4 items-center">
-                <div>
-                  <Badge className="bg-blue-100 text-blue-800">TXT</Badge>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-mono break-all">
-                    {domain.records.txt.key}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => copyToClipboard(domain.records.txt.key, 'txt-name')}
-                  >
-                    {copiedRecords.has('txt-name') ? (
-                      <Check className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="text-sm font-mono break-all flex-1">
-                    {domain.records.txt.value}
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => copyToClipboard(domain.records.txt.value, 'txt-value')}
-                  >
-                    {copiedRecords.has('txt-value') ? (
-                      <Check className="w-4 h-4 text-green-600" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
+                {/* MAIL FROM Section Header */}
+                {/* <div className="pb-2">
+              <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">MAIL FROM Domain Records</h3>
+              <p className="text-xs text-muted-foreground mt-1">Required for custom MAIL FROM domain and SPF alignment</p>
+            </div> */}
 
-            {/* CNAME Records */}
-            {domain.records.cname.map((record, index) => (
-              <div key={index} className="border rounded-lg p-4">
-                <div className="grid grid-cols-3 gap-4 items-center">
-                  <div>
-                    <Badge className="bg-purple-100 text-purple-800">CNAME</Badge>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-mono break-all">
-                      {record.key}
+                {/* MAIL FROM MX Record */}
+                <div className="rounded-lg border p-4">
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <div>
+                      <Badge className="bg-orange-100 text-orange-800">
+                        MX
+                      </Badge>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(record.key, `cname-${index}-name`)}
-                    >
-                      {copiedRecords.has(`cname-${index}-name`) ? (
-                        <Check className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
-                    </Button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-sm font-mono break-all">
-                      {record.value}
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 font-mono text-sm break-all">
+                        {domain.records.mailFromMx.key}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            domain.records.mailFromMx.key,
+                            'mailfrom-mx-name'
+                          )
+                        }
+                      >
+                        {copiedRecords.has('mailfrom-mx-name') ? (
+                          <Check className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => copyToClipboard(record.value, `cname-${index}-value`)}
-                    >
-                      {copiedRecords.has(`cname-${index}-value`) ? (
-                        <Check className="w-4 h-4 text-green-600" />
-                      ) : (
-                        <Copy className="w-4 h-4" />
-                      )}
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 font-mono text-sm break-all">
+                        {domain.records.mailFromMx.value}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            domain.records.mailFromMx.value,
+                            'mailfrom-mx-value'
+                          )
+                        }
+                      >
+                        {copiedRecords.has('mailfrom-mx-value') ? (
+                          <Check className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
+
+                {/* MAIL FROM TXT (SPF) Record */}
+                <div className="rounded-lg border p-4">
+                  <div className="grid grid-cols-3 items-center gap-4">
+                    <div>
+                      <Badge className="bg-teal-100 text-teal-800">TXT</Badge>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 font-mono text-sm break-all">
+                        {domain.records.mailFromTxt.key}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            domain.records.mailFromTxt.key,
+                            'mailfrom-txt-name'
+                          )
+                        }
+                      >
+                        {copiedRecords.has('mailfrom-txt-name') ? (
+                          <Check className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 font-mono text-sm break-all">
+                        {domain.records.mailFromTxt.value}
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          copyToClipboard(
+                            domain.records.mailFromTxt.value,
+                            'mailfrom-txt-value'
+                          )
+                        }
+                      >
+                        {copiedRecords.has('mailfrom-txt-value') ? (
+                          <Check className="h-4 w-4 text-green-600" />
+                        ) : (
+                          <Copy className="h-4 w-4" />
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* CNAME Records */}
+                {domain.records.cname.map((record, index) => (
+                  <div key={index} className="rounded-lg border p-4">
+                    <div className="grid grid-cols-3 items-center gap-4">
+                      <div>
+                        <Badge className="bg-purple-100 text-purple-800">
+                          CNAME
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-mono text-sm break-all">
+                          {record.key}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            copyToClipboard(record.key, `cname-${index}-name`)
+                          }
+                        >
+                          {copiedRecords.has(`cname-${index}-name`) ? (
+                            <Check className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="font-mono text-sm break-all">
+                          {record.value}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() =>
+                            copyToClipboard(
+                              record.value,
+                              `cname-${index}-value`
+                            )
+                          }
+                        >
+                          {copiedRecords.has(`cname-${index}-value`) ? (
+                            <Check className="h-4 w-4 text-green-600" />
+                          ) : (
+                            <Copy className="h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
             </CardContent>
           </Card>
         </div>
