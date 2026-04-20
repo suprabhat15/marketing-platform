@@ -48,6 +48,16 @@ export async function POST(request: NextRequest) {
       'billing-sync',
       validatedData.subscriptionId || 'all'
     );
+    const statusCacheKey = generateUserCacheKey(session.user.id, 'billing-status');
+
+    // Invalidate the GET cache so a page refresh sees fresh data post-sync
+    const invalidateStatusCache = async () => {
+      try {
+        await RedisCache.del(statusCacheKey);
+      } catch (cacheError) {
+        console.warn('Redis cache invalidation failed:', cacheError);
+      }
+    };
 
     if (validatedData.subscriptionId) {
       const prisma = await getPrisma();
@@ -81,6 +91,7 @@ export async function POST(request: NextRequest) {
       } catch (cacheError) {
         console.warn('Redis cache write failed:', cacheError);
       }
+      await invalidateStatusCache();
 
       return NextResponse.json(result);
     } else if (validatedData.syncAll) {
@@ -131,6 +142,7 @@ export async function POST(request: NextRequest) {
       } catch (cacheError) {
         console.warn('Redis cache write failed:', cacheError);
       }
+      await invalidateStatusCache();
 
       return NextResponse.json(result);
     } else {
@@ -149,6 +161,7 @@ export async function POST(request: NextRequest) {
       } catch (cacheError) {
         console.warn('Redis cache write failed:', cacheError);
       }
+      await invalidateStatusCache();
 
       return NextResponse.json(result);
     }
