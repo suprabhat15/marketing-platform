@@ -1,47 +1,34 @@
 import type { EventType } from '@prisma/client';
 
 // Credit deduction service for email events
+// NOTE: Credit deduction for SENT events is now handled at BATCH level
+// in batch-email-processor.ts using EMAIL_BATCH ledger entries.
+// This service is kept for:
+// 1. Balance checks (hasEnoughCredits, getUserCreditBalance)
+// 2. Future non-batch credit deductions if needed
 export class CreditService {
-  // Events that consume credits - Only SENT events should deduct credits
-  // BOUNCED emails don't deduct credits since they weren't successfully delivered
-  private static CREDIT_CONSUMING_EVENTS: EventType[] = ['SENT'];
-
-  // Process email event and deduct credits if applicable
+  // Process email event - SENT events NO LONGER deduct credits here
+  // Credit deduction moved to batch-email-processor.ts (batch-level)
   static async processEmailEvent(
     userId: string,
     eventType: EventType,
-    eventData: {
+    _eventData: {
       campaignId?: string;
       subscriberId?: string;
       metadata?: Record<string, any>;
     }
   ): Promise<void> {
-    // Only process SENT events for credit deduction
-    if (!this.CREDIT_CONSUMING_EVENTS.includes(eventType)) {
+    // SENT events: Credit deduction handled at batch level (EMAIL_BATCH)
+    // This function now only logs for tracking purposes
+    if (eventType === 'SENT') {
+      console.log(
+        `📧 SENT event received for user ${userId} - credits handled at batch level`
+      );
       return;
     }
-    // console.log(
-    //   '------------------------------------------------ POLAR EVENTS INGESTION ---------------------------------------'
-    // );
-    try {
-      // Use the unified credit tracking function from polar.ts
-      const { trackEmailCreditUsage } = await import('./polar');
 
-      // Create unique event ID for idempotency
-      const eventId = `${eventData.campaignId || 'unknown'}-${eventData.subscriberId || 'unknown'}-${eventData.metadata?.messageId || Date.now()}`;
-
-      const result = await trackEmailCreditUsage(userId, 1, eventId);
-
-      console.log(
-        `✅ Credit deducted for user ${userId}: ${eventType} event (${eventId}) - Remaining: ${result.remainingCredits}/${result.totalCredits}`
-      );
-    } catch (error) {
-      console.error(
-        'Error processing email event for credit deduction:',
-        error
-      );
-      throw error;
-    }
+    // Other event types can be handled here if needed in future
+    console.log(`📧 Event ${eventType} received for user ${userId}`);
   }
 
   // Get user's credit balance - delegate to polar.ts unified function

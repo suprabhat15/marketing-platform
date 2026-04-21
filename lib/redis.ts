@@ -1,20 +1,34 @@
 import Redis, { type RedisOptions } from 'ioredis';
 
-// ✅ Optimized Redis config with connection pooling
+// Persist connections across Next.js hot reloads in development
+const globalForRedis = globalThis as unknown as {
+  __redisInstances?: Map<string, Redis>;
+  __redisShuttingDown?: boolean;
+};
+
+if (!globalForRedis.__redisInstances) {
+  globalForRedis.__redisInstances = new Map();
+}
+
 const redisConfig: RedisOptions = {
   host: process.env.REDIS_HOST || '127.0.0.1',
   port: parseInt(process.env.REDIS_PORT || '6379', 10),
   username: process.env.REDIS_USERNAME,
   password: process.env.REDIS_PASSWORD,
 
-  // Connection pooling settings
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
-  lazyConnect: false, // Connect immediately for better reliability
-  keepAlive: 30000, // Keep connections alive for 30 seconds
+  lazyConnect: false,
+  keepAlive: 30000,
 
-  connectTimeout: 20000, // 20 seconds
-  commandTimeout: 10000, // 10 seconds
+  connectTimeout: 20000,
+  commandTimeout: 10000,
+
+  // Cap reconnect delay at 5s to avoid snowballing connections
+  retryStrategy: (times) => {
+    if (globalForRedis.__redisShuttingDown) return null;
+    return Math.min(times * 500, 5000);
+  },
 
   reconnectOnError: (err) => {
     const targetErrors = [
@@ -35,8 +49,17 @@ const redisConfig: RedisOptions = {
 };
 
 class RedisConnectionManager {
-  private static instances: Map<string, Redis> = new Map();
-  private static isShuttingDown = false;
+  private static get instances(): Map<string, Redis> {
+    return globalForRedis.__redisInstances!;
+  }
+
+  private static get isShuttingDown(): boolean {
+    return globalForRedis.__redisShuttingDown ?? false;
+  }
+
+  private static set isShuttingDown(value: boolean) {
+    globalForRedis.__redisShuttingDown = value;
+  }
 
   public static getInstance(
     type: 'default' | 'queue' | 'worker' | 'dlq' = 'default'
@@ -45,45 +68,46 @@ class RedisConnectionManager {
       throw new Error('Redis connection manager is shutting down');
     }
 
-    if (!this.instances.has(type)) {
-      const instance = new Redis(redisConfig);
-
-      instance.on('error', (error: any) => {
-        console.error(`❌ Redis connection error (${type}):`, error.message);
-      });
-
-      instance.on('connect', () => {
-        console.log(`✅ Connected to Redis (${type})`);
-      });
-
-      instance.on('ready', () => {
-        console.log(`🚀 Redis connection ready (${type})`);
-      });
-
-      instance.on('close', () => {
-        console.log(`❌ Redis connection closed (${type})`);
-        // Only remove if we're not shutting down
-        if (!this.isShuttingDown) {
-          console.log(`🔄 Removing closed connection (${type}) from instances`);
-          this.instances.delete(type);
-        }
-      });
-
-      instance.on('reconnecting', (time: number) => {
-        console.log(`🔄 Redis reconnecting (${type}) in ${time}ms`);
-      });
-
-      instance.on('end', () => {
-        console.log(`🛑 Redis connection ended (${type})`);
-        if (!this.isShuttingDown) {
-          this.instances.delete(type);
-        }
-      });
-
-      this.instances.set(type, instance);
+    const existing = this.instances.get(type);
+    if (existing && existing.status !== 'end') {
+      return existing;
     }
 
-    return this.instances.get(type)!;
+    // Clean up ended connection before creating new one
+    if (existing) {
+      this.instances.delete(type);
+    }
+
+    const instance = new Redis(redisConfig);
+
+    instance.on('error', (error: any) => {
+      console.error(`❌ Redis connection error (${type}):`, error.message);
+    });
+
+    instance.on('connect', () => {
+      console.log(`✅ Connected to Redis (${type})`);
+    });
+
+    instance.on('ready', () => {
+      console.log(`🚀 Redis connection ready (${type})`);
+    });
+
+    // Don't remove from instances on close — let ioredis handle reconnection
+    instance.on('close', () => {
+      console.log(`❌ Redis connection closed (${type})`);
+    });
+
+    instance.on('reconnecting', (time: number) => {
+      console.log(`🔄 Redis reconnecting (${type}) in ${time}ms`);
+    });
+
+    instance.on('end', () => {
+      console.log(`🛑 Redis connection ended (${type})`);
+      this.instances.delete(type);
+    });
+
+    this.instances.set(type, instance);
+    return instance;
   }
 
   public static async disconnectAll(): Promise<void> {
@@ -107,18 +131,34 @@ class RedisConnectionManager {
   }
 }
 
-// Register cleanup handlers
-process.on('SIGTERM', async () => {
-  await RedisConnectionManager.disconnectAll();
-});
+// Register cleanup handlers (only once across hot reloads)
+const globalCleanup = globalThis as unknown as { __redisCleanupRegistered?: boolean };
+if (!globalCleanup.__redisCleanupRegistered) {
+  globalCleanup.__redisCleanupRegistered = true;
 
-process.on('SIGINT', async () => {
-  await RedisConnectionManager.disconnectAll();
-});
+  const shutdown = async (signal: string) => {
+    // Force exit if graceful shutdown hangs
+    const forceExitTimeout = setTimeout(() => {
+      console.error('⚠️ Graceful shutdown timed out, forcing exit');
+      process.exit(1);
+    }, 30000);
+    forceExitTimeout.unref();
 
-process.on('beforeExit', async () => {
-  await RedisConnectionManager.disconnectAll();
-});
+    try {
+      await RedisConnectionManager.disconnectAll();
+      process.exitCode = 0;
+    } catch (error) {
+      console.error('Error during Redis shutdown:', error);
+      process.exitCode = 1;
+    }
+  };
+  process.on('SIGTERM', () => {
+    shutdown('SIGTERM').catch(() => {});
+  });
+  process.on('SIGINT', () => {
+    shutdown('SIGINT').catch(() => {});
+  });
+}
 
 // Export instances
 export const redis = RedisConnectionManager.getInstance('default');

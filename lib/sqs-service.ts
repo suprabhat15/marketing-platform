@@ -7,7 +7,6 @@ if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
   throw new Error('Missing required AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set');
 }
 
-// Initialize SQS client
 const sqs = new SQSClient({
   region: 'us-east-1',
   credentials: {
@@ -28,19 +27,18 @@ export interface PolarEventMessage {
   userId: string;
   eventType: string;
   metadata?: Record<string, any>;
-  // eventId: string;
-  // campaignId?: string;
-  // subscriberId?: string;
-  // timestamp: string;
-  // recipientEmail?: string;
 }
 
-// Send Polar event to SQS (Lambda will process automatically)
-export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<void> {
+// Send per-email Polar event to SQS. The Lambda consumer aggregates records per
+// invocation into a single polar.events.ingest call, so 1 SQS message = 1 real
+// send = 1 credit on Polar. Partial batch failures self-correct because failed
+// emails never emit a message.
+export async function sendPolarEventToSQS(
+  message: PolarEventMessage
+): Promise<void> {
   try {
-    // Add timeout to prevent hanging SQS calls
     const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('SQS call timeout')), 5000); // 5 second timeout
+      setTimeout(() => reject(new Error('SQS call timeout')), 5000);
     });
 
     const command = new SendMessageCommand({
@@ -65,11 +63,14 @@ export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<v
       },
     });
 
-    // Race between SQS send and timeout
     await Promise.race([sqs.send(command), timeoutPromise]);
-    console.log(`✅ Polar event sent to SQS: ${message.eventType} for user ${message.userId}`);
+    console.log(
+      `✅ Polar event sent to SQS: ${message.eventType} for user ${message.userId}`
+    );
   } catch (error) {
     console.error('❌ Failed to send Polar event to SQS:', error);
-    throw new Error(`Failed to send event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    throw new Error(
+      `Failed to send event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
   }
 }
