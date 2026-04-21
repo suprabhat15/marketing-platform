@@ -1,7 +1,7 @@
 import { CreditService } from './credit-service';
 import { prisma } from './prisma';
 import type { EventType } from '@prisma/client';
-import { trackEmailCreditUsage, checkCreditAvailability } from './polar';
+import { checkCreditAvailability } from './polar';
 
 export class EmailService {
   // Pre-flight check before sending campaign (enhanced with Polar integration)
@@ -57,10 +57,9 @@ export class EmailService {
         return false;
       }
 
-      // Track the credit usage with Polar
+      // Polar is credited per successful SES send via SQS → Lambda (see
+      // performEmailSend). No upfront decrement here; availability check above is sufficient.
       try {
-        // await trackEmailCreditUsage(userId, recipientCount); // NOT NEEDED COZ ON SES SENT WEBHOOK, ingestion to Polar is taking place.
-        // Also, we are already checing the credit availability.
         console.log(
           `Reserved ${recipientCount} credits via Polar for campaign ${campaignId}`
         );
@@ -225,15 +224,4 @@ export class EmailService {
     };
   }
 
-  // Track individual email send with Polar (use this for single email sends)
-  static async trackSingleEmailSend(userId: string, emailData?: Record<string, any>) {
-    try {
-      const result = await trackEmailCreditUsage(userId, 1);
-      console.log(`Tracked single email send for user ${userId}. Remaining credits: ${result.remainingCredits}`);
-      return result;
-    } catch (error) {
-      console.error('Error tracking single email send:', error);
-      throw error;
-    }
-  }
 }

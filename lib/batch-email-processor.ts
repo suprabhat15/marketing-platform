@@ -215,6 +215,8 @@ export class BatchEmailProcessor {
       console.log(
         `✅ Batch ${batchNumber}/${totalBatches} completed for campaign ${campaignId}`
       );
+      // Per-email Polar events are emitted inside performEmailSend only on
+      // successful SES sends; the Lambda consumer aggregates them per invocation.
       // Check campaign completion after batch processing (more efficient than per-email checks)
       try {
         const queueHelpers = await import('./queue-helpers');
@@ -497,9 +499,11 @@ export class BatchEmailProcessor {
       `📧 Email sent successfully for ${subscriber.email}, messageId: ${messageId}`
     );
 
-    // Queue SENT event for Polar ingestion to avoid rate limits and ensure reliability
+    // Queue per-email SENT event for Polar ingestion. The Lambda consumer
+    // aggregates SQS records per invocation into a single polar.events.ingest
+    // call, so 1 successful send = 1 credit. Failures never reach this point,
+    // so partial-batch failures can't overbill.
     try {
-      // Prefer provided userId, else fetch from campaign
       let resolvedUserId = userId;
       if (!resolvedUserId) {
         const campaign = await prisma.campaign.findUnique({
@@ -510,18 +514,13 @@ export class BatchEmailProcessor {
       }
 
       if (resolvedUserId) {
-        // Use SQS for reliable Polar event processing
-        // This should not fail email sending if SQS is unavailable
         try {
           const { sendPolarEventToSQS } = await import('./sqs-service');
-
-          const eventId = `${messageId}`;
-
           await sendPolarEventToSQS({
             userId: resolvedUserId,
             eventType: 'SENT',
             metadata: {
-              eventId,
+              eventId: messageId,
               campaignId,
               subscriberId: subscriber.id,
               recipientEmail: subscriber.email,
@@ -529,17 +528,13 @@ export class BatchEmailProcessor {
             },
           });
         } catch (sqsError) {
+          // Don't fail the send if SQS is unavailable; billing reconciles later
+          // but the email already went out successfully.
           console.warn(
-            '⚠️ Failed to send event to SQS, but email was sent successfully:',
+            '⚠️ Failed to send Polar event to SQS; email was sent:',
             sqsError
           );
-          // Don't throw - email sending should succeed even if SQS fails
-          // Lambda will miss this event, but it's better than failing email delivery
         }
-
-        // console.log(
-        //   `🔵 SENT event queued for Polar ingestion for user ${resolvedUserId} - campaign: ${campaignId}`
-        // );
       } else {
         console.warn(
           `⚠️ Missing userId for campaign ${campaignId}; skipping Polar SENT ingestion`
@@ -550,8 +545,6 @@ export class BatchEmailProcessor {
         '❌ Error queuing SENT event for Polar ingestion:',
         queueError
       );
-      // Log error but don't fail the send flow - the email was sent successfully
-      // The queue system will ensure eventual processing or proper error handling
     }
 
     // Apply pacing hint from rate limiter

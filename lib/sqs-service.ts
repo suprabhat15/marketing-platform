@@ -7,7 +7,6 @@ if (!AWS_ACCESS_KEY_ID || !AWS_SECRET_ACCESS_KEY) {
   throw new Error('Missing required AWS credentials: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set');
 }
 
-// Initialize SQS client
 const sqs = new SQSClient({
   region: 'us-east-1',
   credentials: {
@@ -24,25 +23,18 @@ if (!POLAR_EVENTS_QUEUE_URL) {
   );
 }
 
-// export interface PolarEventMessage {
-//   userId: string;
-//   eventType: string;
-//   metadata?: Record<string, any>;
-// }
-
-export interface PolarBatchEventMessage {
+export interface PolarEventMessage {
   userId: string;
-  eventType: 'EMAIL_BATCH';
-  campaignId: string;
-  batchNumber: number;
-  totalBatches: number;
-  emailCount: number;
-  timestamp: string;
+  eventType: string;
+  metadata?: Record<string, any>;
 }
 
-// Send batch-level Polar event to SQS (Lambda will update Polar meters)
-export async function sendPolarBatchEventToSQS(
-  message: PolarBatchEventMessage
+// Send per-email Polar event to SQS. The Lambda consumer aggregates records per
+// invocation into a single polar.events.ingest call, so 1 SQS message = 1 real
+// send = 1 credit on Polar. Partial batch failures self-correct because failed
+// emails never emit a message.
+export async function sendPolarEventToSQS(
+  message: PolarEventMessage
 ): Promise<void> {
   try {
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -61,68 +53,24 @@ export async function sendPolarBatchEventToSQS(
           DataType: 'String',
           StringValue: message.userId,
         },
-        campaignId: {
-          DataType: 'String',
-          StringValue: message.campaignId,
-        },
-        batchNumber: {
-          DataType: 'Number',
-          StringValue: String(message.batchNumber),
-        },
-        emailCount: {
-          DataType: 'Number',
-          StringValue: String(message.emailCount),
-        },
+        ...(message.metadata?.eventId &&
+          typeof message.metadata.eventId === 'string' && {
+            eventId: {
+              DataType: 'String',
+              StringValue: message.metadata.eventId,
+            },
+          }),
       },
     });
 
     await Promise.race([sqs.send(command), timeoutPromise]);
     console.log(
-      `✅ Polar BATCH event sent to SQS: ${message.emailCount} emails for campaign ${message.campaignId} batch ${message.batchNumber}`
+      `✅ Polar event sent to SQS: ${message.eventType} for user ${message.userId}`
     );
   } catch (error) {
-    console.error('❌ Failed to send Polar batch event to SQS:', error);
+    console.error('❌ Failed to send Polar event to SQS:', error);
     throw new Error(
-      `Failed to send batch event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`
+      `Failed to send event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
   }
 }
-
-// Send per-email Polar event to SQS (DEPRECATED - use sendPolarBatchEventToSQS for credit tracking)
-// export async function sendPolarEventToSQS(message: PolarEventMessage): Promise<void> {
-//   try {
-//     // Add timeout to prevent hanging SQS calls
-//     const timeoutPromise = new Promise<never>((_, reject) => {
-//       setTimeout(() => reject(new Error('SQS call timeout')), 5000); // 5 second timeout
-//     });
-
-//     const command = new SendMessageCommand({
-//       QueueUrl: POLAR_EVENTS_QUEUE_URL,
-//       MessageBody: JSON.stringify(message),
-//       MessageAttributes: {
-//         eventType: {
-//           DataType: 'String',
-//           StringValue: message.eventType,
-//         },
-//         userId: {
-//           DataType: 'String',
-//           StringValue: message.userId,
-//         },
-//         ...(message.metadata?.eventId &&
-//           typeof message.metadata.eventId === 'string' && {
-//             eventId: {
-//               DataType: 'String',
-//               StringValue: message.metadata.eventId,
-//             },
-//           }),
-//       },
-//     });
-
-//     // Race between SQS send and timeout
-//     await Promise.race([sqs.send(command), timeoutPromise]);
-//     console.log(`✅ Polar event sent to SQS: ${message.eventType} for user ${message.userId}`);
-//   } catch (error) {
-//     console.error('❌ Failed to send Polar event to SQS:', error);
-//     throw new Error(`Failed to send event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`);
-//   }
-// }

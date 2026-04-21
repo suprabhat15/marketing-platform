@@ -3,8 +3,34 @@ import { prisma } from '@/lib/prisma';
 import { getRedisInstance } from '@/lib/redis';
 import { getCreditBalance } from '@/lib/credit-ledger.service';
 
-// Fetch credit info from Active Meters using Polar customer meters API
+const POLAR_METER_CACHE_TTL_SECONDS = 10;
+const polarMeterCacheKey = (externalCustomerId: string) =>
+  `polar:meters:${externalCustomerId}`;
+
+export async function invalidatePolarMeterCache(externalCustomerId: string) {
+  try {
+    const redis = getRedisInstance();
+    await redis.del(polarMeterCacheKey(externalCustomerId));
+  } catch (error) {
+    console.warn('⚠️ Failed to invalidate Polar meter cache:', error);
+  }
+}
+
+// Fetch credit info from Active Meters using Polar customer meters API.
+// Cached for POLAR_METER_CACHE_TTL_SECONDS to protect Polar from refresh-spam.
 export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
+  const cacheKey = polarMeterCacheKey(String(externalCustomerId));
+  const redis = getRedisInstance();
+
+  try {
+    const cached = await redis.get(cacheKey);
+    if (cached) {
+      return JSON.parse(cached);
+    }
+  } catch (error) {
+    console.warn('⚠️ Polar meter cache read failed, falling through:', error);
+  }
+
   let totalCredits = 0;
   let usedCredits = 0;
   let meterId = null;
@@ -51,14 +77,26 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
   }
 
   const remainingCredits = totalCredits - usedCredits;
-
-  return {
+  const result = {
     totalCredits,
     usedCredits,
     remainingCredits,
     meterId,
     balance: remainingCredits,
   };
+
+  try {
+    await redis.set(
+      cacheKey,
+      JSON.stringify(result),
+      'EX',
+      POLAR_METER_CACHE_TTL_SECONDS
+    );
+  } catch (error) {
+    console.warn('⚠️ Polar meter cache write failed:', error);
+  }
+
+  return result;
 }
 
 // Combined function to get user credit balance and sync with Polar in one flow
@@ -162,7 +200,7 @@ export async function getUserCreditBalanceWithSync(
             data: updateData,
           });
 
-          // Keep CreditBalance (source of truth used by updateCreditUsage) aligned with Polar
+          // Mirror Polar's authoritative credit values into the local CreditBalance cache.
           await prisma.creditBalance.upsert({
             where: { userId },
             create: {
@@ -261,154 +299,6 @@ export async function getUserCreditBalance(
   syncFromPolar: boolean = true
 ) {
   return getUserCreditBalanceWithSync(userId, { syncFromPolar });
-}
-
-// Update user's credit usage (call this when user consumes credits)
-export async function updateCreditUsage(
-  userId: string,
-  creditsUsed: number,
-  eventId?: string
-) {
-  const referenceId = eventId || `email-${userId}-${Date.now()}`;
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // 1️. Ensure CreditBalance exists (no fallback later)
-      const balance = await tx.creditBalance.upsert({
-        where: { userId },
-        create: {
-          userId,
-          totalCredits: 0,
-          usedCredits: 0,
-          remainingCredits: 0,
-        },
-        update: {},
-      });
-
-      // 2️. ATOMIC GUARD (prevents negative balance)
-      const updated = await tx.creditBalance.updateMany({
-        where: {
-          userId,
-          remainingCredits: { gte: creditsUsed },
-        },
-        data: {
-          usedCredits: { increment: creditsUsed },
-          remainingCredits: { decrement: creditsUsed },
-        },
-      });
-
-      if (updated.count === 0) {
-        throw new Error(
-          `Insufficient credits. Need ${creditsUsed}, have ${balance.remainingCredits}`
-        );
-      }
-
-      // 3️. LEDGER (after guard, inside transaction)
-      await tx.creditLedger.create({
-        data: {
-          userId,
-          type: 'EMAIL_SENT',
-          amount: -creditsUsed,
-          referenceType: 'EMAIL',
-          referenceId, // MUST be unique (DB constraint)
-        },
-      });
-
-      // 4️. OPTIONAL: Sync Subscription (not source of truth)
-      // await tx.subscription.updateMany({
-      //   where: {
-      //     userId,
-      //     remainingCredits: { gte: creditsUsed },
-      //   },
-      //   data: {
-      //     usedCredits: { increment: creditsUsed },
-      //     remainingCredits: { decrement: creditsUsed },
-      //   },
-      // });
-
-      // 5️. Return updated balance
-      const newBalance = await tx.creditBalance.findUnique({
-        where: { userId },
-      });
-
-      return newBalance!;
-    });
-
-    return {
-      totalCredits: result.totalCredits,
-      usedCredits: result.usedCredits,
-      remainingCredits: result.remainingCredits,
-    };
-  } catch (error: any) {
-    // DB-level idempotency (unique constraint hit)
-    if (error.code === 'P2002') {
-      console.log(`⚠️ Duplicate credit deduction ignored for ${referenceId}`);
-
-      const currentBalance = await prisma.creditBalance.findUnique({
-        where: { userId },
-      });
-
-      return {
-        totalCredits: currentBalance?.totalCredits || 0,
-        usedCredits: currentBalance?.usedCredits || 0,
-        remainingCredits: currentBalance?.remainingCredits || 0,
-      };
-    }
-
-    console.error('Error updating credit usage:', error);
-    throw error;
-  }
-}
-
-// Track email credit usage and sync with Polar
-export async function trackEmailCreditUsage(
-  userId: string,
-  emailsSent: number,
-  eventId?: string
-) {
-  try {
-    // Use eventId as idempotency key (REQUIRED for correctness)
-    if (!eventId) {
-      throw new Error('eventId is required for idempotent credit deduction');
-    }
-
-    const creditResult = await updateCreditUsage(
-      userId,
-      emailsSent,
-      eventId // passed as referenceId → DB handles duplicates
-    );
-
-    return {
-      emailsSent,
-      creditsUsed: emailsSent,
-      totalCredits: creditResult.totalCredits,
-      usedCredits: creditResult.usedCredits,
-      remainingCredits: creditResult.remainingCredits,
-      hasEnoughCredits: creditResult.remainingCredits >= 0,
-    };
-  } catch (error: any) {
-    // DB-level idempotency: duplicate event
-    if (error.code === 'P2002') {
-      console.log(`⚠️ Duplicate event ignored (idempotent): ${eventId}`);
-
-      // Return current balance (no mutation happened)
-      const currentBalance = await prisma.creditBalance.findUnique({
-        where: { userId },
-      });
-
-      return {
-        emailsSent,
-        creditsUsed: 0, // important: nothing deducted
-        totalCredits: currentBalance?.totalCredits || 0,
-        usedCredits: currentBalance?.usedCredits || 0,
-        remainingCredits: currentBalance?.remainingCredits || 0,
-        hasEnoughCredits: (currentBalance?.remainingCredits || 0) >= 0,
-      };
-    }
-
-    console.error('Error tracking email credit usage:', error);
-    throw error;
-  }
 }
 
 // Check if user has enough credits before sending emails
