@@ -62,11 +62,31 @@ export async function PATCH(
     // emit a synthetic UNSUBSCRIBED event so the Lambda updates Redis and
     // campaign_stats. Status changes without a campaignId are list-management
     // actions, not campaign signals, so they're ignored intentionally.
+    //
+    // Authorize the campaign before queueing: the caller could otherwise pass
+    // an arbitrary campaignId from the body and poison another user's stats.
+    // The campaign must belong to the authenticated user AND target this list.
     if (
       campaignId &&
       updates.status === 'UNSUBSCRIBED' &&
       existingSubscriber.status !== 'UNSUBSCRIBED'
     ) {
+      const authorizedCampaign = await prisma.campaign.findFirst({
+        where: {
+          id: campaignId,
+          userId: session.user.id,
+          listId,
+        },
+        select: { id: true },
+      });
+
+      if (!authorizedCampaign) {
+        return NextResponse.json(
+          { error: 'Campaign not found or does not belong to this list' },
+          { status: 403 }
+        );
+      }
+
       try {
         const { sendSesEventToSQS } = await import('@/lib/sqs-service');
         await sendSesEventToSQS({
