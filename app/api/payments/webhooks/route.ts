@@ -10,6 +10,7 @@ import {
   validateEvent,
   WebhookVerificationError,
 } from '@polar-sh/sdk/webhooks';
+// Credit ledger operations are now done directly in transactions
 
 // Import centralized credit pricing from polar.ts
 // All credit and pricing mappings are now centralized in @/lib/polar
@@ -407,27 +408,61 @@ async function handleSubscriptionCreated(data: any) {
       }
     }
 
-    // Create subscription record in database
-    await prisma.subscription.create({
-      data: {
-        polarSubscriptionId: data.id,
-        customerId: data.customer?.id || data.customerId,
-        status: data.status?.toUpperCase() || 'ACTIVE',
-        productId: data.product?.id || data.productId,
-        totalCredits,
-        usedCredits,
-        remainingCredits,
-        meterId,
-        // meterName,
-        currentPeriodStart: data.currentPeriodStart
-          ? new Date(data.currentPeriodStart)
-          : new Date(),
-        currentPeriodEnd: data.currentPeriodEnd
-          ? new Date(data.currentPeriodEnd)
-          : new Date(),
-        canceledAt: data.canceledAt ? new Date(data.canceledAt) : null,
-        userId,
-      },
+    // Use transaction for atomicity
+    // For allocation: Subscription first (to get ID), then Ledger, then Balance
+    const newSubscription = await prisma.$transaction(async (tx) => {
+      // 1. Create subscription record
+      const subscription = await tx.subscription.create({
+        data: {
+          polarSubscriptionId: data.id,
+          customerId: data.customer?.id || data.customerId,
+          status: data.status?.toUpperCase() || 'ACTIVE',
+          productId: data.product?.id || data.productId,
+          totalCredits,
+          usedCredits,
+          remainingCredits,
+          meterId,
+          currentPeriodStart: data.currentPeriodStart
+            ? new Date(data.currentPeriodStart)
+            : new Date(),
+          currentPeriodEnd: data.currentPeriodEnd
+            ? new Date(data.currentPeriodEnd)
+            : new Date(),
+          canceledAt: data.canceledAt ? new Date(data.canceledAt) : null,
+          userId,
+        },
+      });
+
+      // 2. Create ledger entry for credit allocation
+      if (totalCredits > 0) {
+        await tx.creditLedger.create({
+          data: {
+            userId,
+            subscriptionId: subscription.id,
+            type: 'CREDIT_ALLOCATION',
+            amount: totalCredits,
+            referenceType: 'SUBSCRIPTION',
+            referenceId: data.id,
+          },
+        });
+
+        // 3. Initialize CreditBalance
+        await tx.creditBalance.upsert({
+          where: { userId },
+          create: {
+            userId,
+            totalCredits,
+            usedCredits: 0,
+            remainingCredits: totalCredits,
+          },
+          update: {
+            totalCredits: { increment: totalCredits },
+            remainingCredits: { increment: totalCredits },
+          },
+        });
+      }
+
+      return subscription;
     });
 
     // Update user's Polar customer ID if not set
@@ -467,6 +502,13 @@ async function handleSubscriptionUpdated(data: any) {
       return;
     }
 
+    // Get existing subscription to compare credits for renewal detection
+    const existingSubscription = await prisma.subscription.findUnique({
+      where: { polarSubscriptionId: data.id },
+    });
+
+    const previousTotalCredits = existingSubscription?.totalCredits || 0;
+
     // Get updated credit information from customer state
     let totalCredits = 0;
     let usedCredits = 0;
@@ -492,10 +534,6 @@ async function handleSubscriptionUpdated(data: any) {
       );
 
       // Keep existing values or use fallback
-      const existingSubscription = await prisma.subscription.findUnique({
-        where: { polarSubscriptionId: data.id },
-      });
-
       if (existingSubscription) {
         totalCredits = existingSubscription.totalCredits;
         usedCredits = existingSubscription.usedCredits;
@@ -505,25 +543,64 @@ async function handleSubscriptionUpdated(data: any) {
       }
     }
 
-    // Update subscription in database
-    await prisma.subscription.update({
-      where: { polarSubscriptionId: data.id },
-      data: {
-        status: data.status?.toUpperCase(),
-        productId: data.product?.id || data.productId,
-        totalCredits,
-        usedCredits,
-        remainingCredits,
-        meterId,
-        // meterName,
-        currentPeriodStart: data.currentPeriodStart
-          ? new Date(data.currentPeriodStart)
-          : undefined,
-        currentPeriodEnd: data.currentPeriodEnd
-          ? new Date(data.currentPeriodEnd)
-          : undefined,
-        canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
-      },
+    // Check if this is a renewal (credits increased)
+    const creditDelta = totalCredits - previousTotalCredits;
+
+    // Use transaction for atomicity
+    await prisma.$transaction(async (tx) => {
+      // For renewal: LEDGER FIRST, then Balance, then Subscription
+      if (creditDelta > 0) {
+        // 1. Create ledger entry FIRST (source of truth)
+        await tx.creditLedger.create({
+          data: {
+            userId,
+            subscriptionId: existingSubscription?.id,
+            type: 'SUBSCRIPTION_RENEWAL',
+            amount: creditDelta,
+            referenceType: 'SUBSCRIPTION_RENEWAL',
+            referenceId: `${data.id}-${Date.now()}`,
+          },
+        });
+
+        // 2. Update CreditBalance
+        await tx.creditBalance.upsert({
+          where: { userId },
+          create: {
+            userId,
+            totalCredits: creditDelta,
+            usedCredits: 0,
+            remainingCredits: creditDelta,
+          },
+          update: {
+            totalCredits: { increment: creditDelta },
+            remainingCredits: { increment: creditDelta },
+          },
+        });
+
+        console.log(
+          `✅ Subscription renewed: +${creditDelta} credits added for user ${userId}`
+        );
+      }
+
+      // 3. Update Subscription
+      await tx.subscription.update({
+        where: { polarSubscriptionId: data.id },
+        data: {
+          status: data.status?.toUpperCase(),
+          productId: data.product?.id || data.productId,
+          totalCredits,
+          usedCredits,
+          remainingCredits,
+          meterId,
+          currentPeriodStart: data.currentPeriodStart
+            ? new Date(data.currentPeriodStart)
+            : undefined,
+          currentPeriodEnd: data.currentPeriodEnd
+            ? new Date(data.currentPeriodEnd)
+            : undefined,
+          canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
+        },
+      });
     });
 
     console.log(

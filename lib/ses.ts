@@ -49,7 +49,24 @@ export interface SendEmailParams {
   replyTo?: string;
   configurationSetName?: string;
   campaignId?: string;
+  subscriberId?: string;
   messageId?: string;
+}
+
+function buildSesTags({
+  campaignId,
+  subscriberId,
+  messageId,
+}: {
+  campaignId?: string;
+  subscriberId?: string;
+  messageId?: string;
+}): { Name: string; Value: string }[] | undefined {
+  const tags: { Name: string; Value: string }[] = [];
+  if (campaignId) tags.push({ Name: 'campaignId', Value: campaignId });
+  if (subscriberId) tags.push({ Name: 'subscriberId', Value: subscriberId });
+  if (messageId) tags.push({ Name: 'messageId', Value: messageId });
+  return tags.length > 0 ? tags : undefined;
 }
 
 export interface SendEmailWithAttachmentsParams extends SendEmailParams {
@@ -65,6 +82,7 @@ export async function sendEmail({
   replyTo,
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
   campaignId,
+  subscriberId,
   messageId,
 }: SendEmailParams): Promise<{
   success: boolean;
@@ -112,22 +130,7 @@ export async function sendEmail({
     },
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,
-    Tags: campaignId
-      ? [
-          {
-            Name: 'campaignId',
-            Value: campaignId,
-          },
-          ...(messageId
-            ? [
-                {
-                  Name: 'messageId',
-                  Value: messageId,
-                },
-              ]
-            : []),
-        ]
-      : undefined,
+    Tags: buildSesTags({ campaignId, subscriberId, messageId }),
   });
 
   try {
@@ -156,6 +159,7 @@ export async function sendEmailWithAttachments({
   replyTo = process.env.REPLY_TO_EMAIL!,
   configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
   campaignId,
+  subscriberId,
   messageId,
   extractAttachments = true,
 }: SendEmailWithAttachmentsParams): Promise<{
@@ -225,22 +229,7 @@ export async function sendEmailWithAttachments({
           },
           ReplyToAddresses: replyTo ? [replyTo] : undefined,
           ConfigurationSetName: configurationSetName,
-          Tags: campaignId
-            ? [
-                {
-                  Name: 'campaignId',
-                  Value: campaignId,
-                },
-                ...(messageId
-                  ? [
-                      {
-                        Name: 'messageId',
-                        Value: messageId,
-                      },
-                    ]
-                  : []),
-              ]
-            : undefined,
+          Tags: buildSesTags({ campaignId, subscriberId, messageId }),
         });
       }
     } else {
@@ -264,27 +253,12 @@ export async function sendEmailWithAttachments({
         },
         ReplyToAddresses: replyTo ? [replyTo] : undefined,
         ConfigurationSetName: configurationSetName,
-        Tags: campaignId
-          ? [
-              {
-                Name: 'campaignId',
-                Value: campaignId,
-              },
-              ...(messageId
-                ? [
-                    {
-                      Name: 'messageId',
-                      Value: messageId,
-                    },
-                  ]
-                : []),
-            ]
-          : undefined,
+        Tags: buildSesTags({ campaignId, subscriberId, messageId }),
       });
     }
 
     // Race between SES call and timeout
-    const result = await Promise.race([
+    await Promise.race([
       sesClient.send(command as any),
       timeoutPromise,
     ]);
@@ -356,6 +330,7 @@ export async function sendBulkEmail({
     })),
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,
+    DefaultTags: buildSesTags({ campaignId }),
   });
 
   return await sesClient.send(command);

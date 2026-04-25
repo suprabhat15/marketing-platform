@@ -119,6 +119,8 @@ model CampaignStats {
   failed      Int      @default(0)
   suppressed  Int      @default(0)
   unsubscribed Int     @default(0)
+  rejected    Int      @default(0)
+  renderFailed Int     @default(0)
   
   totalEvents Int      @default(0)
   lastSyncAt  DateTime @default(now())
@@ -352,7 +354,7 @@ model CreditLedger {
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   subscriptionId  String?
-  subscription    Subscription? @relation(fields: [subscriptionId], references: [id])
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
 
   type            CreditTransactionType
   amount          Int

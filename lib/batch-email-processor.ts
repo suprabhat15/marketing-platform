@@ -438,6 +438,7 @@ export class BatchEmailProcessor {
       from: `${fromName} <${fromEmail}>`,
       replyTo: replyTo || '',
       campaignId,
+      subscriberId: subscriber.id,
       messageId,
     });
 
@@ -700,16 +701,21 @@ export class BatchEmailProcessor {
         },
       });
 
-      // Only track FAILED events in Redis from code side
-      // Other terminal events (SENT, BOUNCED, COMPLAINED, SUPPRESSED) come from external sources like SES webhooks
+      // FAILED never reaches SES, so it can't ride the SNS pipeline. Push a
+      // synthetic event onto the SES-events SQS so the Lambda is the single
+      // writer for both Redis counters and campaign_stats.
       if (eventType === 'FAILED') {
         try {
-          await redis.incr(`campaign_stats:${campaignId}:${eventType}`);
-          console.log(
-            `📊 Incremented ${eventType} counter for campaign ${campaignId}`
-          );
-        } catch (redisError) {
-          console.error(`Error incrementing ${eventType} counter:`, redisError);
+          const { sendSesEventToSQS } = await import('./sqs-service');
+          await sendSesEventToSQS({
+            eventType: 'Failed',
+            campaignId,
+            subscriberId: subscriber.id,
+            uniqueId: `${campaignId}-${subscriber.id}-failed-${Date.now()}`,
+            metadata: { error: errorMessage },
+          });
+        } catch (sqsError) {
+          console.error(`Error queuing FAILED event to SQS:`, sqsError);
         }
       }
 
