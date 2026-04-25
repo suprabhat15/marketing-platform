@@ -53,79 +53,88 @@ export async function GET(
       return NextResponse.json({ error: 'Campaign not found' }, { status: 404 });
     }
 
-    // Get aggregated event stats from database (with Redis fallback)
+    // Read-through: Redis first (real-time), then campaign_stats table (post-TTL fallback)
     let eventsByType: Record<string, number> = {};
     let totalEvents = 0;
+    let statsSource: 'redis' | 'db' | 'none' = 'none';
 
-    // Try to get stats from database first
-    const campaignStats = await prisma.campaignStats.findUnique({
-      where: { campaignId },
-      select: {
-        sent: true,
-        delivered: true,
-        opened: true,
-        clicked: true,
-        bounced: true,
-        complained: true,
-        failed: true,
-        suppressed: true,
-        unsubscribed: true,
-        totalEvents: true,
-        lastSyncAt: true,
+    const campaignKeys: string[] = [];
+    let cursor = '0';
+    do {
+      const [nextCursor, batch] = await redis.scan(
+        cursor,
+        'MATCH',
+        `campaign_stats:${campaignId}:*`,
+        'COUNT',
+        500
+      );
+      cursor = nextCursor;
+      campaignKeys.push(...batch);
+    } while (cursor !== '0');
+
+    if (campaignKeys.length > 0) {
+      const values = await redis.mget(...campaignKeys);
+      campaignKeys.forEach((key, index) => {
+        const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
+        const count = parseInt(values[index] || '0', 10);
+        if (eventType === 'total') {
+          totalEvents = count;
+        } else {
+          eventsByType[eventType.toUpperCase()] = count;
+        }
+      });
+
+      if (!totalEvents) {
+        totalEvents = Object.values(eventsByType).reduce((sum, c) => sum + c, 0);
       }
-    });
+      statsSource = 'redis';
+    }
 
-    if (campaignStats) {
-      // Use database stats
-      eventsByType = {
-        SENT: campaignStats.sent,
-        DELIVERED: campaignStats.delivered,
-        OPENED: campaignStats.opened,
-        CLICKED: campaignStats.clicked,
-        BOUNCED: campaignStats.bounced,
-        COMPLAINED: campaignStats.complained,
-        FAILED: campaignStats.failed,
-        SUPPRESSED: campaignStats.suppressed,
-        UNSUBSCRIBED: campaignStats.unsubscribed,
-      };
-      totalEvents = campaignStats.totalEvents;
-    } else {
-      // Fallback to Redis if no database stats
-      const campaignKeys: string[] = [];
-      let cursor = '0';
-      do {
-        const [nextCursor, batch] = await redis.scan(
-          cursor,
-          'MATCH',
-          `campaign_stats:${campaignId}:*`,
-          'COUNT',
-          500
-        );
-        cursor = nextCursor;
-        campaignKeys.push(...batch);
-      } while (cursor !== '0');
+    if (statsSource === 'none') {
+      const campaignStats = await prisma.campaignStats.findUnique({
+        where: { campaignId },
+        select: {
+          sent: true,
+          delivered: true,
+          opened: true,
+          clicked: true,
+          bounced: true,
+          complained: true,
+          failed: true,
+          suppressed: true,
+          unsubscribed: true,
+          rejected: true,
+          renderFailed: true,
+          totalEvents: true,
+          lastSyncAt: true,
+        }
+      });
 
-      if (campaignKeys.length > 0) {
-        const values = await redis.mget(...campaignKeys);
-        campaignKeys.forEach((key, index) => {
-          const eventType = key.replace(`campaign_stats:${campaignId}:`, '');
-          if (eventType !== 'total') {
-            eventsByType[eventType.toUpperCase()] = parseInt(
-              values[index] || '0'
-            );
-          }
-        });
-        
-        // Calculate total from Redis stats
-        totalEvents = Object.values(eventsByType).reduce((sum, count) => sum + count, 0);
+      if (campaignStats) {
+        eventsByType = {
+          SENT: campaignStats.sent,
+          DELIVERED: campaignStats.delivered,
+          OPENED: campaignStats.opened,
+          CLICKED: campaignStats.clicked,
+          BOUNCED: campaignStats.bounced,
+          COMPLAINED: campaignStats.complained,
+          FAILED: campaignStats.failed,
+          SUPPRESSED: campaignStats.suppressed,
+          UNSUBSCRIBED: campaignStats.unsubscribed,
+          REJECTED: campaignStats.rejected,
+          RENDER_FAILED: campaignStats.renderFailed,
+        };
+        totalEvents = campaignStats.totalEvents;
+        statsSource = 'db';
       }
     }
 
-    return NextResponse.json({ 
+    return NextResponse.json({
       campaign: {
         ...campaign,
         eventsByType,
         totalEvents,
+        statsSource,
         subscriberCount: campaign.list._count.subscribers
       }
     });

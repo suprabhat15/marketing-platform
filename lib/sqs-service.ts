@@ -16,6 +16,7 @@ const sqs = new SQSClient({
 });
 
 const POLAR_EVENTS_QUEUE_URL = process.env.AWS_POLAR_SQS_URL;
+const SES_EVENTS_QUEUE_URL = process.env.AWS_SES_EVENTS_SQS_URL;
 
 if (!POLAR_EVENTS_QUEUE_URL) {
   throw new Error(
@@ -72,5 +73,56 @@ export async function sendPolarEventToSQS(
     throw new Error(
       `Failed to send event to SQS: ${error instanceof Error ? error.message : 'Unknown error'}`
     );
+  }
+}
+
+// Synthetic SES-style event the Lambda consumes alongside SNS-delivered events.
+// Used for failures (FAILED) the app records before SES accepts the message and
+// for unsubscribes (UNSUBSCRIBED), neither of which generate SES notifications.
+export interface SyntheticSesEventMessage {
+  eventType: 'Failed' | 'Unsubscription';
+  campaignId: string;
+  subscriberId?: string;
+  uniqueId: string;
+  recipients?: number;
+  metadata?: Record<string, any>;
+}
+
+export async function sendSesEventToSQS(
+  message: SyntheticSesEventMessage
+): Promise<void> {
+  if (!SES_EVENTS_QUEUE_URL) {
+    console.warn(
+      '⚠️ AWS_SES_EVENTS_SQS_URL not set; skipping synthetic SES event'
+    );
+    return;
+  }
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error('SQS call timeout')), 5000);
+  });
+
+  const body = {
+    synthetic: true,
+    eventType: message.eventType,
+    campaignId: message.campaignId,
+    subscriberId: message.subscriberId,
+    uniqueId: message.uniqueId,
+    recipients: message.recipients ?? 1,
+    metadata: message.metadata,
+    timestamp: new Date().toISOString(),
+  };
+
+  try {
+    const command = new SendMessageCommand({
+      QueueUrl: SES_EVENTS_QUEUE_URL,
+      MessageBody: JSON.stringify(body),
+    });
+    await Promise.race([sqs.send(command), timeoutPromise]);
+    console.log(
+      `✅ Synthetic SES event sent to SQS: ${message.eventType} campaign=${message.campaignId}`
+    );
+  } catch (error) {
+    console.error('❌ Failed to send synthetic SES event to SQS:', error);
   }
 }
