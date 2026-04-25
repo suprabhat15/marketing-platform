@@ -546,62 +546,88 @@ async function handleSubscriptionUpdated(data: any) {
     // Check if this is a renewal (credits increased)
     const creditDelta = totalCredits - previousTotalCredits;
 
+    // Deterministic per-renewal key so duplicate webhook deliveries collide on
+    // the (referenceType, referenceId) unique index instead of minting credits
+    // twice. currentPeriodStart is unique per billing cycle on Polar; if it's
+    // missing, fall back to the new totalCredits snapshot which still ties to
+    // a single renewal event.
+    const renewalKey = data.currentPeriodStart
+      ? new Date(data.currentPeriodStart).toISOString()
+      : `total-${totalCredits}`;
+    const renewalReferenceId = `${data.id}-${renewalKey}`;
+
     // Use transaction for atomicity
-    await prisma.$transaction(async (tx) => {
-      // For renewal: LEDGER FIRST, then Balance, then Subscription
-      if (creditDelta > 0) {
-        // 1. Create ledger entry FIRST (source of truth)
-        await tx.creditLedger.create({
+    try {
+      await prisma.$transaction(async (tx) => {
+        // For renewal: LEDGER FIRST, then Balance, then Subscription
+        if (creditDelta > 0) {
+          // 1. Create ledger entry FIRST (source of truth). Unique constraint
+          // on (referenceType, referenceId) makes this the idempotency gate —
+          // a duplicate webhook delivery throws P2002 and the whole
+          // transaction (including the balance increment) rolls back.
+          await tx.creditLedger.create({
+            data: {
+              userId,
+              subscriptionId: existingSubscription?.id,
+              type: 'SUBSCRIPTION_RENEWAL',
+              amount: creditDelta,
+              referenceType: 'SUBSCRIPTION_RENEWAL',
+              referenceId: renewalReferenceId,
+            },
+          });
+
+          // 2. Update CreditBalance
+          await tx.creditBalance.upsert({
+            where: { userId },
+            create: {
+              userId,
+              totalCredits: creditDelta,
+              usedCredits: 0,
+              remainingCredits: creditDelta,
+            },
+            update: {
+              totalCredits: { increment: creditDelta },
+              remainingCredits: { increment: creditDelta },
+            },
+          });
+
+          console.log(
+            `✅ Subscription renewed: +${creditDelta} credits added for user ${userId}`
+          );
+        }
+
+        // 3. Update Subscription
+        await tx.subscription.update({
+          where: { polarSubscriptionId: data.id },
           data: {
-            userId,
-            subscriptionId: existingSubscription?.id,
-            type: 'SUBSCRIPTION_RENEWAL',
-            amount: creditDelta,
-            referenceType: 'SUBSCRIPTION_RENEWAL',
-            referenceId: `${data.id}-${Date.now()}`,
+            status: data.status?.toUpperCase(),
+            productId: data.product?.id || data.productId,
+            totalCredits,
+            usedCredits,
+            remainingCredits,
+            meterId,
+            currentPeriodStart: data.currentPeriodStart
+              ? new Date(data.currentPeriodStart)
+              : undefined,
+            currentPeriodEnd: data.currentPeriodEnd
+              ? new Date(data.currentPeriodEnd)
+              : undefined,
+            canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
           },
         });
-
-        // 2. Update CreditBalance
-        await tx.creditBalance.upsert({
-          where: { userId },
-          create: {
-            userId,
-            totalCredits: creditDelta,
-            usedCredits: 0,
-            remainingCredits: creditDelta,
-          },
-          update: {
-            totalCredits: { increment: creditDelta },
-            remainingCredits: { increment: creditDelta },
-          },
-        });
-
-        console.log(
-          `✅ Subscription renewed: +${creditDelta} credits added for user ${userId}`
-        );
-      }
-
-      // 3. Update Subscription
-      await tx.subscription.update({
-        where: { polarSubscriptionId: data.id },
-        data: {
-          status: data.status?.toUpperCase(),
-          productId: data.product?.id || data.productId,
-          totalCredits,
-          usedCredits,
-          remainingCredits,
-          meterId,
-          currentPeriodStart: data.currentPeriodStart
-            ? new Date(data.currentPeriodStart)
-            : undefined,
-          currentPeriodEnd: data.currentPeriodEnd
-            ? new Date(data.currentPeriodEnd)
-            : undefined,
-          canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
-        },
       });
-    });
+    } catch (err: any) {
+      // P2002 here means the ledger entry already exists — duplicate webhook
+      // delivery for the same renewal period. Safe to swallow; the original
+      // delivery already applied the credits.
+      if (err?.code === 'P2002') {
+        console.log(
+          `⚠️ Duplicate renewal ignored for ${renewalReferenceId} (user ${userId})`
+        );
+      } else {
+        throw err;
+      }
+    }
 
     console.log(
       `Subscription updated for user ${userId} with ${remainingCredits} remaining credits`
