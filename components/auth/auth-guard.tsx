@@ -8,10 +8,13 @@ interface AuthGuardProps {
   children: React.ReactNode;
 }
 
+const PUBLIC_PATHS = new Set(['/auth', '/goodbye']);
+
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, isPending } = useSession();
   const router = useRouter();
   const pathname = usePathname();
+  const isPublicPath = PUBLIC_PATHS.has(pathname);
 
   useEffect(() => {
     // Don't redirect while loading
@@ -25,11 +28,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
       return;
     }
 
-    // If user is not authenticated and not on auth page, redirect to auth
-    if (!session && pathname !== '/auth') {
+    // If user is not authenticated and not on a public page, redirect to auth
+    if (!session && !isPublicPath) {
       router.push('/auth');
     }
-  }, [session, isPending, router, pathname]);
+  }, [session, isPending, router, pathname, isPublicPath]);
 
   // Show loading spinner while checking authentication
   if (isPending) {
@@ -41,7 +44,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }
 
   // If on auth page, always show children
-  if (pathname === "/auth") {
+  if (isPublicPath) {
     return <>{children}</>;
   }
 
