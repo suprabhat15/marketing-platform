@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma';
 import { sendVerificationEmail } from './email-templates/verification';
+import { sendDeleteAccountVerificationEmail } from './email-templates/delete-account';
 
 import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
@@ -75,10 +76,30 @@ export const auth = betterAuth({
   user: {
     deleteUser: {
       enabled: true,
-      afterDelete: async (user, request) => {
-        await polarClient.customers.deleteExternal({
-          externalId: user.id,
-        });
+      sendDeleteAccountVerification: async ({ user, url }) => {
+        try {
+          await sendDeleteAccountVerificationEmail({
+            email: user.email,
+            url,
+            name: user.name,
+          });
+        } catch {
+          throw new Error(
+            'Failed to send account deletion email. Please try again.'
+          );
+        }
+      },
+      afterDelete: async (user) => {
+        try {
+          await polarClient.customers.deleteExternal({
+            externalId: user.id,
+          });
+        } catch (error) {
+          console.error('Failed to delete Polar customer after account deletion', {
+            userId: user.id,
+            error,
+          });
+        }
       },
     },
   },
