@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 import { importSubscribersSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
 import { invalidateUserCache } from '@/lib/redis-cache';
@@ -10,6 +11,10 @@ export async function POST(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const { listId } = await params;
     const body = await request.json();
     const { subscribers } = importSubscribersSchema.parse(body);

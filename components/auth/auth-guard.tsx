@@ -1,11 +1,18 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useSession } from "@/lib/auth-client";
+import { SuspensionModal } from "./suspension-modal";
 
 interface AuthGuardProps {
   children: React.ReactNode;
+}
+
+interface SuspensionStatus {
+  suspended: boolean;
+  suspendedAt: string | null;
+  suspendedReason: string | null;
 }
 
 const PUBLIC_PATHS = new Set(['/auth', '/goodbye']);
@@ -16,25 +23,50 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const pathname = usePathname();
   const isPublicPath = PUBLIC_PATHS.has(pathname);
 
+  const [suspensionStatus, setSuspensionStatus] = useState<SuspensionStatus | null>(null);
+  const [suspensionChecked, setSuspensionChecked] = useState(false);
+
+  const checkSuspension = useCallback(async () => {
+    try {
+      const res = await fetch("/api/user/status");
+      if (res.ok) {
+        const data = await res.json();
+        setSuspensionStatus(data);
+      }
+    } catch {
+      // If check fails, don't block the user
+    } finally {
+      setSuspensionChecked(true);
+    }
+  }, []);
+
   useEffect(() => {
-    // Don't redirect while loading
     if (isPending) {
       return;
     }
 
-    // If user is authenticated and on auth page, redirect to dashboard
     if (session && pathname === '/auth') {
       router.push('/');
       return;
     }
 
-    // If user is not authenticated and not on a public page, redirect to auth
     if (!session && !isPublicPath) {
       router.push('/auth');
     }
   }, [session, isPending, router, pathname, isPublicPath]);
 
-  // Show loading spinner while checking authentication
+  useEffect(() => {
+    if (session && !isPublicPath) {
+      checkSuspension();
+
+      const onFocus = () => checkSuspension();
+      window.addEventListener("focus", onFocus);
+      return () => window.removeEventListener("focus", onFocus);
+    } else {
+      setSuspensionChecked(true);
+    }
+  }, [session, isPublicPath, checkSuspension]);
+
   if (isPending) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -43,17 +75,31 @@ export function AuthGuard({ children }: AuthGuardProps) {
     );
   }
 
-  // If on auth page, always show children
   if (isPublicPath) {
     return <>{children}</>;
   }
 
-  // If authenticated, show children
   if (session) {
+    if (!suspensionChecked) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-gray-50">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+      );
+    }
+
+    if (suspensionStatus?.suspended) {
+      return (
+        <SuspensionModal
+          reason={suspensionStatus.suspendedReason}
+          suspendedAt={suspensionStatus.suspendedAt}
+        />
+      );
+    }
+
     return <>{children}</>;
   }
 
-  // If not authenticated and not on auth page, show loading (will redirect)
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
       <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
