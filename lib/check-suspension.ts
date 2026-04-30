@@ -6,21 +6,26 @@ export async function checkSuspension(
   userId: string
 ): Promise<NextResponse | null> {
   const cacheKey = `user:suspended:${userId}`;
-  const cached = await redis.get(cacheKey);
 
-  if (cached === 'true') {
-    const reason = await redis.get(`user:suspended_reason:${userId}`);
-    return NextResponse.json(
-      {
-        error: 'Account suspended',
-        reason: reason || 'Your account has been suspended',
-      },
-      { status: 403 }
-    );
-  }
+  try {
+    const cached = await redis.get(cacheKey);
 
-  if (cached === 'false') {
-    return null;
+    if (cached === 'true') {
+      const reason = await redis.get(`user:suspended_reason:${userId}`);
+      return NextResponse.json(
+        {
+          error: 'Account suspended',
+          reason: reason || 'Your account has been suspended',
+        },
+        { status: 403 }
+      );
+    }
+
+    if (cached === 'false') {
+      return null;
+    }
+  } catch {
+    // Redis unavailable — fall through to DB lookup
   }
 
   const user = await prisma.user.findUnique({
@@ -29,15 +34,19 @@ export async function checkSuspension(
   });
 
   if (user?.suspended) {
-    await Promise.all([
-      redis.set(cacheKey, 'true', 'EX', 300),
-      redis.set(
-        `user:suspended_reason:${userId}`,
-        user.suspendedReason || '',
-        'EX',
-        300
-      ),
-    ]);
+    try {
+      await Promise.all([
+        redis.set(cacheKey, 'true', 'EX', 300),
+        redis.set(
+          `user:suspended_reason:${userId}`,
+          user.suspendedReason || '',
+          'EX',
+          300
+        ),
+      ]);
+    } catch {
+      // Redis unavailable — suspension still enforced via DB result
+    }
     return NextResponse.json(
       {
         error: 'Account suspended',
@@ -47,6 +56,10 @@ export async function checkSuspension(
     );
   }
 
-  await redis.set(cacheKey, 'false', 'EX', 60);
+  try {
+    await redis.set(cacheKey, 'false', 'EX', 60);
+  } catch {
+    // Redis unavailable — next call will hit DB again
+  }
   return null;
 }
