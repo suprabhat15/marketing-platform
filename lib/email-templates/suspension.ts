@@ -1,5 +1,14 @@
 import { sendEmail } from '../ses';
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export async function sendSuspensionEmail({
   email,
   name,
@@ -17,13 +26,16 @@ export async function sendSuspensionEmail({
   complaintRate: number;
   violation: 'bounce' | 'complaint' | 'both';
 }) {
+  const safeCampaignName = escapeHtml(campaignName);
+  const safeName = name ? escapeHtml(name) : null;
+
   let violationDetail = '';
   if (violation === 'bounce') {
-    violationDetail = `Your campaign <strong>"${campaignName}"</strong> had a bounce rate of <strong>${bounceRate.toFixed(2)}%</strong>, which exceeds our maximum allowed threshold of <strong>3.5%</strong>.`;
+    violationDetail = `Your campaign <strong>"${safeCampaignName}"</strong> had a bounce rate of <strong>${bounceRate.toFixed(2)}%</strong>, which exceeds our maximum allowed threshold of <strong>3.5%</strong>.`;
   } else if (violation === 'complaint') {
-    violationDetail = `Your campaign <strong>"${campaignName}"</strong> had a complaint rate of <strong>${complaintRate.toFixed(2)}%</strong>, which exceeds our maximum allowed threshold of <strong>0.1%</strong>.`;
+    violationDetail = `Your campaign <strong>"${safeCampaignName}"</strong> had a complaint rate of <strong>${complaintRate.toFixed(2)}%</strong>, which exceeds our maximum allowed threshold of <strong>0.1%</strong>.`;
   } else {
-    violationDetail = `Your campaign <strong>"${campaignName}"</strong> had a bounce rate of <strong>${bounceRate.toFixed(2)}%</strong> (threshold: 3.5%) and a complaint rate of <strong>${complaintRate.toFixed(2)}%</strong> (threshold: 0.1%).`;
+    violationDetail = `Your campaign <strong>"${safeCampaignName}"</strong> had a bounce rate of <strong>${bounceRate.toFixed(2)}%</strong> (threshold: 3.5%) and a complaint rate of <strong>${complaintRate.toFixed(2)}%</strong> (threshold: 0.1%).`;
   }
 
   const subject = 'Your account has been suspended';
@@ -57,7 +69,7 @@ export async function sendSuspensionEmail({
           <tr>
             <td style="padding:0 32px 24px; color:#374151; font-size:16px; line-height:1.6;">
               <p style="margin:0 0 16px;">
-                Hi${name ? ` ${name}` : ''},
+                Hi${safeName ? ` ${safeName}` : ''},
               </p>
 
               <p style="margin:0 0 16px;">
