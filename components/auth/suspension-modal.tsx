@@ -22,7 +22,13 @@ export function SuspensionModal({ reason, suspendedAt }: SuspensionModalProps) {
 
   const handleSignOut = async () => {
     setSigningOut(true);
-    await signOut({ fetchOptions: { onSuccess: () => router.push("/auth") } });
+    try {
+      await signOut({
+        fetchOptions: { onSuccess: () => router.push('/auth') },
+      });
+    } catch {
+      setSigningOut(false);
+    }
   };
 
   return (

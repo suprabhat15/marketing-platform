@@ -542,6 +542,7 @@ export class BatchEmailProcessor {
       console.log(
         `Email ${subscriber.email} already counted, skipping duplicate`
       );
+      return;
     }
 
     // Increment compliance counter for sent emails

@@ -57,12 +57,15 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   useEffect(() => {
     if (session && !isPublicPath) {
+      setSuspensionChecked(false);
+      setSuspensionStatus(null);
       checkSuspension();
 
       const onFocus = () => checkSuspension();
       window.addEventListener("focus", onFocus);
       return () => window.removeEventListener("focus", onFocus);
     } else {
+      setSuspensionStatus(null);
       setSuspensionChecked(true);
     }
   }, [session, isPublicPath, checkSuspension]);
