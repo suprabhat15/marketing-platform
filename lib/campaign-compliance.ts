@@ -105,131 +105,135 @@ export async function handleComplianceViolation(
     `🚨 Compliance violation for campaign ${campaignId}: ${result.violation} (bounce: ${result.bounceRate.toFixed(2)}%, complaint: ${result.complaintRate.toFixed(2)}%)`
   );
 
-  // 1. Cancel the campaign and mark it in Redis for fast batch-level checks
-  await Promise.all([
-    prisma.campaign.updateMany({
-      where: { id: campaignId, status: { in: ['SENDING', 'QUEUED'] } },
-      data: { status: 'CANCELLED' },
-    }),
-    redis.set(`campaign_cancelled:${campaignId}`, '1', 'EX', 86400),
-  ]);
+  try {
+    // 1. Cancel the campaign and mark it in Redis for fast batch-level checks
+    await Promise.all([
+      prisma.campaign.updateMany({
+        where: { id: campaignId, status: { in: ['SENDING', 'QUEUED'] } },
+        data: { status: 'CANCELLED' },
+      }),
+      redis.set(`campaign_cancelled:${campaignId}`, '1', 'EX', 86400),
+    ]);
 
-  // 2. Get the campaign owner info
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: campaignId },
-    select: {
-      userId: true,
-      name: true,
-      user: { select: { email: true, name: true } },
-    },
-  });
+    // 2. Get the campaign owner info
+    const campaign = await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: {
+        userId: true,
+        name: true,
+        user: { select: { email: true, name: true } },
+      },
+    });
 
-  if (!campaign) return;
+    if (!campaign) return;
 
-  // 3. Build suspension reason
-  let reason: string;
-  if (result.violation === 'bounce') {
-    reason = `Bounce rate ${result.bounceRate.toFixed(2)}% exceeded the 3.5% threshold on campaign "${campaign.name}"`;
-  } else if (result.violation === 'complaint') {
-    reason = `Complaint rate ${result.complaintRate.toFixed(2)}% exceeded the 0.1% threshold on campaign "${campaign.name}"`;
-  } else {
-    reason = `Bounce rate ${result.bounceRate.toFixed(2)}% and complaint rate ${result.complaintRate.toFixed(2)}% exceeded thresholds on campaign "${campaign.name}"`;
-  }
+    // 3. Build suspension reason
+    let reason: string;
+    if (result.violation === 'bounce') {
+      reason = `Bounce rate ${result.bounceRate.toFixed(2)}% exceeded the 3.5% threshold on campaign "${campaign.name}"`;
+    } else if (result.violation === 'complaint') {
+      reason = `Complaint rate ${result.complaintRate.toFixed(2)}% exceeded the 0.1% threshold on campaign "${campaign.name}"`;
+    } else {
+      reason = `Bounce rate ${result.bounceRate.toFixed(2)}% and complaint rate ${result.complaintRate.toFixed(2)}% exceeded thresholds on campaign "${campaign.name}"`;
+    }
 
-  // 4. Suspend the user and set Redis cache for fast API-level checks
-  await Promise.all([
-    prisma.user.update({
-      where: { id: campaign.userId },
-      data: { suspended: true, suspendedAt: new Date(), suspendedReason: reason },
-    }),
-    redis.set(`user:suspended:${campaign.userId}`, 'true', 'EX', 86400),
-    redis.set(
-      `user:suspended_reason:${campaign.userId}`,
-      reason,
-      'EX',
-      86400
-    ),
-  ]);
+    // 4. Suspend the user and set Redis cache for fast API-level checks
+    await Promise.all([
+      prisma.user.update({
+        where: { id: campaign.userId },
+        data: { suspended: true, suspendedAt: new Date(), suspendedReason: reason },
+      }),
+      redis.set(`user:suspended:${campaign.userId}`, 'true', 'EX', 86400),
+      redis.set(
+        `user:suspended_reason:${campaign.userId}`,
+        reason,
+        'EX',
+        86400
+      ),
+    ]);
 
-  // 5. Cancel all other active campaigns for this user
-  const otherCampaigns = await prisma.campaign.findMany({
-    where: {
-      userId: campaign.userId,
-      status: { in: ['SENDING', 'QUEUED', 'SCHEDULED'] },
-      id: { not: campaignId },
-    },
-    select: { id: true },
-  });
-
-  if (otherCampaigns.length > 0) {
-    await prisma.campaign.updateMany({
+    // 5. Cancel all other active campaigns for this user
+    const otherCampaigns = await prisma.campaign.findMany({
       where: {
         userId: campaign.userId,
         status: { in: ['SENDING', 'QUEUED', 'SCHEDULED'] },
+        id: { not: campaignId },
       },
-      data: { status: 'CANCELLED' },
+      select: { id: true },
     });
 
-    // Mark all cancelled campaigns in Redis
-    const pipeline = redis.pipeline();
-    for (const c of otherCampaigns) {
-      pipeline.set(`campaign_cancelled:${c.id}`, '1', 'EX', 86400);
-    }
-    await pipeline.exec();
-  }
+    if (otherCampaigns.length > 0) {
+      await prisma.campaign.updateMany({
+        where: {
+          userId: campaign.userId,
+          status: { in: ['SENDING', 'QUEUED', 'SCHEDULED'] },
+        },
+        data: { status: 'CANCELLED' },
+      });
 
-  // 6. Remove pending batch jobs from queue for this campaign
-  try {
-    const { batchQueue } = await import('./email-queues');
-    const waitingJobs = await batchQueue.getJobs(['waiting', 'delayed']);
-    let removedCount = 0;
-    for (const job of waitingJobs) {
-      if (job.data.campaignId === campaignId) {
-        await job.remove();
-        removedCount++;
+      // Mark all cancelled campaigns in Redis
+      const pipeline = redis.pipeline();
+      for (const c of otherCampaigns) {
+        pipeline.set(`campaign_cancelled:${c.id}`, '1', 'EX', 86400);
       }
+      await pipeline.exec();
     }
-    if (removedCount > 0) {
-      console.log(
-        `Removed ${removedCount} pending batch jobs for campaign ${campaignId}`
-      );
-    }
-  } catch (e) {
-    console.error('Error removing batch jobs:', e);
-  }
 
-  // 7. Broadcast cancellation via SSE
-  try {
-    const { sseManager } = await import('./sse-manager');
-    sseManager.broadcastToCampaign(campaignId, {
-      type: 'campaign_cancelled',
-      data: {
-        campaignId,
-        reason: 'compliance_violation',
-        violation: result.violation,
+    // 6. Remove pending batch jobs from queue for this campaign
+    try {
+      const { batchQueue } = await import('./email-queues');
+      const waitingJobs = await batchQueue.getJobs(['waiting', 'delayed']);
+      let removedCount = 0;
+      for (const job of waitingJobs) {
+        if (job.data.campaignId === campaignId) {
+          await job.remove();
+          removedCount++;
+        }
+      }
+      if (removedCount > 0) {
+        console.log(
+          `Removed ${removedCount} pending batch jobs for campaign ${campaignId}`
+        );
+      }
+    } catch (e) {
+      console.error('Error removing batch jobs:', e);
+    }
+
+    // 7. Broadcast cancellation via SSE
+    try {
+      const { sseManager } = await import('./sse-manager');
+      sseManager.broadcastToCampaign(campaignId, {
+        type: 'campaign_cancelled',
+        data: {
+          campaignId,
+          reason: 'compliance_violation',
+          violation: result.violation,
+          bounceRate: result.bounceRate,
+          complaintRate: result.complaintRate,
+        },
+        id: `${Date.now()}-compliance`,
+      });
+    } catch (sseError) {
+      console.error('Failed to broadcast SSE for compliance violation:', sseError);
+    }
+
+    // 8. Send suspension notification email
+    try {
+      await sendSuspensionEmail({
+        email: campaign.user.email,
+        name: campaign.user.name,
+        reason,
+        campaignName: campaign.name,
         bounceRate: result.bounceRate,
         complaintRate: result.complaintRate,
-      },
-      id: `${Date.now()}-compliance`,
-    });
-  } catch (sseError) {
-    console.error('Failed to broadcast SSE for compliance violation:', sseError);
-  }
-
-  // 8. Send suspension notification email
-  try {
-    await sendSuspensionEmail({
-      email: campaign.user.email,
-      name: campaign.user.name,
-      reason,
-      campaignName: campaign.name,
-      bounceRate: result.bounceRate,
-      complaintRate: result.complaintRate,
-      violation: result.violation!,
-    });
-    console.log(`Suspension email sent to ${campaign.user.email}`);
-  } catch (emailError) {
-    console.error('Failed to send suspension email:', emailError);
+        violation: result.violation!,
+      });
+      console.log(`Suspension email sent to ${campaign.user.email}`);
+    } catch (emailError) {
+      console.error('Failed to send suspension email:', emailError);
+    }
+  } finally {
+    await redis.del(lockKey);
   }
 }
 

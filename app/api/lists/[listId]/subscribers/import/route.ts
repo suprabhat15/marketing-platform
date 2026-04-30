@@ -25,7 +25,7 @@ export async function POST(
     const { subscribers } = importSubscribersSchema.parse(body);
 
     // Check if list exists
-    const list = await prisma.list.findUnique({
+    const list = await prisma.list.findFirst({
       where: {
         id: listId,
         userId: session.user.id,
