@@ -52,7 +52,7 @@ export async function checkCampaignCompliance(
     parseInt(compComplained || '0'),
     parseInt(statsComplained || '0')
   );
-  const totalProcessed = sent + bounced + complained;
+  const totalProcessed = sent;
 
   if (totalProcessed < MIN_SAMPLE_SIZE) {
     return {
