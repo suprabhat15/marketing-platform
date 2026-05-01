@@ -5,31 +5,19 @@ import { useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const creditOptions = [
-  {
-    credits: 10000,
-    price: 10.0,
-    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K,
-    slug: 'Credits-10000',
-  },
-  {
-    credits: 20000,
-    price: 20.0,
-    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K,
-    slug: 'Credits-20000',
-  },
+  ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K
+    ? [{ credits: 3000, price: 1.00, productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K, slug: 'Credits-3000' }]
+    : []),
+  ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K
+    ? [{ credits: 10000, price: 10.00, productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K, slug: 'Credits-10000' }]
+    : []),
+  ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K
+    ? [{ credits: 20000, price: 20.00, productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K, slug: 'Credits-20000' }]
+    : []),
 ];
 
-// Validate that all product IDs are configured
-creditOptions.forEach((option) => {
-  if (!option.productId) {
-    throw new Error(
-      `Missing product ID configuration for ${option.credits} credits`
-    );
-  }
-});
-
 export default function PricingPage() {
-  const [selectedCredits, setSelectedCredits] = useState<number>(10000);
+  const [selectedCredits, setSelectedCredits] = useState<number>(creditOptions[0]?.credits ?? 10000);
 
   const selectedOption = creditOptions.find(option => option.credits === selectedCredits) || creditOptions[0];
 

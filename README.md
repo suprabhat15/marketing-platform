@@ -95,7 +95,7 @@ Before you begin, ensure you have the following installed:
     - **Polar (Payments)**:
         - `POLAR_ACCESS_TOKEN`, `POLAR_ORGANIZATION_ID`
         - `POLAR_WEBHOOK_SECRET` (for verifying webhooks)
-        - `NEXT_PUBLIC_POLAR_PRODUCT_ID_10K`, `NEXT_PUBLIC_POLAR_PRODUCT_ID_20K` (Credit pack IDs)
+        - `NEXT_PUBLIC_POLAR_PRODUCT_ID_3K`, `NEXT_PUBLIC_POLAR_PRODUCT_ID_10K`, `NEXT_PUBLIC_POLAR_PRODUCT_ID_20K` (Credit pack IDs)
 
 4.  **Database Setup:**
     Run migrations to set up your database schema:
@@ -166,4 +166,4 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Contact
 
-For support or queries, please open an issue in the repository.
+For support or inquiries, please open an issue in the repository or contact us at [support@mailpackr.com](mailto:support@mailpackr.com).
