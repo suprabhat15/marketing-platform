@@ -17,7 +17,7 @@ const creditOptions = [
 ];
 
 export default function PricingPage() {
-  const [selectedCredits, setSelectedCredits] = useState<number>(10000);
+  const [selectedCredits, setSelectedCredits] = useState<number>(creditOptions[0]?.credits ?? 10000);
 
   const selectedOption = creditOptions.find(option => option.credits === selectedCredits) || creditOptions[0];
 
