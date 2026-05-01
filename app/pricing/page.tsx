@@ -6,14 +6,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const creditOptions = [
   {
+    credits: 3000,
+    price: 1.00,
+    productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K,
+    slug: 'Credits-3000',
+  },
+  {
     credits: 10000,
-    price: 10.0,
+    price: 10.00,
     productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K,
     slug: 'Credits-10000',
   },
   {
     credits: 20000,
-    price: 20.0,
+    price: 20.00,
     productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K,
     slug: 'Credits-20000',
   },

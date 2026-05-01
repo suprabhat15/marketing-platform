@@ -21,17 +21,19 @@ export const CREDIT_PRICING = {
 } as const;
 
 // Product ID environment variables
+export const PRODUCT_ID_3000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K;
 export const PRODUCT_ID_10000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K;
 export const PRODUCT_ID_20000 = process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K;
 
-if (!PRODUCT_ID_10000 || !PRODUCT_ID_20000) {
+if (!PRODUCT_ID_3000 || !PRODUCT_ID_10000 || !PRODUCT_ID_20000) {
   console.warn(
-    '⚠️ NEXT_PUBLIC_POLAR_PRODUCT_ID_10K and NEXT_PUBLIC_POLAR_PRODUCT_ID_20K should be set for product credit mapping'
+    '⚠️ NEXT_PUBLIC_POLAR_PRODUCT_ID_3K and NEXT_PUBLIC_POLAR_PRODUCT_ID_10K and NEXT_PUBLIC_POLAR_PRODUCT_ID_20K should be set for product credit mapping'
   );
 }
 
 // Product ID to credit mapping (matching auth.ts products)
 export const PRODUCT_CREDIT_MAPPING: Record<string, number> = {
+  ...(PRODUCT_ID_3000 && { [PRODUCT_ID_3000]: 3000 }), // 3k-Credits
   ...(PRODUCT_ID_10000 && { [PRODUCT_ID_10000]: 10000 }), // 10k-Credits
   ...(PRODUCT_ID_20000 && { [PRODUCT_ID_20000]: 20000 }), // 20k-Credits
 };
