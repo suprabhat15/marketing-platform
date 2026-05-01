@@ -13,7 +13,7 @@ export const polar = new Polar({
 
 // Credit package pricing mapping (authoritative source)
 export const CREDIT_PRICING = {
-  3000: 3.0,
+  3000: 1.0,
   10000: 10.0,
   20000: 20.0,
   // 50000: 50.00,

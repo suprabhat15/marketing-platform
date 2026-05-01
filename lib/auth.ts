@@ -56,18 +56,15 @@ export const auth = betterAuth({
       use: [
         checkout({
           products: [
-            {
-              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K || '',
-              slug: 'Credits-3000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
-            },
-            {
-              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K || '',
-              slug: 'Credits-10000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
-            },
-            {
-              productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K || '',
-              slug: 'Credits-20000', // Custom slug for easy reference in Checkout URL, e.g. /checkout/Credits-10000
-            },
+            ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K
+              ? [{ productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_3K, slug: 'Credits-3000' }]
+              : []),
+            ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K
+              ? [{ productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_10K, slug: 'Credits-10000' }]
+              : []),
+            ...(process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K
+              ? [{ productId: process.env.NEXT_PUBLIC_POLAR_PRODUCT_ID_20K, slug: 'Credits-20000' }]
+              : []),
           ],
           successUrl: `${process.env.NEXT_PUBLIC_APP_URL}/billing`,
           authenticatedUsersOnly: true,
