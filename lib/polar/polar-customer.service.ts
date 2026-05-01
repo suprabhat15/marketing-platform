@@ -4,7 +4,6 @@ import { polar } from './polar-client';
 export interface CreateCustomerData {
   email: string;
   name?: string;
-  // metadata?: Record<string, string>;
   userId: string;
 }
 
@@ -18,7 +17,7 @@ export async function createOrGetCustomer(data: CreateCustomerData) {
       });
       if (selectedCustomer) return selectedCustomer;
     } catch (getError: any) {
-      const { statusCode, error } = getError;
+      const { statusCode, error } = getError as { statusCode?: number; error?: string };
 
       // If customer not found (404), we'll create a new one
       if (statusCode === 404 || error === 'ResourceNotFound') {
@@ -34,7 +33,6 @@ export async function createOrGetCustomer(data: CreateCustomerData) {
       email: data?.email,
       name: data?.name,
       externalId: data?.userId,
-      // metadata: data?.metadata,
     });
 
     return customer;

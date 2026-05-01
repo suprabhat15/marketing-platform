@@ -25,7 +25,7 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
     }
     const checkoutData: any = {
       products: [productId],
-      customer_email: data.customerEmail,
+      customerEmail: data.customerEmail,
     };
 
     // Automatically ensure meter exists for the product before creating checkout
@@ -81,16 +81,16 @@ export async function createCheckoutSession(data: CheckoutSessionData) {
     }
 
     // Add optional fields if provided
-    if (data.successUrl) checkoutData.success_url = data.successUrl;
-    if (data.cancelUrl) checkoutData.cancel_url = data.cancelUrl;
-    if (data.customerEmail) checkoutData.customer_email = data.customerEmail;
-    if (data.customerId) checkoutData.customer_id = data.customerId;
+    if (data.successUrl) checkoutData.successUrl = data.successUrl;
+    if (data.cancelUrl) checkoutData.cancelUrl = data.cancelUrl;
+    if (data.customerEmail) checkoutData.customerEmail = data.customerEmail;
+    if (data.customerId) checkoutData.customerId = data.customerId;
     if (data.customerBillingAddress) {
-      checkoutData.customer_billing_address = data.customerBillingAddress;
+      checkoutData.customerBillingAddress = data.customerBillingAddress;
     }
-    if (data.discountId) checkoutData.discount_id = data.discountId;
+    if (data.discountId) checkoutData.discountId = data.discountId;
     if (data.allowDiscountCodes !== undefined) {
-      checkoutData.allow_discount_codes = data.allowDiscountCodes;
+      checkoutData.allowDiscountCodes = data.allowDiscountCodes;
     }
 
     const session = await polar.checkouts.create(checkoutData);

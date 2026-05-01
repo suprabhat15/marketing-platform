@@ -1,6 +1,6 @@
 import { polar } from './polar';
+import type { SubscriptionUpdate } from '@polar-sh/sdk/models/components/subscriptionupdate.js';
 
-// Get a specific subscription
 export async function getSubscription(subscriptionId: string) {
   try {
     const response = await polar.subscriptions.get({ id: subscriptionId });
@@ -53,43 +53,40 @@ export async function updateSubscription(
   }
 ) {
   try {
-    // Map our updateData to Polar API format
-    const subscriptionUpdate: any = {};
-    
-    if (updateData.productId) {
-      subscriptionUpdate.product_id = updateData.productId;
-    }
-    
-    if (updateData.prorationBehavior) {
-      subscriptionUpdate.proration_behavior = updateData.prorationBehavior;
-    }
-    
-    if (updateData.discountId) {
-      subscriptionUpdate.discount_id = updateData.discountId;
-    }
-    
-    if (updateData.trialEnd) {
-      subscriptionUpdate.trial_end = updateData.trialEnd;
-    }
-    
-    if (updateData.cancelAtPeriodEnd !== undefined) {
-      subscriptionUpdate.cancel_at_period_end = updateData.cancelAtPeriodEnd;
-    }
-    
-    if (updateData.customerCancellationReason) {
-      subscriptionUpdate.customer_cancellation_reason = updateData.customerCancellationReason;
-    }
-    
-    if (updateData.customerCancellationComment) {
-      subscriptionUpdate.customer_cancellation_comment = updateData.customerCancellationComment;
-    }
-    
-    if (updateData.revoke !== undefined) {
-      subscriptionUpdate.revoke = updateData.revoke;
-    }
-    
-    // Only proceed if we have data to update
-    if (Object.keys(subscriptionUpdate).length === 0) {
+    let subscriptionUpdate: SubscriptionUpdate;
+
+    if (updateData.revoke) {
+      subscriptionUpdate = {
+        revoke: true,
+        ...(updateData.customerCancellationReason && {
+          customerCancellationReason: updateData.customerCancellationReason as any,
+        }),
+        ...(updateData.customerCancellationComment && {
+          customerCancellationComment: updateData.customerCancellationComment,
+        }),
+      };
+    } else if (updateData.cancelAtPeriodEnd !== undefined) {
+      subscriptionUpdate = {
+        cancelAtPeriodEnd: updateData.cancelAtPeriodEnd,
+        ...(updateData.customerCancellationReason && {
+          customerCancellationReason: updateData.customerCancellationReason as any,
+        }),
+        ...(updateData.customerCancellationComment && {
+          customerCancellationComment: updateData.customerCancellationComment,
+        }),
+      };
+    } else if (updateData.productId) {
+      subscriptionUpdate = {
+        productId: updateData.productId,
+        ...(updateData.prorationBehavior && {
+          prorationBehavior: updateData.prorationBehavior as any,
+        }),
+      };
+    } else if (updateData.discountId) {
+      subscriptionUpdate = {
+        discountId: updateData.discountId,
+      };
+    } else {
       throw new Error('No valid update data provided');
     }
     

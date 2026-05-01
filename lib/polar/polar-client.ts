@@ -40,19 +40,18 @@ export const PRODUCT_CREDIT_MAPPING: Record<string, number> = {
 };
 
 // Helper function to get credits and price from product ID
-export function getCreditsPricing(data: any): {
+export function getCreditsPricing(data: { product?: { id?: string } }): {
   credits: number;
   price: number;
 } {
-  // Get credits from productId mapping
-  const credits =
-    PRODUCT_CREDIT_MAPPING[
-      data.product?.id as keyof typeof PRODUCT_CREDIT_MAPPING
-    ];
+  const productId = data.product?.id;
+  const credits = productId
+    ? PRODUCT_CREDIT_MAPPING[productId]
+    : undefined;
 
   if (!credits) {
-    console.error(`Unknown product ID`); // ${data.product?.id}
-    throw new Error(`No credit mapping found for product`); // ${data.product?.id}
+    console.error(`Unknown product ID: ${productId}`);
+    throw new Error(`No credit mapping found for product: ${productId}`);
   }
 
   // Get the corresponding price from our pricing table

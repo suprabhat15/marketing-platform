@@ -28,9 +28,9 @@ export async function getProductPricing(productId: string) {
       description: product.description,
       price: {
         id: price.id,
-        amount: (price as any).amount || 0,
-        currency: (price as any).currency || 'USD',
-        recurring: (price as any).recurring || null,
+        amount: 'amountType' in price && price.amountType === 'fixed' ? price.priceAmount : 0,
+        currency: 'priceCurrency' in price ? price.priceCurrency : 'USD',
+        recurring: 'recurringInterval' in price ? price.recurringInterval : null,
       },
       credits: 0,
     };
