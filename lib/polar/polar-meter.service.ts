@@ -18,7 +18,7 @@ export async function invalidatePolarMeterCache(externalCustomerId: string) {
 
 // Fetch credit info from Active Meters using Polar customer meters API.
 // Cached for POLAR_METER_CACHE_TTL_SECONDS to protect Polar from refresh-spam.
-export async function fetchCreditsFromActiveMeters(externalCustomerId: any) {
+export async function fetchCreditsFromActiveMeters(externalCustomerId: string) {
   const cacheKey = polarMeterCacheKey(String(externalCustomerId));
   const redis = getRedisInstance();
 
@@ -141,7 +141,7 @@ export async function getUserCreditBalanceWithSync(
         const creditInfo = await fetchCreditsFromActiveMeters(userId);
 
         // Prepare update data
-        const updateData: any = {
+        const updateData: Record<string, unknown> = {
           totalCredits: creditInfo.totalCredits,
           usedCredits: creditInfo.usedCredits,
           remainingCredits: creditInfo.remainingCredits,
@@ -156,30 +156,15 @@ export async function getUserCreditBalanceWithSync(
             });
 
             updateData.status = polarSubscription.status?.toUpperCase();
-            updateData.currentPeriodStart =
-              (polarSubscription as any).currentPeriodStart ||
-              (polarSubscription as any).current_period_start
-                ? new Date(
-                    (polarSubscription as any).currentPeriodStart ||
-                      (polarSubscription as any).current_period_start
-                  )
-                : null;
-            updateData.currentPeriodEnd =
-              (polarSubscription as any).currentPeriodEnd ||
-              (polarSubscription as any).current_period_end
-                ? new Date(
-                    (polarSubscription as any).currentPeriodEnd ||
-                      (polarSubscription as any).current_period_end
-                  )
-                : null;
-            updateData.canceledAt =
-              (polarSubscription as any).canceledAt ||
-              (polarSubscription as any).canceled_at
-                ? new Date(
-                    (polarSubscription as any).canceledAt ||
-                      (polarSubscription as any).canceled_at
-                  )
-                : null;
+            updateData.currentPeriodStart = polarSubscription.currentPeriodStart
+              ? new Date(polarSubscription.currentPeriodStart)
+              : null;
+            updateData.currentPeriodEnd = polarSubscription.currentPeriodEnd
+              ? new Date(polarSubscription.currentPeriodEnd)
+              : null;
+            updateData.canceledAt = polarSubscription.canceledAt
+              ? new Date(polarSubscription.canceledAt)
+              : null;
           } catch (polarError) {
             console.warn(
               '⚠️ Failed to fetch Polar subscription details:',

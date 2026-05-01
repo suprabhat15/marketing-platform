@@ -273,10 +273,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Get the subscription's customer ID from Polar
-    const subscriptionCustomerId =
-      (polarSubscription as any).customer?.id ||
-      (polarSubscription as any).customer_id ||
-      null;
+    const subscriptionCustomerId = polarSubscription.customerId ?? null;
 
     if (!subscriptionCustomerId) {
       return NextResponse.json(
