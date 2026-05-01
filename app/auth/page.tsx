@@ -100,21 +100,6 @@ export default function AuthPage() {
     }
   };
 
-  const testimonials = [
-    {
-      quote:
-        'Switched from Mailchimp. Set up took 10 minutes and deliverability is noticeably better.',
-      author: 'Sarah K.',
-      role: 'Indie maker',
-    },
-    {
-      quote:
-        'The pay-as-you-go model is a game changer for our seasonal campaigns.',
-      author: 'Marcos R.',
-      role: 'E-commerce founder',
-    },
-  ];
-
   return (
     <div className="grid min-h-screen grid-cols-1 lg:grid-cols-2">
       {/* Left brand panel */}
@@ -147,30 +132,6 @@ export default function AuthPage() {
               Join lots of creators, marketers, and founders who use MailPackr
               to grow their audience and revenue.
             </p>
-
-            <div className="flex flex-col gap-4">
-              {testimonials.map((t) => (
-                <div
-                  key={t.author}
-                  className="rounded-[13px] border border-white/[0.09] bg-white/[0.06] px-5 py-[18px]"
-                >
-                  <p className="mb-3 text-sm leading-[1.65] text-white/[0.72]">
-                    &ldquo;{t.quote}&rdquo;
-                  </p>
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[oklch(0.65_0.19_38)] text-[13px] font-bold text-white">
-                      {t.author[0]}
-                    </div>
-                    <div>
-                      <div className="text-[13px] font-bold text-white/[0.88]">
-                        {t.author}
-                      </div>
-                      <div className="text-xs text-white/[0.38]">{t.role}</div>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
           </div>
 
           <div className="text-xs text-white/25">
