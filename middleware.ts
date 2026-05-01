@@ -21,7 +21,9 @@ export async function middleware(request: NextRequest) {
     pathname.startsWith('/api/') &&
     !SUSPENSION_EXEMPT_PATHS.some((p) => pathname.startsWith(p))
   ) {
-    const sessionCookie = request.cookies.get('better-auth.session_token');
+    const sessionCookie =
+      request.cookies.get('better-auth.session_token') ||
+      request.cookies.get('__Secure-better-auth.session_token');
     if (sessionCookie) {
       try {
         const statusRes = await fetch(
