@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { createCampaignSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
 import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
+import { checkSuspension } from '@/lib/check-suspension';
 
 export async function GET(request: NextRequest) {
   try {
@@ -156,6 +157,9 @@ export async function POST(request: NextRequest) { // Created first campaign via
     if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const suspensionResponse = await checkSuspension(session.user.id);
+    if (suspensionResponse) return suspensionResponse;
 
     const body = await request.json();
     const {

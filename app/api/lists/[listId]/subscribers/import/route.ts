@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 import { importSubscribersSchema } from '@/lib/validators';
 import { ZodError } from 'zod';
 import { invalidateUserCache } from '@/lib/redis-cache';
+import { checkSuspension } from '@/lib/check-suspension';
 
 // POST /api/lists/[listId]/subscribers/import - Import subscribers from CSV
 export async function POST(
@@ -10,13 +12,24 @@ export async function POST(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const suspensionResponse = await checkSuspension(session.user.id);
+    if (suspensionResponse) return suspensionResponse;
+
     const { listId } = await params;
     const body = await request.json();
     const { subscribers } = importSubscribersSchema.parse(body);
 
     // Check if list exists
-    const list = await prisma.list.findUnique({
-      where: { id: listId },
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
     });
 
     if (!list) {

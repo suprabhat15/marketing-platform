@@ -5,6 +5,12 @@ import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
 import { dlqQueue } from './dlq-queues';
 import type { EventType } from '@prisma/client';
+import {
+  incrementComplianceCounter,
+  checkCampaignCompliance,
+  handleComplianceViolation,
+  isCampaignCancelled,
+} from './campaign-compliance';
 
 export interface BatchEmailData {
   campaignId: string;
@@ -102,14 +108,39 @@ export class BatchEmailProcessor {
     );
 
     try {
+      // Check if campaign was cancelled (e.g. by compliance violation)
+      if (await isCampaignCancelled(campaignId)) {
+        console.log(
+          `⛔ Campaign ${campaignId} is cancelled, skipping batch ${batchNumber}`
+        );
+        return;
+      }
+
       // Validate campaign exists before processing
       const campaign = await prisma.campaign.findUnique({
         where: { id: campaignId },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, status: true },
       });
 
       if (!campaign) {
         throw new Error(`Campaign ${campaignId} not found`);
+      }
+
+      if (campaign.status === 'CANCELLED' || campaign.status === 'FAILED') {
+        console.log(
+          `⛔ Campaign ${campaignId} is ${campaign.status}, skipping batch ${batchNumber}`
+        );
+        return;
+      }
+
+      // Check compliance rates before processing this batch
+      const preCheckResult = await checkCampaignCompliance(campaignId);
+      if (!preCheckResult.compliant) {
+        console.log(
+          `🚨 Campaign ${campaignId} compliance violation detected before batch ${batchNumber}`
+        );
+        await handleComplianceViolation(campaignId, preCheckResult);
+        return;
       }
 
       // Get userId from campaign if not provided
@@ -206,10 +237,28 @@ export class BatchEmailProcessor {
         // Wait for this chunk to complete before starting the next
         await Promise.allSettled(chunkPromises);
 
+        // Check if campaign was cancelled mid-batch (e.g. compliance violation from another worker)
+        if (await isCampaignCancelled(campaignId)) {
+          console.log(
+            `⛔ Campaign ${campaignId} cancelled mid-batch, stopping batch ${batchNumber}`
+          );
+          return;
+        }
+
         // Longer delay between chunks to reduce rate limit pressure and allow system recovery
         if (i + CHUNK_SIZE < subscribers.length) {
           await new Promise((resolve) => setTimeout(resolve, 2000)); // Increased from 100ms to 2s
         }
+      }
+
+      // Post-batch compliance check
+      const postCheckResult = await checkCampaignCompliance(campaignId);
+      if (!postCheckResult.compliant) {
+        console.log(
+          `🚨 Campaign ${campaignId} compliance violation detected after batch ${batchNumber}`
+        );
+        await handleComplianceViolation(campaignId, postCheckResult);
+        return;
       }
 
       console.log(
@@ -493,7 +542,11 @@ export class BatchEmailProcessor {
       console.log(
         `Email ${subscriber.email} already counted, skipping duplicate`
       );
+      return;
     }
+
+    // Increment compliance counter for sent emails
+    await incrementComplianceCounter(campaignId, 'sent');
 
     // SENT events are created by SES webhooks, not here to avoid duplicates
     console.log(
@@ -700,6 +753,13 @@ export class BatchEmailProcessor {
           },
         },
       });
+
+      // Increment compliance counters for bounce/complaint tracking
+      if (eventType === 'BOUNCED') {
+        await incrementComplianceCounter(campaignId, 'bounced');
+      } else if (eventType === 'COMPLAINED') {
+        await incrementComplianceCounter(campaignId, 'complained');
+      }
 
       // FAILED never reaches SES, so it can't ride the SNS pipeline. Push a
       // synthetic event onto the SES-events SQS so the Lambda is the single

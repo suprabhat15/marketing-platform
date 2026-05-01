@@ -5,6 +5,7 @@ import { addCampaignToQueue } from '@/lib/queue';
 import { z } from 'zod';
 import { invalidateUserCache } from '@/lib/redis-cache';
 import { sesQuotaManager } from '@/lib/ses-quota-manager';
+import { checkSuspension } from '@/lib/check-suspension';
 
 const sendCampaignSchema = z.object({
   scheduleAt: z.string().datetime().optional(),
@@ -25,6 +26,9 @@ export async function POST(
     if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const suspensionResponse = await checkSuspension(session.user.id);
+    if (suspensionResponse) return suspensionResponse;
 
     const campaign = await prisma.campaign.findFirst({
       where: {

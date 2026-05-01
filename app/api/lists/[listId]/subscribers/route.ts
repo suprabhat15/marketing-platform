@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { invalidateUserCache } from "@/lib/redis-cache";
+import { checkSuspension } from "@/lib/check-suspension";
 
 // GET /api/lists/[listId]/subscribers
 export async function GET(
@@ -96,6 +97,9 @@ export async function POST(
     if (!session || !session.user || !session.user.id) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
+
+    const suspensionResponse = await checkSuspension(session.user.id);
+    if (suspensionResponse) return suspensionResponse;
 
     // ✅ Lazy import zod only when POST is called
     const { z } = await import("zod");
