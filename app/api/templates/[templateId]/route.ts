@@ -19,24 +19,16 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if template exists
-    const existingTemplate = await prisma.template.findUnique({
-      where: { id: templateId }
+    const { count } = await prisma.template.deleteMany({
+      where: { id: templateId, userId: session.user.id },
     });
 
-    if (!existingTemplate) {
+    if (count === 0) {
       return NextResponse.json(
         { error: 'Template not found' },
         { status: 404 }
       );
     }
-
-    await prisma.template.delete({
-      where: {
-        id: templateId,
-        userId: session.user.id,
-      },
-    });
 
     return NextResponse.json({ message: 'Template deleted successfully' });
   } catch (error) {

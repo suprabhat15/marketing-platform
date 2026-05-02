@@ -40,21 +40,34 @@ export async function GET(
       orderBy: { createdAt: 'desc' },
     });
 
-    // Generate CSV content
+    const sanitizeCsvCell = (value: string) => {
+      let sanitized = value.replace(/"/g, '""');
+      sanitized = sanitized.replace(/[\r\n]+/g, ' ');
+      if (/^[=+\-@\t]/.test(sanitized)) {
+        sanitized = "'" + sanitized;
+      }
+      return sanitized;
+    };
+
     const csvHeader = 'Email,First Name,Last Name,Status,Joined Date\n';
     const csvRows = subscribers.map(subscriber => {
       const joinedDate = new Date(subscriber.createdAt).toLocaleDateString();
-      return `"${subscriber.email}","${subscriber.firstName || ''}","${subscriber.lastName || ''}","${subscriber.status}","${joinedDate}"`;
+      const email = sanitizeCsvCell(subscriber.email);
+      const firstName = sanitizeCsvCell(subscriber.firstName || '');
+      const lastName = sanitizeCsvCell(subscriber.lastName || '');
+      const status = sanitizeCsvCell(subscriber.status);
+      return `"${email}","${firstName}","${lastName}","${status}","${joinedDate}"`;
     }).join('\n');
 
     const csvContent = csvHeader + csvRows;
 
-    // Return CSV file
+    const safeFilename = list.name.replace(/[^a-zA-Z0-9_\-. ]/g, '_');
+
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="${list.name}-subscribers.csv"`,
+        'Content-Disposition': `attachment; filename="${safeFilename}-subscribers.csv"`,
       },
     });
   } catch (error) {

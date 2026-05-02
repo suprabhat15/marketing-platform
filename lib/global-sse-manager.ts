@@ -28,7 +28,7 @@ class GlobalSSEManager {
       console.log(`🆕 Creating new SSE connection for campaign: ${campaignId}`);
       
       const eventSource = new EventSource(
-        `/api/events/stream?campaignId=${campaignId}&userId=${userId}`
+        `/api/events/stream?campaignId=${campaignId}`
       );
 
       connection = {

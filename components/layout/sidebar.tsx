@@ -10,12 +10,12 @@ export function Sidebar() {
   const menuItems = [
     // { id: "dashboard", label: "Dashboard", icon: "📊", path: "/" },
     { id: 'campaigns', label: 'Campaigns', icon: '📧', path: '/campaigns' },
-    {
-      id: 'subscribers',
-      label: 'Subscribers',
-      icon: '👥',
-      path: '/subscribers',
-    },
+    // {
+    //   id: 'subscribers',
+    //   label: 'Subscribers',
+    //   icon: '👥',
+    //   path: '/subscribers',
+    // },
     { id: 'templates', label: 'Templates', icon: '📝', path: '/templates' },
     { id: 'lists', label: 'Lists', icon: '📋', path: '/lists' },
     { id: 'domains', label: 'Domains', icon: '🌐', path: '/domains' },
