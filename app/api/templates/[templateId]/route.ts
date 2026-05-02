@@ -19,9 +19,8 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if template exists
-    const existingTemplate = await prisma.template.findUnique({
-      where: { id: templateId }
+    const existingTemplate = await prisma.template.findFirst({
+      where: { id: templateId, userId: session.user.id },
     });
 
     if (!existingTemplate) {
@@ -32,10 +31,7 @@ export async function DELETE(
     }
 
     await prisma.template.delete({
-      where: {
-        id: templateId,
-        userId: session.user.id,
-      },
+      where: { id: templateId },
     });
 
     return NextResponse.json({ message: 'Template deleted successfully' });

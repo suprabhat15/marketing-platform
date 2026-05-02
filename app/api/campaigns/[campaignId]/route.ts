@@ -162,12 +162,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check if campaign exists
-    const existingTemplate = await prisma.campaign.findUnique({
-      where: { id: campaignId }
+    const existingCampaign = await prisma.campaign.findFirst({
+      where: { id: campaignId, userId: session.user.id },
     });
 
-    if (!existingTemplate) {
+    if (!existingCampaign) {
       return NextResponse.json(
         { error: 'Campaign not found' },
         { status: 404 }

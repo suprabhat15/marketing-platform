@@ -41,11 +41,8 @@ export async function updateSubscription(
   subscriptionId: string,
   updateData: {
     productId?: string;
-    priceId?: string;
-    metadata?: Record<string, string>;
     prorationBehavior?: 'invoice' | 'prorate' | 'create_prorations' | 'none';
     discountId?: string;
-    trialEnd?: string;
     cancelAtPeriodEnd?: boolean;
     customerCancellationReason?: string;
     customerCancellationComment?: string;

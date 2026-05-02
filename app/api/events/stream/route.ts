@@ -1,6 +1,10 @@
 import { NextRequest } from 'next/server';
 
-// Lazy load heavy dependencies
+async function getAuth() {
+  const { auth } = await import('@/lib/auth');
+  return auth;
+}
+
 async function getSseManager() {
   const { sseManager } = await import('@/lib/sse-manager');
   return sseManager;
@@ -12,34 +16,31 @@ async function getPrisma() {
 }
 
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const campaignId = searchParams.get('campaignId');
-  const userId = searchParams.get('userId');
-  const lastEventId = searchParams.get('lastEventId');
+  const auth = await getAuth();
+  const session = await auth.api.getSession({ headers: request.headers });
 
-  // console.log(`🔌 SSE endpoint called with:`, {
-  //   campaignId,
-  //   userId,
-  //   lastEventId,
-  //   url: request.url
-  // });
-
-  if (!campaignId || !userId) {
-    // console.log(`❌ SSE endpoint: Missing parameters`);
-    return new Response('Missing parameters', { status: 400 });
+  if (!session || !session.user || !session.user.id) {
+    return new Response('Unauthorized', { status: 401 });
   }
 
-  // Verify user has access to this campaign
+  const { searchParams } = new URL(request.url);
+  const campaignId = searchParams.get('campaignId');
+  const lastEventId = searchParams.get('lastEventId');
+
+  if (!campaignId) {
+    return new Response('Missing campaignId', { status: 400 });
+  }
+
   const prisma = await getPrisma();
   const campaign = await prisma.campaign.findFirst({
     where: {
       id: campaignId,
-      userId: userId,
+      userId: session.user.id,
     },
   });
 
   if (!campaign) {
-    return new Response('Unauthorized', { status: 401 });
+    return new Response('Campaign not found', { status: 404 });
   }
 
   console.log(`✅ SSE endpoint: Campaign access verified, creating connection`);

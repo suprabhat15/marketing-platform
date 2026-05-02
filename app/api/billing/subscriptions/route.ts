@@ -146,8 +146,6 @@ export async function GET(request: NextRequest) {
 const updateSubscriptionSchema = z.object({
   subscriptionId: z.string().min(1, 'Subscription ID is required'),
   productId: z.string().optional(),
-  priceId: z.string().optional(),
-  metadata: z.record(z.string()).optional(),
 });
 
 // Update subscription
@@ -187,8 +185,6 @@ export async function PUT(request: NextRequest) {
       validatedData.subscriptionId,
       {
         productId: validatedData.productId,
-        priceId: validatedData.priceId,
-        metadata: validatedData.metadata,
       }
     );
 

@@ -13,8 +13,13 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { domain } = body;
 
-    if (!domain) {
+    if (!domain || typeof domain !== 'string') {
       return NextResponse.json({ error: "Domain is required" }, { status: 400 });
+    }
+
+    const domainRegex = /^(?!-)([a-zA-Z0-9-]{1,63}(?<!-)\.)+[a-zA-Z]{2,}$/;
+    if (!domainRegex.test(domain) || domain.length > 253) {
+      return NextResponse.json({ error: "Invalid domain format" }, { status: 400 });
     }
 
     // Lazy import utils to avoid pulling them into every API bundle
