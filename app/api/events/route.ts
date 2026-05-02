@@ -40,6 +40,16 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    if (validatedData.subscriberId) {
+      const subscriber = await prisma.subscriber.findFirst({
+        where: { id: validatedData.subscriberId, list: { userId: session.user.id } },
+        select: { id: true },
+      });
+      if (!subscriber) {
+        return NextResponse.json({ error: 'Subscriber not found' }, { status: 404 });
+      }
+    }
+
     const event = await prisma.event.create({
       data: {
         type: validatedData.type as EventType,

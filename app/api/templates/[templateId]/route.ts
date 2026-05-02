@@ -31,7 +31,7 @@ export async function DELETE(
     }
 
     await prisma.template.delete({
-      where: { id: templateId },
+      where: { id: templateId, userId: session.user.id },
     });
 
     return NextResponse.json({ message: 'Template deleted successfully' });

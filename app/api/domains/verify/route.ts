@@ -17,20 +17,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Domain is required" }, { status: 400 });
     }
 
+    const domainNormalized = domain.toLowerCase();
+
     const domainRegex = /^(?!-)([a-zA-Z0-9-]{1,63}(?<!-)\.)+[a-zA-Z]{2,}$/;
-    if (!domainRegex.test(domain) || domain.length > 253) {
+    if (!domainRegex.test(domainNormalized) || domainNormalized.length > 253) {
       return NextResponse.json({ error: "Invalid domain format" }, { status: 400 });
     }
 
-    // Lazy import utils to avoid pulling them into every API bundle
     const { generateDnsRecords } = await import("@/lib/domain-verification");
 
-    // Generate DNS records from SES
-    const dnsRecords = await generateDnsRecords(domain);
+    const dnsRecords = await generateDnsRecords(domainNormalized);
 
     // Check if domain already exists for this user
     const existingDomain = await prisma.domain.findFirst({
-      where: { domain, userId: session.user.id },
+      where: { domain: domainNormalized, userId: session.user.id },
     });
 
     if (existingDomain) {
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     // Store domain in database
     const domainRecord = await prisma.domain.create({
       data: {
-        domain,
+        domain: domainNormalized,
         userId: session.user.id,
         status: "PENDING",
         txtRecord: dnsRecords.txt.value,
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
     });
 
     return NextResponse.json({
-      domain,
+      domain: domainNormalized,
       records: dnsRecords,
       id: domainRecord.id,
     });

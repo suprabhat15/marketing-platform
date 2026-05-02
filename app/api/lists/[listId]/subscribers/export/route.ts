@@ -41,10 +41,12 @@ export async function GET(
     });
 
     const sanitizeCsvCell = (value: string) => {
-      if (/^[=+\-@\t\r]/.test(value)) {
-        return "'" + value;
+      let sanitized = value.replace(/"/g, '""');
+      sanitized = sanitized.replace(/[\r\n]+/g, ' ');
+      if (/^[=+\-@\t]/.test(sanitized)) {
+        sanitized = "'" + sanitized;
       }
-      return value;
+      return sanitized;
     };
 
     const csvHeader = 'Email,First Name,Last Name,Status,Joined Date\n';
@@ -53,7 +55,8 @@ export async function GET(
       const email = sanitizeCsvCell(subscriber.email);
       const firstName = sanitizeCsvCell(subscriber.firstName || '');
       const lastName = sanitizeCsvCell(subscriber.lastName || '');
-      return `"${email}","${firstName}","${lastName}","${subscriber.status}","${joinedDate}"`;
+      const status = sanitizeCsvCell(subscriber.status);
+      return `"${email}","${firstName}","${lastName}","${status}","${joinedDate}"`;
     }).join('\n');
 
     const csvContent = csvHeader + csvRows;
