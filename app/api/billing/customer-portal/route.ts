@@ -14,25 +14,28 @@ export async function GET(request: NextRequest) {
 
   const userId = session.user.id;
 
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { polarCustomerId: true },
-  });
-
-  if (!user?.polarCustomerId) {
-    return NextResponse.json(
-      { error: 'Customer not found. Please make a purchase first.' },
-      { status: 404 }
-    );
-  }
-
   try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { polarCustomerId: true },
+    });
+
+    if (!user?.polarCustomerId) {
+      return NextResponse.json(
+        { error: 'Customer not found. Please make a purchase first.' },
+        { status: 404 }
+      );
+    }
+
     const data = await getCustomerPortalData(user.polarCustomerId, userId);
     return NextResponse.json({ success: true, data });
-  } catch (error: any) {
-    console.error('Error fetching billing portal data:', error);
+  } catch (err: any) {
+    console.error('Error fetching billing portal data:', err);
     return NextResponse.json(
-      { error: 'Failed to load billing data', detail: error?.message ?? String(error) },
+      {
+        error: 'Internal Server Error',
+        ...(process.env.NODE_ENV === 'development' && { detail: String(err) }),
+      },
       { status: 500 }
     );
   }
