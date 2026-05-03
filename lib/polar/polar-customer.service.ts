@@ -1,10 +1,54 @@
 import { polar } from './polar-client';
 
-// Types for customer
 export interface CreateCustomerData {
   email: string;
   name?: string;
   userId: string;
+}
+
+export interface BillingCustomer {
+  id: string;
+  email: string | null;
+  name: string | null;
+}
+
+export interface BillingSubscription {
+  id: string;
+  status: string;
+  amount: number;
+  currency: string;
+  recurringInterval: string;
+  currentPeriodStart: string;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  productName: string;
+  productId: string;
+}
+
+export interface BillingOrder {
+  id: string;
+  createdAt: string;
+  status: string;
+  totalAmount: number;
+  currency: string;
+  billingReason: string;
+  productName: string;
+  paid: boolean;
+}
+
+export interface BillingMeter {
+  id: string;
+  meterName: string;
+  consumedUnits: number;
+  creditedUnits: number;
+  balance: number;
+}
+
+export interface BillingPortalData {
+  customer: BillingCustomer | null;
+  subscriptions: BillingSubscription[];
+  orders: BillingOrder[];
+  meters: BillingMeter[];
 }
 
 // Create or get customer
@@ -42,15 +86,83 @@ export async function createOrGetCustomer(data: CreateCustomerData) {
   }
 }
 
-// Create customer session for customer portal
 export async function createCustomerSession(customerId: string) {
   try {
     const session = await polar.customerSessions.create({
       customerId,
     });
     return session;
-  } catch (error) {
-    console.error('Error creating customer session:', error);
-    throw new Error('Failed to create customer session');
+  } catch (error: any) {
+    console.error('Error creating customer session:', JSON.stringify(error, null, 2));
+    const statusCode = error?.statusCode ?? error?.status;
+    if (statusCode === 404 || statusCode === 422) {
+      throw new Error('CUSTOMER_NOT_FOUND');
+    }
+    throw error;
   }
+}
+
+export async function createCustomerSessionByExternalId(externalUserId: string) {
+  const session = await polar.customerSessions.create({
+    externalCustomerId: externalUserId,
+  });
+  return session;
+}
+
+export async function getCustomerPortalData(
+  polarCustomerId: string,
+  externalUserId: string,
+): Promise<BillingPortalData> {
+  // Create session for customer portal meter API
+  const session = await createCustomerSessionByExternalId(externalUserId);
+  const security = { customerSession: session.token };
+
+  const [subscriptionsResult, ordersResult, metersResult] = await Promise.allSettled([
+    polar.subscriptions.list({ externalCustomerId: externalUserId, limit: 100 }),
+    polar.orders.list({ customerId: polarCustomerId, limit: 100 }),
+    polar.customerPortal.customerMeters.list(security, { limit: 100 }),
+  ]);
+
+  const subscriptions: BillingSubscription[] =
+    subscriptionsResult.status === 'fulfilled'
+      ? (subscriptionsResult.value.result.items ?? []).map((s) => ({
+          id: s.id,
+          status: s.status,
+          amount: s.amount,
+          currency: s.currency,
+          recurringInterval: s.recurringInterval,
+          currentPeriodStart: s.currentPeriodStart.toISOString(),
+          currentPeriodEnd: s.currentPeriodEnd?.toISOString() ?? null,
+          cancelAtPeriodEnd: s.cancelAtPeriodEnd ?? false,
+          productName: s.product.name,
+          productId: s.product.id,
+        }))
+      : [];
+
+  const orders: BillingOrder[] =
+    ordersResult.status === 'fulfilled'
+      ? (ordersResult.value.result.items ?? []).map((o) => ({
+          id: o.id,
+          createdAt: o.createdAt.toISOString(),
+          status: o.status,
+          totalAmount: o.totalAmount,
+          currency: o.currency,
+          billingReason: o.billingReason,
+          productName: o.product?.name ?? 'Unknown',
+          paid: o.paid,
+        }))
+      : [];
+
+  const meters: BillingMeter[] =
+    metersResult.status === 'fulfilled'
+      ? (metersResult.value.result.items ?? []).map((m) => ({
+          id: m.id,
+          meterName: m.meter.name,
+          consumedUnits: m.consumedUnits,
+          creditedUnits: m.creditedUnits,
+          balance: m.balance,
+        }))
+      : [];
+
+  return { customer: null, subscriptions, orders, meters };
 }

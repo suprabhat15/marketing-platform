@@ -173,10 +173,9 @@ async function handleCustomerUpdated(data: any) {
       await prisma.user.update({
         where: { id: externalId },
         data: {
-          polarCustomerId: externalId,
+          polarCustomerId: data.id,
         },
       });
-      // Sync any customer updates if needed
       console.log(`Customer ${data.id} updated for user ${externalId}`);
     }
   } catch (error) {
