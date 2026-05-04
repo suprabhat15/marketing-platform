@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Package,
   Zap,
+  ExternalLink,
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { SubscriptionCard } from '@/components/billing/subscription-card';
@@ -264,7 +265,29 @@ export default function BillingPage() {
                 {data.orders.length > 0 ? (
                   <Card>
                     <CardHeader>
-                      <CardTitle>Order History</CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle>Order History</CardTitle>
+                        {data.customerPortalUrl && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            asChild
+                          >
+                            <a
+                              href={(() => {
+                                const url = new URL(data.customerPortalUrl!);
+                                url.pathname = url.pathname.replace(/\/$/, '') + '/orders';
+                                return url.toString();
+                              })()}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              Invoices
+                            </a>
+                          </Button>
+                        )}
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <div className="space-y-3">
