@@ -43,6 +43,7 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: limit,
+      include: { _count: { select: { campaigns: true } } },
     });
 
     // Calculate pagination metadata
