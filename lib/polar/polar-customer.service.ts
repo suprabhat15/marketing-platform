@@ -49,6 +49,7 @@ export interface BillingPortalData {
   subscriptions: BillingSubscription[];
   orders: BillingOrder[];
   meters: BillingMeter[];
+  customerPortalUrl: string | null;
 }
 
 // Create or get customer
@@ -110,16 +111,20 @@ export async function createCustomerSessionByExternalId(externalUserId: string) 
 }
 
 export async function getCustomerPortalData(
-  polarCustomerId: string,
+  polarCustomerId: string | null,
   externalUserId: string,
 ): Promise<BillingPortalData> {
-  // Create session for customer portal meter API
+  // Create session using externalCustomerId — bypasses stale polarCustomerId in DB
   const session = await createCustomerSessionByExternalId(externalUserId);
   const security = { customerSession: session.token };
 
+  const ordersPromise = polarCustomerId
+    ? polar.orders.list({ customerId: polarCustomerId, limit: 100 })
+    : Promise.reject(new Error('no-polar-id'));
+
   const [subscriptionsResult, ordersResult, metersResult] = await Promise.allSettled([
     polar.subscriptions.list({ externalCustomerId: externalUserId, limit: 100 }),
-    polar.orders.list({ customerId: polarCustomerId, limit: 100 }),
+    ordersPromise,
     polar.customerPortal.customerMeters.list(security, { limit: 100 }),
   ]);
 
@@ -164,5 +169,5 @@ export async function getCustomerPortalData(
         }))
       : [];
 
-  return { customer: null, subscriptions, orders, meters };
+  return { customer: null, subscriptions, orders, meters, customerPortalUrl: session.customerPortalUrl ?? null };
 }
