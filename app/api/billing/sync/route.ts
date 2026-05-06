@@ -200,10 +200,7 @@ export async function GET(request: NextRequest) {
     try {
       const cached = await RedisCache.get(getCacheKey);
       if (cached) {
-        return NextResponse.json({
-          ...cached,
-          fromCache: true,
-        });
+        return NextResponse.json(cached);
       }
     } catch (cacheError) {
       console.warn(

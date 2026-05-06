@@ -60,6 +60,7 @@ export async function GET(
         id: templateId,
         userId: session.user.id,
       },
+      omit: { userId: true },
     });
 
     if (!template) {
@@ -118,6 +119,7 @@ export async function PUT(
         attachments: validatedData.attachments || [],
         updatedAt: new Date(),
       },
+      omit: { userId: true },
     });
 
     return NextResponse.json({ 

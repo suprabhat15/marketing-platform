@@ -51,10 +51,7 @@ export async function GET(request: NextRequest) {
     const cacheKey = `sub_${session.user.id}_${subscriptionId || 'all'}`;
     const cached = subscriptionCache.get(cacheKey);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-      return NextResponse.json({
-        ...cached.data,
-        fromCache: true,
-      });
+      return NextResponse.json(cached.data);
     }
 
     const prisma = await getPrisma();
@@ -66,15 +63,16 @@ export async function GET(request: NextRequest) {
           polarSubscriptionId: subscriptionId,
           userId: session.user.id,
         },
+        omit: { userId: true, customerId: true },
       });
-      
+
       if (!subscription) {
         return NextResponse.json(
           { error: 'Subscription not found' },
           { status: 404 }
         );
       }
-      
+
       const result = { subscription };
       subscriptionCache.set(cacheKey, { data: result, timestamp: Date.now() });
       return NextResponse.json(result);
@@ -83,23 +81,7 @@ export async function GET(request: NextRequest) {
       const subscriptions = await prisma.subscription.findMany({
         where: { userId: session.user.id },
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          polarSubscriptionId: true,
-          status: true,
-          productId: true,
-          priceId: true,
-          credits: true,
-          totalCredits: true,
-          usedCredits: true,
-          remainingCredits: true,
-          amount: true,
-          currentPeriodStart: true,
-          currentPeriodEnd: true,
-          canceledAt: true,
-          meterId: true,
-          meterName: true,
-        },
+        omit: { userId: true, customerId: true },
       });
 
       // Transform subscriptions to match SubscriptionCard interface

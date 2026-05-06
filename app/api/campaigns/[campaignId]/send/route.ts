@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { addCampaignToQueue } from '@/lib/queue';
+import { addCampaignToQueue } from '@/lib/queue-client';
 import { z } from 'zod';
 import { invalidateUserCache } from '@/lib/redis-cache';
 import { sesQuotaManager } from '@/lib/ses-quota-manager';
@@ -185,7 +185,7 @@ export async function POST(
   } catch (error) {
     console.error('Error sending campaign:', error);
     return NextResponse.json(
-      { error: 'Failed to send campaign ' + error },
+      { error: 'Failed to send campaign' },
       { status: 500 }
     );
   }

@@ -28,11 +28,8 @@ export async function GET(
         id: listId,
         userId: session.user.id,
       },
-      include: {
-        _count: {
-          select: { subscribers: true },
-        },
-      },
+      omit: { userId: true },
+      include: { _count: { select: { subscribers: true } } },
     });
 
     if (!list) {
@@ -93,11 +90,8 @@ export async function PUT(
           description: description || '',
           updatedAt: new Date(),
         },
-        include: {
-          _count: {
-            select: { subscribers: true },
-          },
-        },
+        omit: { userId: true },
+        include: { _count: { select: { subscribers: true } } },
       });
 
       await invalidateUserCache(session.user.id, 'lists');
@@ -130,6 +124,7 @@ export async function PUT(
             description: description || '',
             updatedAt: new Date(),
           },
+          omit: { userId: true },
         });
 
         if (subscribers) {

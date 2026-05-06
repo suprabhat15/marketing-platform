@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { batchQueue } from '@/lib/queue';
+import { batchQueue } from '@/lib/queue-client';
 import { invalidateUserCache } from '@/lib/redis-cache';
 import { redis } from '@/lib/redis';
 
@@ -25,6 +25,7 @@ export async function GET(
         id: campaignId,
         userId: session.user.id,
       },
+      omit: { userId: true, listId: true, templateId: true, subscriberIds: true },
       include: {
         list: {
           select: {
@@ -165,7 +166,6 @@ export async function GET(
         ...campaign,
         eventsByType,
         totalEvents,
-        statsSource,
         subscriberCount: campaign.list._count.subscribers,
         chartEvents: chartEventsRaw.map((e) => ({
           type: e.type,

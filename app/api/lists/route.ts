@@ -165,10 +165,9 @@ export async function POST(request: NextRequest) {
             }
           : undefined,
       },
+      omit: { userId: true },
       include: {
-        _count: {
-          select: { subscribers: true },
-        },
+        _count: { select: { subscribers: true } },
       },
     });
 

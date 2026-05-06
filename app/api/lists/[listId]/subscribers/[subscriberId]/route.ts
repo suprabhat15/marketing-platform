@@ -56,6 +56,7 @@ export async function PATCH(
     const updatedSubscriber = await prisma.subscriber.update({
       where: { id: subscriberId },
       data: updates,
+      omit: { listId: true },
     });
 
     // If status flipped ACTIVE → UNSUBSCRIBED in the context of a campaign,
