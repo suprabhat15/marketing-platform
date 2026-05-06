@@ -11,7 +11,6 @@ import { globalSSEManager } from '@/lib/global-sse-manager';
 import { z } from 'zod';
 
 const eventSchema = z.object({
-  id: z.string(),
   type: z.enum([
     'SENT',
     'DELIVERED',
@@ -23,16 +22,7 @@ const eventSchema = z.object({
     'SUPPRESSED',
     'UNSUBSCRIBED',
   ]),
-  data: z.any().nullable(),
   createdAt: z.string().datetime(),
-  subscriber: z
-    .object({
-      id: z.string(),
-      email: z.string(),
-      firstName: z.string().nullable(),
-      lastName: z.string().nullable(),
-    })
-    .nullable(),
 });
 
 const campaignSchema = z.object({
