@@ -167,7 +167,7 @@ export function CampaignDashboard() {
         opened += c.eventsByType['OPENED'] ?? 0;
         clicked += c.eventsByType['CLICKED'] ?? 0;
         delivered += c.eventsByType['DELIVERED'] || c.eventsByType['SENT'] || 0;
-        emails += c.totalEvents;
+        emails += c.eventsByType['SENT'] || c.eventsByType['DELIVERED'] || 0;
       });
       return { opened, clicked, delivered, emails };
     }
