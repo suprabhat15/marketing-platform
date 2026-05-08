@@ -245,8 +245,9 @@ export default function CampaignDetailPage() {
   const clicked = ev['CLICKED'] || 0;
   const bounced = ev['BOUNCED'] || 0;
   const complained = ev['COMPLAINED'] || 0;
+  const failedEvents = ev['FAILED'] || 0;
   const unsubscribed = ev['UNSUBSCRIBED'] || 0;
-  const failed = bounced + complained;
+  const failed = bounced + complained + failedEvents;
 
   const failedDeliveries = campaign.failedDeliveries ?? [];
   const chartEvents = campaign.chartEvents ?? [];
@@ -313,7 +314,7 @@ export default function CampaignDetailPage() {
           <StatCard
             title="Failed"
             value={pct(failed, recipients)}
-            sub="Bounced + complaints"
+            sub="Bounced + complaints + failed"
             icon={<XCircle className="h-5 w-5 text-red-400" />}
             valueClass="text-red-500"
           />
