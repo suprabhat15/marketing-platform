@@ -936,11 +936,17 @@ export function NewCampaignModal({ open, onClose, onCreated }: NewCampaignModalP
 
       const { campaign } = await createRes.json();
 
-      await fetch(`/api/campaigns/${campaign.id}/send`, {
+      const sendRes = await fetch(`/api/campaigns/${campaign.id}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ scheduleAt }),
       });
+
+      if (!sendRes.ok) {
+        const err = await sendRes.json();
+        setError(err.error || 'Failed to send campaign');
+        return;
+      }
 
       onClose();
       onCreated();
