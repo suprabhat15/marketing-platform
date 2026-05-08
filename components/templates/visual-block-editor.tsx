@@ -111,55 +111,89 @@ const BLOCK_PALETTE: { type: BlockType; label: string; icon: React.ReactNode; de
 
 // ─── HTML Generation ──────────────────────────────────────────────────────────
 
+function escapeHtml(s: unknown): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+function validateUrl(s: unknown): string {
+  const str = String(s ?? '').trim();
+  if (/^https?:\/\//i.test(str)) return str;
+  if (/^data:image\//i.test(str)) return str;
+  return '#';
+}
+
+function sanitizeColor(s: unknown): string {
+  const str = String(s ?? '').trim();
+  if (/^#[0-9a-fA-F]{3,8}$/.test(str)) return str;
+  if (/^(rgb|rgba|hsl|hsla)\([\d,.\s%/]+\)$/.test(str)) return str;
+  if (/^[a-zA-Z]{2,30}$/.test(str)) return str;
+  return 'inherit';
+}
+
+function safeNum(s: unknown, fallback: number): number {
+  const n = Number(s);
+  return isFinite(n) ? n : fallback;
+}
+
+function sanitizeAlign(s: unknown): string {
+  const str = String(s ?? '').trim().toLowerCase();
+  return ['left', 'center', 'right', 'justify'].includes(str) ? str : 'left';
+}
+
 function blockToHTML(block: Block): string {
   const s = block.settings;
   switch (block.type) {
     case 'header':
-      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${s.backgroundColor};padding:20px 40px;">
-  <tr><td style="font-size:22px;font-weight:700;color:${s.textColor};font-family:sans-serif;">${s.logoText}</td></tr>
+      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${sanitizeColor(s.backgroundColor)};padding:20px 40px;">
+  <tr><td style="font-size:22px;font-weight:700;color:${sanitizeColor(s.textColor)};font-family:sans-serif;">${escapeHtml(s.logoText)}</td></tr>
 </table>`;
 
     case 'hero':
-      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${s.backgroundColor};padding:60px 40px;text-align:center;">
-  <tr><td style="font-size:36px;font-weight:800;color:${s.textColor};font-family:sans-serif;padding-bottom:16px;">${s.headline}</td></tr>
-  <tr><td style="font-size:16px;color:${s.textColor};font-family:sans-serif;opacity:0.85;padding-bottom:32px;">${s.subtext}</td></tr>
-  <tr><td><a href="${s.buttonUrl}" style="display:inline-block;background-color:${s.buttonBg};color:${s.buttonTextColor};font-family:sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:8px;">${s.buttonLabel}</a></td></tr>
+      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${sanitizeColor(s.backgroundColor)};padding:60px 40px;text-align:center;">
+  <tr><td style="font-size:36px;font-weight:800;color:${sanitizeColor(s.textColor)};font-family:sans-serif;padding-bottom:16px;">${escapeHtml(s.headline)}</td></tr>
+  <tr><td style="font-size:16px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;opacity:0.85;padding-bottom:32px;">${escapeHtml(s.subtext)}</td></tr>
+  <tr><td><a href="${validateUrl(s.buttonUrl)}" style="display:inline-block;background-color:${sanitizeColor(s.buttonBg)};color:${sanitizeColor(s.buttonTextColor)};font-family:sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:8px;">${escapeHtml(s.buttonLabel)}</a></td></tr>
 </table>`;
 
     case 'text':
       return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;">
-  <tr><td style="font-size:${s.fontSize}px;color:${s.textColor};font-family:sans-serif;line-height:1.7;text-align:${s.textAlign};">${s.content}</td></tr>
+  <tr><td style="font-size:${safeNum(s.fontSize, 16)}px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;line-height:1.7;text-align:${sanitizeAlign(s.textAlign)};">${escapeHtml(s.content)}</td></tr>
 </table>`;
 
     case 'image':
-      if (!s.src) return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;"><tr><td style="text-align:${s.alignment};"><div style="background:#f3f4f6;border:2px dashed #d1d5db;padding:40px;border-radius:8px;color:#9ca3af;font-family:sans-serif;font-size:14px;">Image placeholder — add a URL</div></td></tr></table>`;
+      if (!s.src) return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;"><tr><td style="text-align:${sanitizeAlign(s.alignment)};"><div style="background:#f3f4f6;border:2px dashed #d1d5db;padding:40px;border-radius:8px;color:#9ca3af;font-family:sans-serif;font-size:14px;">Image placeholder — add a URL</div></td></tr></table>`;
       return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;">
-  <tr><td style="text-align:${s.alignment};"><img src="${s.src}" alt="${s.alt}" width="${s.width}" style="max-width:100%;border-radius:6px;" /></td></tr>
+  <tr><td style="text-align:${sanitizeAlign(s.alignment)};"><img src="${validateUrl(s.src)}" alt="${escapeHtml(s.alt)}" width="${safeNum(s.width, 600)}" style="max-width:100%;border-radius:6px;" /></td></tr>
 </table>`;
 
     case 'button':
       return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;">
-  <tr><td style="text-align:${s.alignment};"><a href="${s.url}" style="display:inline-block;background-color:${s.backgroundColor};color:${s.textColor};font-family:sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:8px;">${s.label}</a></td></tr>
+  <tr><td style="text-align:${sanitizeAlign(s.alignment)};"><a href="${validateUrl(s.url)}" style="display:inline-block;background-color:${sanitizeColor(s.backgroundColor)};color:${sanitizeColor(s.textColor)};font-family:sans-serif;font-size:15px;font-weight:600;text-decoration:none;padding:14px 32px;border-radius:8px;">${escapeHtml(s.label)}</a></td></tr>
 </table>`;
 
     case 'divider':
-      return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:${s.marginTop}px 40px ${s.marginBottom}px;">
-  <tr><td><hr style="border:none;border-top:1px solid ${s.color};margin:0;" /></td></tr>
+      return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:${safeNum(s.marginTop, 0)}px 40px ${safeNum(s.marginBottom, 0)}px;">
+  <tr><td><hr style="border:none;border-top:1px solid ${sanitizeColor(s.color)};margin:0;" /></td></tr>
 </table>`;
 
     case 'two-columns':
       return `<table width="100%" cellpadding="0" cellspacing="0" style="padding:24px 40px;">
   <tr>
-    <td width="48%" style="font-size:${s.fontSize}px;color:${s.textColor};font-family:sans-serif;line-height:1.7;vertical-align:top;padding-right:16px;">${s.leftContent}</td>
+    <td width="48%" style="font-size:${safeNum(s.fontSize, 16)}px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;line-height:1.7;vertical-align:top;padding-right:16px;">${escapeHtml(s.leftContent)}</td>
     <td width="4%"></td>
-    <td width="48%" style="font-size:${s.fontSize}px;color:${s.textColor};font-family:sans-serif;line-height:1.7;vertical-align:top;">${s.rightContent}</td>
+    <td width="48%" style="font-size:${safeNum(s.fontSize, 16)}px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;line-height:1.7;vertical-align:top;">${escapeHtml(s.rightContent)}</td>
   </tr>
 </table>`;
 
     case 'footer':
-      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${s.backgroundColor};padding:32px 40px;text-align:center;">
-  <tr><td style="font-size:13px;color:${s.textColor};font-family:sans-serif;padding-bottom:8px;">${s.text}</td></tr>
-  <tr><td><a href="${s.unsubscribeUrl}" style="font-size:12px;color:${s.textColor};font-family:sans-serif;text-decoration:underline;">${s.unsubscribeText}</a></td></tr>
+      return `<table width="100%" cellpadding="0" cellspacing="0" style="background-color:${sanitizeColor(s.backgroundColor)};padding:32px 40px;text-align:center;">
+  <tr><td style="font-size:13px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;padding-bottom:8px;">${escapeHtml(s.text)}</td></tr>
+  <tr><td><a href="${validateUrl(s.unsubscribeUrl)}" style="font-size:12px;color:${sanitizeColor(s.textColor)};font-family:sans-serif;text-decoration:underline;">${escapeHtml(s.unsubscribeText)}</a></td></tr>
 </table>`;
 
     default:
