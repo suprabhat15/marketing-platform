@@ -58,7 +58,6 @@ export function NewTemplatePage() {
   };
 
   const confirmSwitchToVisual = () => {
-    setBlocks([]);
     setEditorMode('visual');
     setSwitching(null);
   };
