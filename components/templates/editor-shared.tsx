@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useEffect } from 'react';
+import DOMPurify from 'dompurify';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Mail, X } from 'lucide-react';
@@ -361,7 +362,30 @@ export function HtmlCodeEditor({
 
 // ─── Preview overlay ──────────────────────────────────────────────────────────
 
+const HEIGHT_REPORTER =
+  `<script>window.addEventListener('load',function(){` +
+  `window.parent.postMessage({type:'iframe-height',height:document.body.scrollHeight},'*');` +
+  `});<\/script>`;
+
 export function PreviewOverlay({ html }: { html: string }) {
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  useEffect(() => {
+    function onMessage(e: MessageEvent) {
+      if (e.origin !== 'null') return;
+      if (e.data?.type !== 'iframe-height' || !iframeRef.current) return;
+      const h = Math.min(Math.max(0, Number(e.data.height)), 10_000);
+      iframeRef.current.style.height = (h + 32) + 'px';
+    }
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  const safeHtml =
+    typeof window !== 'undefined'
+      ? DOMPurify.sanitize(html, { WHOLE_DOCUMENT: true }) + HEIGHT_REPORTER
+      : '';
+
   return (
     <div className="flex-1 overflow-auto bg-[#e5e7eb] py-8">
       <div className="mx-auto w-full max-w-[520px]">
@@ -381,15 +405,13 @@ export function PreviewOverlay({ html }: { html: string }) {
           {/* Email body */}
           {html ? (
             <iframe
-              srcDoc={html}
+              ref={iframeRef}
+              srcDoc={safeHtml}
               title="Email Preview"
+              sandbox="allow-scripts"
+              referrerPolicy="no-referrer"
               className="w-full border-0 bg-white"
               style={{ minHeight: '500px', display: 'block' }}
-              onLoad={(e) => {
-                const iframe = e.currentTarget;
-                const h = iframe.contentWindow?.document.body?.scrollHeight;
-                if (h) iframe.style.height = h + 32 + 'px';
-              }}
             />
           ) : (
             <div className="bg-white py-20 text-center">
