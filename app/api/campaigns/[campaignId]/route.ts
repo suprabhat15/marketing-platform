@@ -130,6 +130,20 @@ export async function GET(
       }
     }
 
+    // Event table is authoritative — merge to correct stale Redis/campaignStats counters
+    const eventCountRows = await prisma.event.groupBy({
+      by: ['type'],
+      where: { campaignId },
+      _count: { _all: true },
+    });
+    if (eventCountRows.length > 0) {
+      for (const row of eventCountRows) {
+        eventsByType[row.type] = Math.max(eventsByType[row.type] ?? 0, row._count._all);
+      }
+      const dbTotal = eventCountRows.reduce((sum, r) => sum + r._count._all, 0);
+      totalEvents = Math.max(totalEvents, dbTotal);
+    }
+
     // Events for engagement chart (OPENED/CLICKED in first 24h after send)
     const chartEventsRaw = await prisma.event.findMany({
       where: {
