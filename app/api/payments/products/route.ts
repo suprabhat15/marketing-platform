@@ -1,19 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getProducts, getProduct, initializeAllProductMeters } from '@/lib/polar';
+import { auth } from '@/lib/auth';
 
 export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
-    const productId = searchParams.get('productId');
-    const organizationId = searchParams.get('organizationId');
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const productId = new URL(request.url).searchParams.get('productId');
 
     if (productId) {
-      // Get specific product
       const product = await getProduct(productId);
       return NextResponse.json({ product });
     } else {
-      // Get all products
-      const products = await getProducts(organizationId || undefined);
+      const products = await getProducts();
       return NextResponse.json({ products: products.result || [] });
     }
 

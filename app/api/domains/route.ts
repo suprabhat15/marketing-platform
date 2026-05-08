@@ -9,6 +9,7 @@ async function getUserDomains(userId: string) {
   return await prisma.domain.findMany({
     where: { userId },
     orderBy: { createdAt: 'desc' },
+    omit: { userId: true },
   });
 }
 

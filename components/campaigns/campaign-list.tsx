@@ -3,9 +3,6 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -14,47 +11,12 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Mail,
-  Send,
-  Clock,
-  Edit,
-  Trash2,
-  // MoreHorizontal,
-  Activity,
-  Filter,
-  Search,
-} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Plus } from 'lucide-react';
 import { format } from 'date-fns';
-// import {
-//   DropdownMenu,
-//   DropdownMenuContent,
-//   DropdownMenuItem,
-//   DropdownMenuTrigger,
-// } from '@/components/ui/dropdown-menu';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-// import {
-//   AlertDialog,
-//   AlertDialogAction,
-//   AlertDialogCancel,
-//   AlertDialogContent,
-//   AlertDialogDescription,
-//   AlertDialogFooter,
-//   AlertDialogHeader,
-//   AlertDialogTitle,
-//   AlertDialogTrigger,
-// } from '@/components/ui/alert-dialog';
-
 import { z } from 'zod';
 
 const eventSchema = z.object({
-  id: z.string(),
   type: z.enum([
     'SENT',
     'DELIVERED',
@@ -66,37 +28,38 @@ const eventSchema = z.object({
     'SUPPRESSED',
     'UNSUBSCRIBED',
   ]),
-  data: z.any().optional(),
   createdAt: z.string().datetime(),
-  subscriber: z
-    .object({
-      id: z.string(),
-      email: z.string(),
-      firstName: z.string().nullable(),
-      lastName: z.string().nullable(),
-    })
-    .nullable(),
 });
 
 const campaignSchema = z.object({
   id: z.string(),
   name: z.string(),
   subject: z.string(),
-  status: z.enum(['DRAFT', 'SCHEDULED', 'QUEUED', 'SENDING', 'SENT', 'COMPLETED', 'CANCELLED', 'FAILED']),
-  latestStatus: z.enum(['DRAFT', 'SCHEDULED', 'QUEUED', 'SENDING', 'SENT', 'COMPLETED', 'CANCELLED', 'FAILED']),
+  status: z.enum([
+    'DRAFT',
+    'SCHEDULED',
+    'QUEUED',
+    'SENDING',
+    'SENT',
+    'COMPLETED',
+    'CANCELLED',
+    'FAILED',
+  ]),
+  latestStatus: z.enum([
+    'DRAFT',
+    'SCHEDULED',
+    'QUEUED',
+    'SENDING',
+    'SENT',
+    'COMPLETED',
+    'CANCELLED',
+    'FAILED',
+  ]),
   sentAt: z.string().datetime().nullable(),
   createdAt: z.string().datetime(),
   latestCreatedAt: z.string().datetime(),
-  list: z.object({
-    id: z.string(),
-    name: z.string(),
-  }),
-  template: z
-    .object({
-      id: z.string(),
-      name: z.string(),
-    })
-    .nullable(),
+  list: z.object({ id: z.string(), name: z.string() }),
+  template: z.object({ id: z.string(), name: z.string() }).nullable(),
   events: z.array(eventSchema),
   totalEvents: z.number(),
   campaignIds: z.array(z.string()),
@@ -104,12 +67,54 @@ const campaignSchema = z.object({
 });
 
 type Campaign = z.infer<typeof campaignSchema>;
-type Event = z.infer<typeof eventSchema>;
 
 interface CampaignListProps {
   campaigns: Campaign[];
   onSendCampaign: (campaignId: string, scheduleAt?: Date) => void;
   handleDelete: (campaignId: string) => void;
+}
+
+const STATUS_STYLES: Record<Campaign['status'], string> = {
+  SENT: 'bg-green-100 text-green-700 border-green-200',
+  COMPLETED: 'bg-green-100 text-green-700 border-green-200',
+  SCHEDULED: 'bg-sky-100 text-sky-700 border-sky-200',
+  SENDING: 'bg-blue-100 text-blue-700 border-blue-200',
+  QUEUED: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+  DRAFT: 'bg-gray-100 text-gray-600 border-gray-200',
+  CANCELLED: 'bg-gray-100 text-gray-500 border-gray-200',
+  FAILED: 'bg-red-100 text-red-700 border-red-200',
+};
+
+function StatusBadge({ status }: { status: Campaign['status'] }) {
+  return (
+    <span
+      className={`inline-block rounded border px-2 py-0.5 text-[11px] font-bold tracking-wider uppercase ${STATUS_STYLES[status] ?? STATUS_STYLES.DRAFT}`}
+    >
+      {status}
+    </span>
+  );
+}
+
+function getDenominator(campaign: Campaign): number {
+  // Use || so a 0-value DELIVERED falls through to SENT, then to 0
+  return campaign.eventsByType['DELIVERED'] || campaign.eventsByType['SENT'] || 0;
+}
+
+function getOpenRate(campaign: Campaign): string {
+  const opened = campaign.eventsByType['OPENED'] ?? 0;
+  const denom = getDenominator(campaign);
+  if (denom > 0) return `${((opened / denom) * 100).toFixed(1)}%`;
+  // Denominator unknown but opens were tracked — show raw count
+  if (opened > 0) return `${opened} open${opened !== 1 ? 's' : ''}`;
+  return '—';
+}
+
+function getClickRate(campaign: Campaign): string {
+  const clicked = campaign.eventsByType['CLICKED'] ?? 0;
+  const denom = getDenominator(campaign);
+  if (denom > 0) return `${((clicked / denom) * 100).toFixed(1)}%`;
+  if (clicked > 0) return `${clicked} click${clicked !== 1 ? 's' : ''}`;
+  return '—';
 }
 
 export function CampaignList({
@@ -122,79 +127,13 @@ export function CampaignList({
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-
-  // Filter campaigns based on search query and status
-  const filteredCampaigns = campaigns.filter((campaign) => {
-    const matchesSearch =
-      searchQuery === '' ||
-      campaign.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      campaign.subject.toLowerCase().includes(searchQuery.toLowerCase());
-
-    const matchesStatus =
-      statusFilter === 'all' || campaign.latestStatus === statusFilter;
-
-    return matchesSearch && matchesStatus;
-  });
-
-  const getStatusColor = (status: Campaign['status']) => {
-    switch (status) {
-      case 'SENT':
-        return 'bg-green-100 text-green-800 border-green-200';
-      case 'SENDING':
-        return 'bg-blue-100 text-blue-800 border-blue-200';
-      case 'QUEUED':
-        return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'FAILED':
-        return 'bg-red-100 text-red-800 border-red-200';
-      default:
-        return 'bg-gray-100 text-gray-800 border-gray-200';
-    }
-  };
-
-  const getEventTypeColor = (type: Event['type']) => {
-    switch (type) {
-      case 'SENT':
-        return 'bg-blue-100 text-blue-800';
-      case 'DELIVERED':
-        return 'bg-green-100 text-green-800';
-      case 'OPENED':
-        return 'bg-purple-100 text-purple-800';
-      case 'CLICKED':
-        return 'bg-orange-100 text-orange-800';
-      case 'BOUNCED':
-        return 'bg-red-100 text-red-800';
-      case 'COMPLAINED':
-        return 'bg-red-100 text-red-800';
-      case 'UNSUBSCRIBED':
-        return 'bg-gray-100 text-gray-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getStatusLabel = (status: Campaign['status']) => {
-    switch (status) {
-      case 'DRAFT':
-        return 'Draft';
-      case 'QUEUED':
-        return 'Queued';
-      case 'SENDING':
-        return 'Sending';
-      case 'SENT':
-        return 'Sent';
-      case 'FAILED':
-        return 'Failed';
-      default:
-        return status;
-    }
-  };
 
   const handleSchedule = () => {
     if (selectedCampaign && scheduleDate && scheduleTime) {
-      const scheduleAt = new Date(`${scheduleDate}T${scheduleTime}`);
-      onSendCampaign(selectedCampaign, scheduleAt);
+      onSendCampaign(
+        selectedCampaign,
+        new Date(`${scheduleDate}T${scheduleTime}`)
+      );
       setScheduleDialogOpen(false);
       setSelectedCampaign(null);
       setScheduleDate('');
@@ -202,271 +141,112 @@ export function CampaignList({
     }
   };
 
-  const openScheduleDialog = (campaignId: string) => {
-    setSelectedCampaign(campaignId);
-    setScheduleDialogOpen(true);
-  };
-
   return (
-    <Card>
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5" />
-            All Campaigns ({filteredCampaigns.length})
-          </CardTitle>
-
-          <div className="flex items-center gap-3">
-            {/* Status Filter */}
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-32">
-                <Filter className="mr-2 h-3 w-3" />
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="DRAFT">Draft</SelectItem>
-                <SelectItem value="QUEUED">Queued</SelectItem>
-                <SelectItem value="SENDING">Sending</SelectItem>
-                <SelectItem value="SENT">Sent</SelectItem>
-                <SelectItem value="FAILED">Failed</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="text-muted-foreground absolute top-2.5 left-2 h-4 w-4" />
-              <Input
-                placeholder="Search campaigns..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-64 pl-8"
-              />
-            </div>
-          </div>
+    <>
+      <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+        {/* Section header */}
+        <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
+          <h2 className="text-lg font-bold text-gray-900">All Campaigns</h2>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="space-y-4">
-          {campaigns.length === 0 ? (
-            <div className="py-12 text-center">
-              <Mail className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">
-                No campaigns
-              </h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Get started by creating your first email campaign.
-              </p>
-            </div>
-          ) : filteredCampaigns.length === 0 ? (
-            <div className="py-12 text-center">
-              <Search className="mx-auto h-12 w-12 text-gray-400" />
-              <h3 className="mt-2 text-sm font-medium text-gray-900">
-                No campaigns found
-              </h3>
-              <p className="mt-1 text-sm text-gray-500">
-                Try adjusting your search or filter criteria.
-              </p>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setSearchQuery('');
-                  setStatusFilter('all');
-                }}
-                className="mt-3"
-              >
-                Clear filters
-              </Button>
-            </div>
-          ) : (
-            filteredCampaigns.map((campaign) => (
-              <div
-                key={campaign.id}
-                className="cursor-pointer rounded-lg border p-4 transition-colors hover:bg-gray-50"
-                onClick={() => router.push(`/campaigns/${campaign.id}`)}
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex-1 space-y-2">
-                    <div className="flex items-center gap-3">
-                      <h3 className="text-lg font-semibold">{campaign.name}</h3>
-                      <Badge className={getStatusColor(campaign.latestStatus)}>
-                        {getStatusLabel(campaign.latestStatus)}
-                      </Badge>
-                      {/* <Badge variant="outline" className="text-xs">
-                        <Activity className="mr-1 h-3 w-3" />
-                        {campaign.totalEvents} events
-                      </Badge> */}
-                    </div>
 
-                    <p className="text-muted-foreground text-sm">
-                      {campaign.subject}
-                    </p>
+        {campaigns.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-sm text-gray-400">
+              No campaigns yet. Create your first campaign.
+            </p>
+          </div>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="px-6 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Campaign
+                </th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  List
+                </th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Status
+                </th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Sent
+                </th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Opens
+                </th>
+                <th className="px-4 py-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase">
+                  Clicks
+                </th>
+                <th className="px-4 py-3" />
+              </tr>
+            </thead>
+            <tbody>
+              {campaigns.map((campaign, i) => {
+                const openRate = getOpenRate(campaign);
+                const clickRate = getClickRate(campaign);
+                const isDraft = campaign.latestStatus === 'DRAFT';
 
-                    <div className="text-muted-foreground flex items-center gap-6 text-sm">
-                      <span>List: {campaign.list.name}</span>
-                      <span>
-                        Created:{' '}
-                        {format(new Date(campaign.createdAt), 'MMM d, yyyy')}
-                      </span>
-                      {campaign.sentAt && (
-                        <span>
-                          Sent:{' '}
-                          {format(
-                            new Date(campaign.sentAt),
-                            'MMM d, yyyy HH:mm'
-                          )}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Event Statistics */}
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(campaign.eventsByType).map(
-                        ([type, count]) => (
-                          <Badge
-                            key={type}
-                            variant="outline"
-                            className={`text-xs ${getEventTypeColor(type as Event['type'])}`}
-                          >
-                            {type}: {count}
-                          </Badge>
-                        )
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    className="flex items-center gap-2"
-                    onClick={(e) => e.stopPropagation()}
+                return (
+                  <tr
+                    key={campaign.id}
+                    className={`transition-colors hover:bg-gray-50/60 ${i < campaigns.length - 1 ? 'border-b border-gray-100' : ''}`}
                   >
-                    {campaign.latestStatus === 'DRAFT' && (
-                      <>
-                        <Button
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            onSendCampaign(campaign.id);
-                          }}
-                          className="flex items-center gap-1"
-                        >
-                          <Send className="h-3 w-3" />
-                          Send Now
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openScheduleDialog(campaign.id);
-                          }}
-                          className="flex items-center gap-1"
-                        >
-                          <Clock className="h-3 w-3" />
-                          Schedule
-                        </Button>
-                      </>
-                    )}
-
-                    {/* <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        <DropdownMenuItem
+                    <td className="px-6 py-4">
+                      <span className="font-semibold text-gray-900">
+                        {campaign.name}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-gray-500">
+                      {campaign.list.name}
+                    </td>
+                    <td className="px-4 py-4">
+                      <StatusBadge status={campaign.latestStatus} />
+                    </td>
+                    <td className="px-4 py-4 text-gray-700">
+                      {campaign.sentAt ? (
+                        <span>
+                          {format(new Date(campaign.sentAt), 'MMM d')}
+                          <span className="ml-1 text-xs text-gray-400">
+                            {format(new Date(campaign.sentAt), 'h:mm a')}
+                          </span>
+                        </span>
+                      ) : '—'}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-gray-900">
+                      {openRate}
+                    </td>
+                    <td className="px-4 py-4 font-semibold text-gray-900">
+                      {clickRate}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex items-center justify-end gap-3">
+                        <button
                           onClick={() =>
                             router.push(`/campaigns/${campaign.id}`)
                           }
+                          className="cursor-pointer font-medium text-orange-500 hover:text-orange-600"
                         >
-                          <Activity className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem className="text-red-600">
-                          <AlertDialog>
-                            <AlertDialogTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="text-red-600 hover:text-red-700"
-                                title="Delete List"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  e.preventDefault();
-                                  handleDelete(campaign.id);
-                                }}
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                              </Button>
-                            </AlertDialogTrigger>
-                            <AlertDialogContent>
-                              <AlertDialogHeader>
-                                <AlertDialogTitle>
-                                  Are you sure?
-                                </AlertDialogTitle>
-                                <AlertDialogDescription>
-                                  This action cannot be undone. This will
-                                  permanently delete the list &quot;
-                                  {campaign.name}
-                                  &quot; and all its subscribers.
-                                </AlertDialogDescription>
-                              </AlertDialogHeader>
-                              <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                <AlertDialogAction
-                                  onClick={() => handleDelete(campaign.id)}
-                                  className="bg-red-600 hover:bg-red-700"
-                                >
-                                  Delete List
-                                </AlertDialogAction>
-                              </AlertDialogFooter>
-                            </AlertDialogContent>
-                          </AlertDialog>
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu> */}
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          router.push(`/campaigns/${campaign.id}`);
-                        }}
-                        className="flex cursor-pointer items-center gap-1"
-                      >
-                        <Edit className="h-3 w-3" />
-                        Edit
-                      </Button>
-
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          e.preventDefault();
-                          handleDelete(campaign.id);
-                        }}
-                        className="flex cursor-pointer items-center gap-1 text-red-600"
-                      >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </CardContent>
+                          View
+                        </button>
+                        {isDraft && (
+                          <button
+                            onClick={() =>
+                              router.push(`/campaigns/${campaign.id}`)
+                            }
+                            className="cursor-pointer font-medium text-gray-700 hover:text-gray-900"
+                          >
+                            Edit
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
 
       {/* Schedule Dialog */}
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>
@@ -506,6 +286,6 @@ export function CampaignList({
           </div>
         </DialogContent>
       </Dialog>
-    </Card>
+    </>
   );
 }

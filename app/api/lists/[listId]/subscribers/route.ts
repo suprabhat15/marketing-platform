@@ -62,6 +62,7 @@ export async function GET(
       orderBy: { createdAt: "desc" },
       skip,
       take: limit,
+      omit: { listId: true },
     });
 
     const totalPages = Math.ceil(totalCount / limit);

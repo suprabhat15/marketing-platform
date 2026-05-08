@@ -25,15 +25,20 @@ export async function GET(
         id: campaignId,
         userId,
       },
-      include: {
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        queuedAt: true,
+        sentAt: true,
         list: {
-          include: {
-            subscribers: {
-              where: { status: 'ACTIVE' }
-            }
-          }
-        }
-      }
+          select: {
+            _count: {
+              select: { subscribers: { where: { status: 'ACTIVE' } } },
+            },
+          },
+        },
+      },
     });
 
     if (!campaign) {
@@ -63,7 +68,7 @@ export async function GET(
         status: campaign.status,
         queuedAt: campaign.queuedAt,
         sentAt: campaign.sentAt,
-        totalSubscribers: campaign.list.subscribers.length,
+        totalSubscribers: campaign.list._count.subscribers,
       },
       events: {
         sent: eventCounts.sent || 0,

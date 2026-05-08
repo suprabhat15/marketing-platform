@@ -20,15 +20,23 @@ export async function GET(request: NextRequest) {
       select: { polarCustomerId: true },
     });
 
-    if (!user?.polarCustomerId) {
-      return NextResponse.json(
-        { error: 'Customer not found. Please make a purchase first.' },
-        { status: 404 }
-      );
+    try {
+      const data = await getCustomerPortalData(user?.polarCustomerId ?? null, userId);
+      return NextResponse.json({ success: true, data });
+    } catch (err: any) {
+      // If customer doesn't exist in Polar at all, return 404
+      if (
+        err?.message === 'CUSTOMER_NOT_FOUND' ||
+        err?.statusCode === 404 ||
+        err?.statusCode === 422
+      ) {
+        return NextResponse.json(
+          { error: 'Customer not found. Please make a purchase first.' },
+          { status: 404 }
+        );
+      }
+      throw err;
     }
-
-    const data = await getCustomerPortalData(user.polarCustomerId, userId);
-    return NextResponse.json({ success: true, data });
   } catch (err: any) {
     console.error('Error fetching billing portal data:', err);
     return NextResponse.json(

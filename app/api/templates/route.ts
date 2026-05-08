@@ -43,6 +43,8 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
       skip: offset,
       take: limit,
+      omit: { userId: true },
+      include: { _count: { select: { campaigns: true } } },
     });
 
     // Calculate pagination metadata
@@ -103,6 +105,7 @@ export async function POST(request: NextRequest) {
         attachments: attachments || [],
         userId: session.user.id,
       },
+      omit: { userId: true },
     });
 
     // Invalidate templates cache for this user

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { auth } from '@/lib/auth';
-import { batchQueue } from '@/lib/queue';
+import { batchQueue } from '@/lib/queue-client';
 import { invalidateUserCache } from '@/lib/redis-cache';
 import { redis } from '@/lib/redis';
 
@@ -25,6 +25,7 @@ export async function GET(
         id: campaignId,
         userId: session.user.id,
       },
+      omit: { userId: true, listId: true, templateId: true, subscriberIds: true },
       include: {
         list: {
           select: {
@@ -129,14 +130,71 @@ export async function GET(
       }
     }
 
+    // Event table is authoritative — merge to correct stale Redis/campaignStats counters
+    const eventCountRows = await prisma.event.groupBy({
+      by: ['type'],
+      where: { campaignId },
+      _count: { _all: true },
+    });
+    if (eventCountRows.length > 0) {
+      for (const row of eventCountRows) {
+        eventsByType[row.type] = Math.max(eventsByType[row.type] ?? 0, row._count._all);
+      }
+      const dbTotal = eventCountRows.reduce((sum, r) => sum + r._count._all, 0);
+      totalEvents = Math.max(totalEvents, dbTotal);
+    }
+
+    // Events for engagement chart (OPENED/CLICKED in first 24h after send)
+    const chartEventsRaw = await prisma.event.findMany({
+      where: {
+        campaignId,
+        type: { in: ['OPENED', 'CLICKED'] },
+        ...(campaign.sentAt
+          ? {
+              createdAt: {
+                gte: campaign.sentAt,
+                lte: new Date(campaign.sentAt.getTime() + 24 * 60 * 60 * 1000),
+              },
+            }
+          : {}),
+      },
+      select: { type: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+      take: 5000,
+    });
+
+    // Failed delivery events (BOUNCED, COMPLAINED) with subscriber info
+    const failedDeliveryEvents = await prisma.event.findMany({
+      where: { campaignId, type: { in: ['BOUNCED', 'COMPLAINED', 'FAILED'] } },
+      select: {
+        type: true,
+        createdAt: true,
+        subscriber: { select: { email: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
     return NextResponse.json({
       campaign: {
         ...campaign,
         eventsByType,
         totalEvents,
-        statsSource,
-        subscriberCount: campaign.list._count.subscribers
-      }
+        subscriberCount: campaign.list._count.subscribers,
+        chartEvents: chartEventsRaw.map((e) => ({
+          type: e.type,
+          createdAt: e.createdAt.toISOString(),
+        })),
+        failedDeliveries: failedDeliveryEvents.map((e) => ({
+          type: e.type,
+          createdAt: e.createdAt.toISOString(),
+          email: e.subscriber?.email ?? null,
+          name:
+            [e.subscriber?.firstName, e.subscriber?.lastName]
+              .filter(Boolean)
+              .join(' ') || null,
+        })),
+      },
     });
   } catch (error) {
     console.error('Error fetching campaign:', error);

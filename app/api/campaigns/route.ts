@@ -26,12 +26,34 @@ export async function GET(request: NextRequest) {
 
     const campaigns = await prisma.campaign.findMany({
       where: { userId: session?.user.id },
-      include: {
-        list: true,
-        template: true,
+      select: {
+        id: true,
+        name: true,
+        subject: true,
+        content: true,
+        status: true,
+        scheduledAt: true,
+        sentAt: true,
+        createdAt: true,
+        list: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+        },
+        template: {
+          select: {
+            id: true,
+            name: true,
+            html: true,
+            content: true,
+          },
+        },
         events: {
-          include: {
-            subscriber: true,
+          select: {
+            type: true,
+            createdAt: true,
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -211,7 +233,7 @@ export async function POST(request: NextRequest) { // Created first campaign via
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(
-      { error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

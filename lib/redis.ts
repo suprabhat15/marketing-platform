@@ -160,6 +160,17 @@ if (!globalCleanup.__redisCleanupRegistered) {
   });
 }
 
+// Shared connection options for BullMQ — pass these instead of an ioredis instance
+// so BullMQ creates exactly the connections it needs without an extra "parent" connection.
+export const bullMQConnection = {
+  host: process.env.REDIS_HOST || '127.0.0.1',
+  port: parseInt(process.env.REDIS_PORT || '6379', 10),
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD,
+  maxRetriesPerRequest: null as null, // required by BullMQ
+  tls: process.env.REDIS_TLS === 'true' ? ({} as const) : undefined,
+};
+
 // Export instances
 export const redis = RedisConnectionManager.getInstance('default');
 export const getRedisInstance = (

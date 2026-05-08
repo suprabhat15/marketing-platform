@@ -2,7 +2,7 @@ import { Queue, Worker, Job } from 'bullmq';
 import type { EventType } from '@prisma/client';
 import { prisma } from './prisma';
 import { BatchEmailProcessor, BatchEmailData } from './batch-email-processor';
-import { redis, getRedisInstance } from './redis';
+import { bullMQConnection } from './redis';
 import { dlqQueue, batchDlqQueue } from './dlq-queues';
 export type CampaignJobName = 'process-campaign';
 export type BatchJobName = 'process-batch';
@@ -25,10 +25,6 @@ export interface PolarIngestionJobData {
   queuedAt: string;
 }
 
-const sharedRedisConnection = getRedisInstance('default');
-const connectionForQueue = sharedRedisConnection;
-const connectionForWorker = getRedisInstance('worker');
-
 const defaultJobOptions = {
   removeOnComplete: true,
   removeOnFail: 1000,
@@ -36,42 +32,50 @@ const defaultJobOptions = {
   backoff: { type: 'exponential', delay: 5000 },
 };
 
-const emailQueueConfig = {
-  connection: connectionForQueue,
-  defaultJobOptions: {
-    ...defaultJobOptions,
-  },
+// Guard all BullMQ instances in globalThis to prevent HMR from creating duplicate connections.
+// Queue instances use the same keys as queue-client.ts so they are shared (not doubled).
+const g = globalThis as unknown as {
+  __campaignQueue?: Queue<CampaignJobData, void, CampaignJobName>;
+  __batchQueue?: Queue<BatchEmailData, void, BatchJobName>;
+  __polarIngestionQueue?: Queue<PolarIngestionJobData, void, PolarJobName>;
+  __campaignWorker?: Worker<CampaignJobData, void, CampaignJobName>;
+  __batchWorker?: Worker<BatchEmailData, void, BatchJobName>;
+  __polarIngestionWorker?: Worker<PolarIngestionJobData, void, PolarJobName>;
 };
 
-export const campaignQueue = new Queue<CampaignJobData, void, CampaignJobName>(
-  'campaign-processing',
-  emailQueueConfig
-);
+if (!g.__campaignQueue) {
+  g.__campaignQueue = new Queue<CampaignJobData, void, CampaignJobName>(
+    'campaign-processing',
+    { connection: bullMQConnection, defaultJobOptions }
+  );
+}
+if (!g.__batchQueue) {
+  g.__batchQueue = new Queue<BatchEmailData, void, BatchJobName>(
+    'batch-processing',
+    { connection: bullMQConnection, defaultJobOptions }
+  );
+}
+if (!g.__polarIngestionQueue) {
+  g.__polarIngestionQueue = new Queue<PolarIngestionJobData, void, PolarJobName>(
+    'polar-ingestion',
+    {
+      connection: bullMQConnection,
+      defaultJobOptions: {
+        removeOnComplete: 20,
+        removeOnFail: 1000,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+      },
+    }
+  );
+}
 
-export const batchQueue = new Queue<BatchEmailData, void, BatchJobName>(
-  'batch-processing',
-  emailQueueConfig
-);
+export const campaignQueue = g.__campaignQueue;
+export const batchQueue = g.__batchQueue;
+export const polarIngestionQueue = g.__polarIngestionQueue;
 
-export const polarIngestionQueue = new Queue<
-  PolarIngestionJobData,
-  void,
-  PolarJobName
->('polar-ingestion', {
-  connection: connectionForQueue,
-  defaultJobOptions: {
-    removeOnComplete: 20,
-    removeOnFail: 1000,
-    attempts: 5,
-    backoff: { type: 'exponential', delay: 2000 },
-  },
-});
-
-export const campaignWorker = new Worker<
-  CampaignJobData,
-  void,
-  CampaignJobName
->(
+if (!g.__campaignWorker) {
+g.__campaignWorker = new Worker<CampaignJobData, void, CampaignJobName>(
   'campaign-processing',
   async (job: Job<CampaignJobData, void, CampaignJobName>) => {
     if (job.name !== 'process-campaign') return;
@@ -197,10 +201,12 @@ export const campaignWorker = new Worker<
       throw error;
     }
   },
-  { connection: connectionForWorker, concurrency: 1 }
+  { connection: bullMQConnection, concurrency: 1 }
 );
+}
 
-export const batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
+if (!g.__batchWorker) {
+g.__batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
   'batch-processing',
   async (job: Job<BatchEmailData, void, BatchJobName>) => {
     if (job.name !== 'process-batch') return;
@@ -247,16 +253,12 @@ export const batchWorker = new Worker<BatchEmailData, void, BatchJobName>(
       if (timeoutId) clearTimeout(timeoutId);
     }
   },
-  { connection: connectionForWorker, concurrency: 7 }
+  { connection: bullMQConnection, concurrency: 7 }
 );
+}
 
-export const emailWorker = batchWorker;
-
-export const polarIngestionWorker = new Worker<
-  PolarIngestionJobData,
-  void,
-  PolarJobName
->(
+if (!g.__polarIngestionWorker) {
+g.__polarIngestionWorker = new Worker<PolarIngestionJobData, void, PolarJobName>(
   'polar-ingestion',
   async (job) => {
     if (job.name !== 'ingest-sent-event') return;
@@ -303,10 +305,17 @@ export const polarIngestionWorker = new Worker<
     }
   },
   {
-    connection: connectionForWorker,
+    connection: bullMQConnection,
     concurrency: 2,
   }
 );
+}
+
+export const campaignWorker = g.__campaignWorker!;
+export const batchWorker = g.__batchWorker!;
+export const emailWorker = g.__batchWorker!;
+export const polarIngestionWorker = g.__polarIngestionWorker!;
+
 export async function addCampaignToQueue(
   campaignId: string,
   userId: string,
@@ -345,26 +354,32 @@ export async function addPolarIngestionJob(
   return job;
 }
 
-campaignWorker.on('completed', (job) =>
-  console.log(`✅ Campaign job ${job.id} completed (batches queued)`)
-);
-campaignWorker.on('failed', (job, err) =>
-  console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`)
-);
+// Guard listener registration so HMR doesn't stack duplicate listeners
+const gListeners = globalThis as { __workerListenersAttached?: boolean };
+if (!gListeners.__workerListenersAttached) {
+  gListeners.__workerListenersAttached = true;
 
-batchWorker.on('completed', (job) =>
-  console.log(
-    `✅ Batch ${job.data.batchNumber} of campaign ${job.data.campaignId} completed`
-  )
-);
-batchWorker.on('failed', (job, err) =>
-  console.error(`❌ Batch job ${job?.id} failed: ${err.message}`)
-);
+  campaignWorker.on('completed', (job) =>
+    console.log(`✅ Campaign job ${job.id} completed (batches queued)`)
+  );
+  campaignWorker.on('failed', (job, err) =>
+    console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`)
+  );
 
-polarIngestionWorker.on('completed', (job) => {});
-polarIngestionWorker.on('failed', (job, err) =>
-  console.error(`❌ Polar ingestion job ${job?.id} failed: ${err.message}`)
-);
+  batchWorker.on('completed', (job) =>
+    console.log(
+      `✅ Batch ${job.data.batchNumber} of campaign ${job.data.campaignId} completed`
+    )
+  );
+  batchWorker.on('failed', (job, err) =>
+    console.error(`❌ Batch job ${job?.id} failed: ${err.message}`)
+  );
+
+  polarIngestionWorker.on('completed', () => {});
+  polarIngestionWorker.on('failed', (job, err) =>
+    console.error(`❌ Polar ingestion job ${job?.id} failed: ${err.message}`)
+  );
+}
 
 export const shutdownEmailQueues = async () => {
   await Promise.all([
