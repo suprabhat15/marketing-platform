@@ -1,13 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Prevent Next.js webpack from bundling these — BullMQ uses dynamic require()
+  // expressions that webpack can't analyse, causing "critical dependency" warnings
+  // and broken queue behaviour in API routes.
+  serverExternalPackages: ['bullmq', 'ioredis', '@ioredis/client'],
   experimental: {
     optimizePackageImports: [
       '@tiptap/react',
       '@tiptap/starter-kit',
       '@radix-ui/react-slot',
       'lucide-react',
-      'date-fns',
       'better-auth',
       '@polar-sh/better-auth',
       '@polar-sh/sdk'
