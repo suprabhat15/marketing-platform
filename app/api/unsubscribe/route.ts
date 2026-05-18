@@ -23,14 +23,12 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(errorUrl);
   }
 
-  const campaign = await prisma.campaign.findFirst({
+  // Campaign may have been deleted after delivery — that must not block a legal opt-out.
+  // Token + subscriber existence is sufficient proof of authenticity.
+  await prisma.campaign.findFirst({
     where: { id: cid, listId: subscriber.listId },
     select: { id: true },
   });
-
-  if (!campaign) {
-    return NextResponse.redirect(errorUrl);
-  }
 
   // Atomic flip — prevents duplicate events on concurrent double-clicks
   const result = await prisma.subscriber.updateMany({
@@ -42,18 +40,22 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(new URL('/unsubscribe?status=already', request.url));
   }
 
-  await prisma.event.create({
-    data: {
-      type: 'UNSUBSCRIBED',
+  try {
+    await prisma.event.create({
       data: {
-        email: subscriber.email,
-        source: 'unsubscribe_link',
-        timestamp: new Date().toISOString(),
+        type: 'UNSUBSCRIBED',
+        data: {
+          email: subscriber.email,
+          source: 'unsubscribe_link',
+          timestamp: new Date().toISOString(),
+        },
+        subscriberId: sid,
+        campaignId: cid,
       },
-      subscriberId: sid,
-      campaignId: cid,
-    },
-  });
+    });
+  } catch (err) {
+    console.error('Failed to create UNSUBSCRIBED event', { error: err, email: subscriber.email, sid, cid });
+  }
 
   try {
     const { sendSesEventToSQS } = await import('@/lib/sqs-service');

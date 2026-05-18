@@ -342,7 +342,7 @@ export default function CampaignDetailPage() {
               {
                 key: 'unsubscribed' as const,
                 label: 'Unsubscribed',
-                badge: unsubscribedContacts.length,
+                badge: unsubscribed,
               },
             ].map(({ key, label, badge }) => (
               <button
