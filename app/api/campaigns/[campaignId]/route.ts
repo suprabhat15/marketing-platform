@@ -175,6 +175,17 @@ export async function GET(
       take: 500,
     });
 
+    // Unsubscribed events with subscriber info
+    const unsubscribedEvents = await prisma.event.findMany({
+      where: { campaignId, type: 'UNSUBSCRIBED' },
+      select: {
+        createdAt: true,
+        subscriber: { select: { email: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 500,
+    });
+
     return NextResponse.json({
       campaign: {
         ...campaign,
@@ -187,6 +198,14 @@ export async function GET(
         })),
         failedDeliveries: failedDeliveryEvents.map((e) => ({
           type: e.type,
+          createdAt: e.createdAt.toISOString(),
+          email: e.subscriber?.email ?? null,
+          name:
+            [e.subscriber?.firstName, e.subscriber?.lastName]
+              .filter(Boolean)
+              .join(' ') || null,
+        })),
+        unsubscribedContacts: unsubscribedEvents.map((e) => ({
           createdAt: e.createdAt.toISOString(),
           email: e.subscriber?.email ?? null,
           name:

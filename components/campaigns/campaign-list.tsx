@@ -9,10 +9,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-react';
+import { Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { z } from 'zod';
 
@@ -127,6 +137,7 @@ export function CampaignList({
   const [selectedCampaign, setSelectedCampaign] = useState<string | null>(null);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('');
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
 
   const handleSchedule = () => {
     if (selectedCampaign && scheduleDate && scheduleTime) {
@@ -238,6 +249,14 @@ export function CampaignList({
                             Edit
                           </button>
                         )}
+                        <button
+                          onClick={() => setCampaignToDelete(campaign)}
+                          disabled={campaign.latestStatus === 'SENDING' || campaign.latestStatus === 'QUEUED'}
+                          className="cursor-pointer text-gray-400 transition-colors hover:text-red-500 disabled:cursor-not-allowed disabled:opacity-30"
+                          title="Delete campaign"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -247,6 +266,36 @@ export function CampaignList({
           </table>
         )}
       </div>
+
+      {/* Delete Confirmation */}
+      <AlertDialog open={!!campaignToDelete} onOpenChange={(open) => !open && setCampaignToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              <strong>{campaignToDelete?.name}</strong> will be permanently deleted.
+              {(campaignToDelete?.campaignIds.length ?? 0) > 1 && (
+                <span> This includes {campaignToDelete!.campaignIds.length} sends.</span>
+              )}
+              {' '}This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (campaignToDelete) {
+                  handleDelete(campaignToDelete.id);
+                  setCampaignToDelete(null);
+                }
+              }}
+              className="bg-red-500 hover:bg-red-600 focus:ring-red-500"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Schedule Dialog */}
       <Dialog open={scheduleDialogOpen} onOpenChange={setScheduleDialogOpen}>

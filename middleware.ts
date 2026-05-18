@@ -4,6 +4,7 @@ const SUSPENSION_EXEMPT_PATHS = [
   '/api/auth',
   '/api/user/status',
   '/api/payments/webhooks',
+  '/api/unsubscribe',
 ];
 
 export async function middleware(request: NextRequest) {

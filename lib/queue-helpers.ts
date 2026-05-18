@@ -113,12 +113,10 @@ export async function checkCampaignCompletionByBatch(campaignId: string) {
       return;
     }
 
-    // Get total active subscribers for this campaign
-    const subscriberIds = Array.isArray(campaign.subscriberIds)
-      ? (campaign.subscriberIds as string[])
-      : JSON.parse(campaign.subscriberIds as string);
-    
-    const totalRecipients = subscriberIds.length;
+    // Use the already-fetched list subscriber count.
+    // campaign.subscriberIds is never populated by the send route so parsing it
+    // always throws; the list query above is the authoritative source.
+    const totalRecipients = campaign.list?.subscribers?.length ?? 0;
 
     if (totalRecipients === 0) {
       console.log(`Campaign ${campaignId} has no recipients, marking as complete`);
