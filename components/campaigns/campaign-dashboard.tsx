@@ -229,12 +229,17 @@ export function CampaignDashboard() {
 
   const handleDelete = async (campaignId: string) => {
     try {
-      const response = await fetch(`/api/campaigns/${campaignId}`, {
-        method: 'DELETE',
-      });
-      if (response.ok) {
-        setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
-      }
+      const campaign = campaigns.find((c) => c.id === campaignId);
+      const idsToDelete = campaign?.campaignIds ?? [campaignId];
+
+      await Promise.all(
+        idsToDelete.map((id) =>
+          fetch(`/api/campaigns/${id}`, { method: 'DELETE' })
+        )
+      );
+
+      setCampaigns((prev) => prev.filter((c) => c.id !== campaignId));
+      setStats((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
     } catch (error) {
       console.error('Error deleting campaign:', error);
     }
