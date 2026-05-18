@@ -28,6 +28,12 @@ interface FailedDelivery {
   name: string | null;
 }
 
+interface UnsubscribedContact {
+  createdAt: string;
+  email: string | null;
+  name: string | null;
+}
+
 interface Campaign {
   id: string;
   name: string;
@@ -41,6 +47,7 @@ interface Campaign {
   subscriberCount: number;
   chartEvents: ChartEvent[];
   failedDeliveries: FailedDelivery[];
+  unsubscribedContacts: UnsubscribedContact[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -214,7 +221,7 @@ export default function CampaignDetailPage() {
   const router = useRouter();
   const campaignId = params?.campaignId as string;
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const [tab, setTab] = useState<'overview' | 'failed'>('overview');
+  const [tab, setTab] = useState<'overview' | 'failed' | 'unsubscribed'>('overview');
 
   const fetchCampaign = useCallback(async () => {
     try {
@@ -250,6 +257,7 @@ export default function CampaignDetailPage() {
   const failed = bounced + complained + failedEvents;
 
   const failedDeliveries = campaign.failedDeliveries ?? [];
+  const unsubscribedContacts = campaign.unsubscribedContacts ?? [];
   const chartEvents = campaign.chartEvents ?? [];
   const inboxRate = parseFloat(pct(delivered, recipients));
   const reputationGood = inboxRate >= 95;
@@ -330,6 +338,11 @@ export default function CampaignDetailPage() {
                 key: 'failed' as const,
                 label: 'Failed Deliveries',
                 badge: failedDeliveries.length,
+              },
+              {
+                key: 'unsubscribed' as const,
+                label: 'Unsubscribed',
+                badge: unsubscribedContacts.length,
               },
             ].map(({ key, label, badge }) => (
               <button
@@ -513,7 +526,7 @@ export default function CampaignDetailPage() {
                   </div>
                 </div>
               </div>
-            ) : (
+            ) : tab === 'failed' ? (
               /* ── Failed Deliveries tab ── */
               <div className="rounded-2xl border bg-white p-6">
                 {failedDeliveries.length === 0 ? (
@@ -558,6 +571,45 @@ export default function CampaignDetailPage() {
                           </td>
                           <td className="py-3 text-gray-500">
                             {format(new Date(fd.createdAt), 'MMM d, h:mm a')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            ) : (
+              /* ── Unsubscribed tab ── */
+              <div className="rounded-2xl border bg-white p-6">
+                {unsubscribedContacts.length === 0 ? (
+                  <div className="py-12 text-center text-sm text-gray-400">
+                    No unsubscribes for this campaign.
+                  </div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        {['Email', 'Name', 'Time'].map((h) => (
+                          <th
+                            key={h}
+                            className="pb-3 text-left text-[11px] font-semibold tracking-wider text-gray-400 uppercase"
+                          >
+                            {h}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unsubscribedContacts.map((uc, i) => (
+                        <tr key={i} className="border-b border-gray-100">
+                          <td className="py-3 font-medium text-gray-900">
+                            {uc.email ?? '—'}
+                          </td>
+                          <td className="py-3 text-gray-500">
+                            {uc.name ?? '—'}
+                          </td>
+                          <td className="py-3 text-gray-500">
+                            {format(new Date(uc.createdAt), 'MMM d, h:mm a')}
                           </td>
                         </tr>
                       ))}

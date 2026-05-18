@@ -15,7 +15,7 @@ interface SuspensionStatus {
   suspendedReason: string | null;
 }
 
-const PUBLIC_PATHS = new Set(['/auth', '/goodbye']);
+const PUBLIC_PATHS = new Set(['/auth', '/goodbye', '/unsubscribe']);
 
 export function AuthGuard({ children }: AuthGuardProps) {
   const { data: session, isPending } = useSession();

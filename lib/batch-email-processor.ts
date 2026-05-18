@@ -1,6 +1,7 @@
 import { redis } from './redis';
 import { sendEmail } from './ses';
 import { prisma } from './prisma';
+import { signUnsubscribeToken } from './unsubscribe-token';
 import { enhancedRateLimiter } from './global-rate-limiter';
 import { emailErrorClassifier } from './error-classifier';
 import { dlqQueue } from './dlq-queues';
@@ -32,7 +33,7 @@ export interface BatchEmailData {
 // via CreditService.processEmailEvent() to maintain single point of processing
 
 // Template variable replacement function
-export function replaceVariables(content: string, subscriber: any): string {
+export function replaceVariables(content: string, subscriber: any, campaignId: string): string {
   let processedContent = content;
 
   const variables = {
@@ -42,7 +43,7 @@ export function replaceVariables(content: string, subscriber: any): string {
       subscriber.name?.split(' ').slice(1).join(' ') ||
       '',
     email: subscriber.email || '',
-    unsubscribeUrl: `${process.env.NEXT_PUBLIC_APP_URL}/unsubscribe?email=${encodeURIComponent(subscriber.email)}`,
+    unsubscribeUrl: `${process.env.NEXT_PUBLIC_APP_URL}/api/unsubscribe?sid=${encodeURIComponent(subscriber.id)}&cid=${encodeURIComponent(campaignId)}&token=${signUnsubscribeToken(subscriber.id, campaignId)}`,
   };
 
   Object.entries(variables).forEach(([key, value]) => {
@@ -472,8 +473,8 @@ export class BatchEmailProcessor {
     }
 
     // Process template variables
-    const personalizedHtml = replaceVariables(templateHtml, subscriber);
-    const personalizedSubject = replaceVariables(subject, subscriber);
+    const personalizedHtml = replaceVariables(templateHtml, subscriber, campaignId);
+    const personalizedSubject = replaceVariables(subject, subscriber, campaignId);
 
     // Send the email with timeout
     const sendEmailTimeout = new Promise<never>((_, reject) => {
