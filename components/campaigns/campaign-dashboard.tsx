@@ -197,9 +197,10 @@ export function CampaignDashboard() {
 
     function fmtPpChange(cur: number | null, prev: number | null) {
       if (cur === null || prev === null) return 'No last-month data';
-      const diff = cur - prev;
-      const arrow = diff >= 0 ? '↑' : '↓';
-      return `${arrow} ${Math.abs(diff).toFixed(1)}pp vs last month`;
+      if (prev === 0) return cur === 0 ? 'No change vs last month' : 'New this month';
+      const rel = ((cur - prev) / prev) * 100;
+      const arrow = rel >= 0 ? '↑' : '↓';
+      return `${arrow} ${Math.abs(rel).toFixed(1)}% vs last month`;
     }
 
     return {
