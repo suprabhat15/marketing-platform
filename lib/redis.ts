@@ -107,6 +107,32 @@ const upstashShim = {
 
   hget: (key: string, field: string) => upstash.hget<string>(key, field),
 
+  // ioredis pipeline() batches commands into one round trip.
+  // Upstash REST pipeline() does the same — one HTTP request for all queued commands.
+  pipeline: () => {
+    const pipe = upstash.pipeline();
+    const shimPipeline: any = {
+      set: (key: string, value: string, ...args: (string | number)[]) => {
+        const opts: { ex?: number; px?: number; nx?: boolean; xx?: boolean } = {};
+        for (let i = 0; i < args.length; i++) {
+          const flag = String(args[i]).toUpperCase();
+          if ((flag === 'EX' || flag === 'PX') && i + 1 < args.length) {
+            const val = parseInt(String(args[++i]), 10);
+            if (flag === 'EX') opts.ex = val; else opts.px = val;
+          } else if (flag === 'NX') {
+            opts.nx = true;
+          } else if (flag === 'XX') {
+            opts.xx = true;
+          }
+        }
+        pipe.set(key, value, (Object.keys(opts).length ? opts : undefined) as any);
+        return shimPipeline;
+      },
+      exec: () => pipe.exec(),
+    };
+    return shimPipeline;
+  },
+
   hgetall: (key: string) => upstash.hgetall<Record<string, string>>(key),
 };
 
