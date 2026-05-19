@@ -283,7 +283,7 @@ function AudienceStep({
                   <span
                     className={`rounded-lg px-2 py-0.5 text-[11px] font-semibold ${
                       pct >= 70
-                        ? 'bg-[#197e29] text-white-700'
+                        ? 'bg-[#197e29] text-white'
                         : pct >= 40
                         ? 'bg-yellow-100 text-yellow-700'
                         : 'bg-red-100 text-red-600'
