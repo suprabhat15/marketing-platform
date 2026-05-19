@@ -8,8 +8,12 @@ import Redis from 'ioredis';
 const g = globalThis as typeof globalThis & { __redis?: Redis };
 
 if (!g.__redis) {
+  if (!process.env.REDIS_HOST) {
+    throw new Error('REDIS_HOST environment variable is required');
+  }
+  
   g.__redis = new Redis({
-    host: process.env.REDIS_HOST!,
+    host: process.env.REDIS_HOST,
     port: parseInt(process.env.REDIS_PORT || '6379', 10),
     password: process.env.REDIS_PASSWORD,
     tls: process.env.REDIS_TLS === 'true' ? {} : undefined,
