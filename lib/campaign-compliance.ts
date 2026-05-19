@@ -181,7 +181,8 @@ export async function handleComplianceViolation(
 
     // 6. Remove pending batch jobs from queue for this campaign
     try {
-      const { batchQueue } = await import('./email-queues');
+      // Producer-only — see queue-helpers.ts for rationale.
+      const { batchQueue } = await import('./queue-client');
       const waitingJobs = await batchQueue.getJobs(['waiting', 'delayed']);
       let removedCount = 0;
       for (const job of waitingJobs) {

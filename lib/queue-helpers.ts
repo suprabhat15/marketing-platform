@@ -19,8 +19,10 @@ export async function checkCampaignCompletion(campaignId: string) {
       return;
     }
 
-    // Import queues dynamically to avoid circular dependencies
-    const { campaignQueue, batchQueue } = await import('./email-queues');
+    // Producer-only import: queue-client shares the same globalThis Queue keys
+    // as email-queues but instantiates NO Workers, so calling this from the
+    // Next.js process (via /api/events) never spins up worker connections.
+    const { campaignQueue, batchQueue } = await import('./queue-client');
 
     // Efficiently check active jobs with pagination
     const getActiveJobsCount = async (
@@ -221,7 +223,7 @@ export async function markCampaignComplete(campaignId: string, status: 'SENT' = 
 // ----------------- DLQ Retry Helpers -----------------
 
 export async function retryFailedBatches(campaignId?: string, limit = 100) {
-  const { batchQueue } = await import('./email-queues');
+  const { batchQueue } = await import('./queue-client');
   const { batchDlqQueue } = await import('./dlq-queues');
   const jobs = await batchDlqQueue.getJobs(['waiting', 'failed'], 0, limit - 1);
 
