@@ -362,18 +362,33 @@ if (!gListeners.__workerListenersAttached) {
   campaignWorker.on('completed', (job) =>
     console.log(`✅ Campaign job ${job.id} completed (batches queued)`)
   );
-  campaignWorker.on('failed', (job, err) =>
-    console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`)
-  );
+  // When all BullMQ retries are exhausted the campaign would otherwise stay
+  // stuck in QUEUED/SENDING forever — explicitly mark it FAILED.
+  campaignWorker.on('failed', (job, err) => {
+    console.error(`❌ Campaign job ${job?.id} failed: ${err.message}`);
+    if (job && job.attemptsMade >= (job.opts.attempts ?? 3)) {
+      prisma.campaign.update({
+        where: { id: job.data.campaignId },
+        data: { status: 'FAILED' },
+      }).catch((e) => console.error('Failed to mark campaign FAILED:', e));
+    }
+  });
 
   batchWorker.on('completed', (job) =>
     console.log(
       `✅ Batch ${job.data.batchNumber} of campaign ${job.data.campaignId} completed`
     )
   );
-  batchWorker.on('failed', (job, err) =>
-    console.error(`❌ Batch job ${job?.id} failed: ${err.message}`)
-  );
+  batchWorker.on('failed', (job, err) => {
+    console.error(`❌ Batch job ${job?.id} failed: ${err.message}`);
+    // If the last batch permanently failed, check whether all other batches
+    // already completed so the campaign can still be closed out.
+    if (job && job.attemptsMade >= (job.opts.attempts ?? 3)) {
+      import('./queue-helpers').then(({ checkCampaignCompletion }) =>
+        checkCampaignCompletion(job.data.campaignId).catch(() => {})
+      );
+    }
+  });
 
   polarIngestionWorker.on('completed', () => {});
   polarIngestionWorker.on('failed', (job, err) =>

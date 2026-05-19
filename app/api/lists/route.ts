@@ -110,8 +110,7 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    // Cache the response for 1 minute
-    await RedisCache.set(cacheKey, responseData, { ttl: 60 });
+    await RedisCache.set(cacheKey, responseData, { ttl: 120 });
 
     return NextResponse.json(responseData);
   } catch (error) {

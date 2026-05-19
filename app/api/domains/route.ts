@@ -41,8 +41,7 @@ export async function GET(request: NextRequest) {
     const domains = await getUserDomains(session.user.id);
     const responseData = { domains };
 
-    // Cache the response for 1 minute
-    await RedisCache.set(cacheKey, responseData, { ttl: 60 });
+    await RedisCache.set(cacheKey, responseData, { ttl: 600 });
 
     return NextResponse.json(responseData);
 
