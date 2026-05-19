@@ -8,7 +8,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const cid = searchParams.get('cid');
   const token = searchParams.get('token');
 
-  const errorUrl = new URL('/unsubscribe?status=error', request.url);
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || request.nextUrl.origin;
+  const errorUrl = new URL('/unsubscribe?status=error', appUrl);
 
   if (!sid || !cid || !token || !verifyUnsubscribeToken(sid, cid, token)) {
     return NextResponse.redirect(errorUrl);
@@ -37,7 +38,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
 
   if (result.count === 0) {
-    return NextResponse.redirect(new URL('/unsubscribe?status=already', request.url));
+    return NextResponse.redirect(new URL('/unsubscribe?status=already', appUrl));
   }
 
   try {
@@ -69,5 +70,5 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     console.error('Failed to queue unsubscribe SQS event:', err);
   }
 
-  return NextResponse.redirect(new URL('/unsubscribe?confirmed=1', request.url));
+  return NextResponse.redirect(new URL('/unsubscribe?confirmed=1', appUrl));
 }
