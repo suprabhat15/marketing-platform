@@ -23,7 +23,7 @@ export class RedisCache {
       const cacheKey = this.generateKey(key, options.keyPrefix);
       const cached = await redis.get(cacheKey);
       
-      if (cached) {
+      if (cached !== null && cached !== undefined) {
         // Upstash REST auto-deserializes stored JSON, so cached may already be
         // the parsed value rather than a raw string.
         if (typeof cached === 'string') {

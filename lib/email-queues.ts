@@ -384,9 +384,13 @@ if (!gListeners.__workerListenersAttached) {
     // If the last batch permanently failed, check whether all other batches
     // already completed so the campaign can still be closed out.
     if (job && job.attemptsMade >= (job.opts.attempts ?? 3)) {
-      import('./queue-helpers').then(({ checkCampaignCompletion }) =>
-        checkCampaignCompletion(job.data.campaignId).catch(() => {})
-      );
+      import('./queue-helpers')
+        .then(({ checkCampaignCompletion }) =>
+          checkCampaignCompletion(job.data.campaignId)
+        )
+        .catch((err) =>
+          console.error(`❌ checkCampaignCompletion failed for campaign ${job.data.campaignId}:`, err)
+        );
     }
   });
 

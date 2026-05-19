@@ -4,9 +4,18 @@ import { Redis as UpstashRedis } from '@upstash/redis';
 // ---------------------------------------------------------------------------
 // Upstash REST client — HTTP-based, no persistent TCP connections
 // ---------------------------------------------------------------------------
+const upstashUrl = process.env.UPSTASH_REDIS_REST_URL;
+const upstashToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+if (!upstashUrl || !upstashToken) {
+  throw new Error(
+    'Missing UPSTASH_REDIS_REST_URL or UPSTASH_REDIS_REST_TOKEN'
+  );
+}
 const upstash = new UpstashRedis({
-  url: process.env.UPSTASH_REDIS_REST_URL!,
-  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+  url: upstashUrl,
+  token: upstashToken,
+  automaticDeserialization: false,
 });
 
 // ioredis-compatible shim over Upstash REST.
