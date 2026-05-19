@@ -23,8 +23,13 @@ export class RedisCache {
       const cacheKey = this.generateKey(key, options.keyPrefix);
       const cached = await redis.get(cacheKey);
       
-      if (cached) {
-        return JSON.parse(cached);
+      if (cached !== null && cached !== undefined) {
+        // Upstash REST auto-deserializes stored JSON, so cached may already be
+        // the parsed value rather than a raw string.
+        if (typeof cached === 'string') {
+          return JSON.parse(cached);
+        }
+        return cached as unknown as T;
       }
       
       return null;
@@ -74,8 +79,14 @@ export class RedisCache {
   static async delPattern(pattern: string, options: CacheOptions = {}): Promise<boolean> {
     try {
       const searchPattern = this.generateKey(pattern, options.keyPrefix);
-      const keys = await redis.keys(searchPattern);
-      
+      const keys: string[] = [];
+      let cursor = '0';
+      do {
+        const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', searchPattern, 'COUNT', 100);
+        cursor = nextCursor;
+        keys.push(...batch);
+      } while (cursor !== '0');
+
       if (keys.length > 0) {
         await redis.del(...keys);
       }
