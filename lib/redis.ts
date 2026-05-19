@@ -37,7 +37,9 @@ const upstashShim = {
         opts.xx = true;
       }
     }
-    return upstash.set(key, value, Object.keys(opts).length ? opts : undefined);
+    // opts satisfies SetCommandOptions at runtime but the discriminated union
+    // makes TypeScript reject the optional-field shape — cast to bypass.
+    return upstash.set(key, value, Object.keys(opts).length ? (opts as any) : undefined);
   },
 
   setex: (key: string, ttl: number, value: string) => upstash.setex(key, ttl, value),
