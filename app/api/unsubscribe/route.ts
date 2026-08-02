@@ -42,7 +42,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await prisma.event.create({
+    const unsubEvent = await prisma.event.create({
       data: {
         type: 'UNSUBSCRIBED',
         data: {
@@ -54,6 +54,15 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         campaignId: cid,
       },
     });
+
+    if (cid) {
+      const { publishCampaignEvent } = await import('@/lib/sse-pubsub');
+      await publishCampaignEvent(cid, {
+        type: 'event_recorded',
+        data: { campaignId: cid, eventType: 'UNSUBSCRIBED' },
+        id: unsubEvent.id,
+      });
+    }
   } catch (err) {
     console.error('Failed to create UNSUBSCRIBED event', { error: err, email: subscriber.email, sid, cid });
   }
