@@ -637,6 +637,14 @@ async function processRecord(record, metrics) {
   let sesEvent;
   try {
     sesEvent = parseSesEventFromRecord(record);
+    // A body of "null"/"123"/"[]" parses fine but is not an event. Validate here
+    // so it becomes a handled record failure instead of a TypeError thrown past
+    // this try block when the fields below are dereferenced.
+    if (!sesEvent || typeof sesEvent !== "object" || Array.isArray(sesEvent)) {
+      throw new Error(
+        `Parsed SES event is not an object (got ${Array.isArray(sesEvent) ? "array" : sesEvent === null ? "null" : typeof sesEvent})`
+      );
+    }
   } catch (err) {
     metrics.add("ParseErrors", 1);
     logJson("ERROR", "record.parse_failed", {
@@ -881,8 +889,12 @@ async function checkComplianceForCampaign(campaignId, metrics) {
       }
       await pipeline.exec();
     }
-  } finally {
+  } catch (error) {
+    // Release the lock only when handling failed, so the next bounce/complaint
+    // event retries. On success the 1h TTL stands as the already-handled marker
+    // checked at the top of this function.
     await redis.del(lockKey);
+    throw error;
   }
 }
 
@@ -913,8 +925,20 @@ export const handler = async (event) => {
 };
 
 async function processBatch(records, metrics) {
-  // Process all records in parallel (Redis counter bumps)
-  const results = await Promise.all(records.map((rec) => processRecord(rec, metrics)));
+  // Process all records in parallel (Redis counter bumps). allSettled, not all:
+  // one record throwing must not discard its siblings' results, since those
+  // records already hold their dedupe keys and would be skipped as duplicates on
+  // redelivery — losing their failure rows and campaign_stats increments.
+  const settled = await Promise.allSettled(records.map((rec) => processRecord(rec, metrics)));
+  const results = settled.map((outcome, i) => {
+    if (outcome.status === "fulfilled") return outcome.value;
+    metrics.add("RecordErrors", 1);
+    logJson("ERROR", "record.unhandled_error", {
+      recordId: records[i]?.messageId,
+      error: outcome.reason?.message,
+    });
+    return { ok: false };
+  });
 
   // Collect failure rows for a single batched DB insert
   const failureRows = [];
