@@ -414,9 +414,16 @@ function mapEventToSuffix(rawEvent, sesEvent) {
     case "bounce": {
       const subType = sesEvent?.bounce?.bounceSubType;
 
+      // SES emits these as Permanent bounces from amazonses.com itself, but no
+      // message ever left: the address was blocked before delivery was
+      // attempted. Counting them as BOUNCED would feed checkComplianceForCampaign
+      // a bounce rate built from sends that never happened — enough to trip the
+      // 3.5% threshold and suspend the user. SUPPRESSED keeps the Event row and
+      // the campaign_stats column while staying out of that calculation.
       if (
         subType === "Suppressed" ||
-        subType === "OnAccountSuppressionList"
+        subType === "OnAccountSuppressionList" ||
+        subType === "EmailValidationSuppressed"
       ) {
         return "SUPPRESSED";
       }
