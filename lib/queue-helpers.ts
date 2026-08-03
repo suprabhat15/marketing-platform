@@ -81,7 +81,24 @@ export async function checkCampaignCompletion(campaignId: string) {
         `✨ No failed emails found for campaign ${campaignId}, marking as complete`
       );
     }
-    await markCampaignComplete(campaignId);
+
+    // An empty queue and an empty DLQ do not mean success. A batch that threw
+    // before enqueueing any email (insufficient credits, missing template)
+    // leaves both empty and is otherwise indistinguishable from a clean finish.
+    // Require evidence that something actually sent.
+    const sentCount = parseInt(
+      (await redis.get(`campaign_stats:${campaignId}:SENT`)) || '0',
+      10
+    );
+
+    if (sentCount > 0) {
+      await markCampaignComplete(campaignId, 'SENT');
+    } else {
+      console.error(
+        `❌ Campaign ${campaignId} finished with no SENT events — marking FAILED`
+      );
+      await markCampaignComplete(campaignId, 'FAILED');
+    }
   } catch (error) {
     console.error(
       `Error checking campaign completion for ${campaignId}:`,
@@ -157,8 +174,15 @@ export async function checkCampaignCompletionByBatch(campaignId: string) {
 
     // Check if all recipients have reached terminal state
     if (totalTerminalEvents >= totalRecipients) {
-      console.log(`✅ Campaign ${campaignId} all recipients processed: ${totalTerminalEvents}/${totalRecipients} - marking as SENT`);
-      await markCampaignComplete(campaignId, 'SENT');
+      // Terminal does not mean sent: a campaign where every recipient bounced,
+      // failed or was suppressed reaches this branch with zero SENT events.
+      if ((eventCounts.SENT || 0) > 0) {
+        console.log(`✅ Campaign ${campaignId} all recipients processed: ${totalTerminalEvents}/${totalRecipients} - marking as SENT`);
+        await markCampaignComplete(campaignId, 'SENT');
+      } else {
+        console.error(`❌ Campaign ${campaignId} reached terminal state with no SENT events - marking FAILED`);
+        await markCampaignComplete(campaignId, 'FAILED');
+      }
     } else {
       console.log(`📊 Campaign ${campaignId} still processing: ${totalTerminalEvents}/${totalRecipients} terminal events`);
     }
@@ -168,7 +192,7 @@ export async function checkCampaignCompletionByBatch(campaignId: string) {
   }
 }
 
-export async function markCampaignComplete(campaignId: string, status: 'SENT' = 'SENT') {
+export async function markCampaignComplete(campaignId: string, status: 'SENT' | 'FAILED' = 'SENT') {
   try {
     // Get campaign data first to get userId for SQS polling
     const campaign = await prisma.campaign.findUnique({
@@ -176,7 +200,7 @@ export async function markCampaignComplete(campaignId: string, status: 'SENT' = 
       select: { userId: true, status: true }
     });
 
-    if (!campaign || campaign.status === 'SENT') {
+    if (!campaign || campaign.status === 'SENT' || campaign.status === 'FAILED') {
       console.log(`Campaign ${campaignId} already complete or not found`);
       return;
     }
@@ -187,9 +211,10 @@ export async function markCampaignComplete(campaignId: string, status: 'SENT' = 
         id: campaignId,
         status: { in: ['SENDING', 'QUEUED'] } // Only update if not already complete
       },
-      data: { 
+      data: {
         status: status,
-        sentAt: new Date() 
+        // Nullable, and only meaningful when something actually sent.
+        sentAt: status === 'SENT' ? new Date() : null
       }
     });
     
@@ -201,10 +226,10 @@ export async function markCampaignComplete(campaignId: string, status: 'SENT' = 
         const { sseManager } = await import('./sse-manager');
         sseManager.broadcastToCampaign(campaignId, {
           type: 'campaign_completed',
-          data: { 
-            campaignId, 
-            status: 'SENT', 
-            completedAt: new Date().toISOString() 
+          data: {
+            campaignId,
+            status,
+            completedAt: new Date().toISOString()
           },
           id: `${Date.now()}-complete`
         });
