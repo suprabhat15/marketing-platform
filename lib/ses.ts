@@ -1,5 +1,5 @@
-import { SESClient, SendEmailCommand, SendBulkTemplatedEmailCommand, SendRawEmailCommand } from '@aws-sdk/client-ses';
-import { prepareEmailWithAttachments, createSESCommandWithAttachments } from './email-attachments';
+import { SESClient } from '@aws-sdk/client-ses';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 
 // Function to wrap text content in full HTML structure
 function wrapInFullHtml(content: string, isHtml: boolean = false): string {
@@ -7,9 +7,9 @@ function wrapInFullHtml(content: string, isHtml: boolean = false): string {
     // Already a full HTML document, just ensure it has the basic structure
     return content;
   }
-  
+
   const htmlContent = isHtml ? content : content.replace(/\n/g, '<br>');
-  
+
   return `<!doctype html>
 <html lang="und" dir="auto" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
 <head>
@@ -25,7 +25,7 @@ function wrapInFullHtml(content: string, isHtml: boolean = false): string {
 </html>`;
 }
 
-export const sesClient = new SESClient({
+const clientConfig = {
   region: process.env.AWS_REGION!,
   credentials: {
     accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
@@ -38,7 +38,16 @@ export const sesClient = new SESClient({
   },
   maxAttempts: 3,
   retryMode: 'adaptive',
-});
+};
+
+// All sending goes through the v2 API. Auto Validation, and every other feature
+// configured via PutAccountSuppressionAttributes, is only surfaced on SESv2.
+export const sesv2Client = new SESv2Client(clientConfig);
+
+// Retained for the identity/domain operations that only exist on the classic API
+// (VerifyDomainIdentity, VerifyDomainDkim, DeleteIdentity, ...), used by
+// lib/domain-verification.ts and the app/api/domains routes.
+export const sesClient = new SESClient(clientConfig);
 
 export interface SendEmailParams {
   to: string[];
@@ -69,10 +78,6 @@ function buildSesTags({
   return tags.length > 0 ? tags : undefined;
 }
 
-export interface SendEmailWithAttachmentsParams extends SendEmailParams {
-  extractAttachments?: boolean; // Whether to extract base64 images as attachments
-}
-
 export async function sendEmail({
   to,
   subject,
@@ -86,6 +91,7 @@ export async function sendEmail({
   messageId,
 }: SendEmailParams): Promise<{
   success: boolean;
+  sesMessageId?: string;
   error?: { code: string; message: string };
 }> {
   // Get the recipient email for tracking
@@ -111,33 +117,35 @@ export async function sendEmail({
   const trackedSubject = subject;
 
   const command = new SendEmailCommand({
-    Source: from,
+    FromEmailAddress: from,
     Destination: {
       ToAddresses: to,
     },
-    Message: {
-      Subject: {
-        Data: trackedSubject,
-        Charset: 'UTF-8',
-      },
-      Body: {
-        Html: {
-          Data: processedHtml,
+    Content: {
+      Simple: {
+        Subject: {
+          Data: trackedSubject,
           Charset: 'UTF-8',
         },
-        // Always send HTML, remove text version to ensure HTML rendering
+        Body: {
+          Html: {
+            Data: processedHtml,
+            Charset: 'UTF-8',
+          },
+          // Always send HTML, remove text version to ensure HTML rendering
+        },
       },
     },
     ReplyToAddresses: replyTo ? [replyTo] : undefined,
     ConfigurationSetName: configurationSetName,
-    Tags: buildSesTags({ campaignId, subscriberId, messageId }),
+    EmailTags: buildSesTags({ campaignId, subscriberId, messageId }),
   });
 
   try {
     // Send email via SES
-    const result = await sesClient.send(command);
+    const result = await sesv2Client.send(command);
 
-    return { success: true };
+    return { success: true, sesMessageId: result.MessageId };
   } catch (error: any) {
     // Return structured error instead of throwing
     return {
@@ -148,190 +156,4 @@ export async function sendEmail({
       },
     };
   }
-}
-
-export async function sendEmailWithAttachments({
-  to,
-  subject,
-  html,
-  text,
-  from = process.env.FROM_EMAIL!,
-  replyTo = process.env.REPLY_TO_EMAIL!,
-  configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
-  campaignId,
-  subscriberId,
-  messageId,
-  extractAttachments = true,
-}: SendEmailWithAttachmentsParams): Promise<{
-  success: boolean;
-  error?: { code: string; message: string };
-}> {
-  // Add timeout wrapper
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    setTimeout(() => reject(new Error('SES request timeout')), 25000); // 25 second timeout
-  });
-
-  // Get the recipient email for tracking
-  const recipientEmail = to[0]; // Assuming single recipient per call
-
-  // Always ensure we have HTML content - wrap text in full HTML if needed
-  let fullHtml = html;
-  if (!html && text) {
-    // Convert text to HTML format
-    fullHtml = wrapInFullHtml(text, false);
-  } else if (html) {
-    // Ensure HTML is in full document format
-    fullHtml = wrapInFullHtml(html, true);
-  } else {
-    // Fallback to empty HTML structure
-    fullHtml = wrapInFullHtml('', false);
-  }
-
-  // Use HTML content directly - AWS SES handles click tracking automatically
-  const processedHtml = fullHtml;
-
-  try {
-    let command: SendRawEmailCommand | SendEmailCommand;
-
-    if (extractAttachments) {
-      // Check if HTML contains base64 images
-      const hasBase64Images = /data:image\/[^;]+;base64,/.test(processedHtml);
-      
-      if (hasBase64Images) {
-        // Use raw email with attachments
-        const emailWithAttachments = prepareEmailWithAttachments(
-          to,
-          from,
-          subject,
-          processedHtml,
-          text
-        );
-
-        command = createSESCommandWithAttachments(emailWithAttachments, configurationSetName);
-      } else {
-        // Fall back to regular email sending
-        command = new SendEmailCommand({
-          Source: from,
-          Destination: {
-            ToAddresses: to,
-          },
-          Message: {
-            Subject: {
-              Data: subject,
-              Charset: 'UTF-8',
-            },
-            Body: {
-              Html: {
-                Data: processedHtml,
-                Charset: 'UTF-8',
-              },
-            },
-          },
-          ReplyToAddresses: replyTo ? [replyTo] : undefined,
-          ConfigurationSetName: configurationSetName,
-          Tags: buildSesTags({ campaignId, subscriberId, messageId }),
-        });
-      }
-    } else {
-      // Use regular email sending without attachment processing
-      command = new SendEmailCommand({
-        Source: from,
-        Destination: {
-          ToAddresses: to,
-        },
-        Message: {
-          Subject: {
-            Data: subject,
-            Charset: 'UTF-8',
-          },
-          Body: {
-            Html: {
-              Data: processedHtml,
-              Charset: 'UTF-8',
-            },
-          },
-        },
-        ReplyToAddresses: replyTo ? [replyTo] : undefined,
-        ConfigurationSetName: configurationSetName,
-        Tags: buildSesTags({ campaignId, subscriberId, messageId }),
-      });
-    }
-
-    // Race between SES call and timeout
-    await Promise.race([
-      sesClient.send(command as any),
-      timeoutPromise,
-    ]);
-
-    return { success: true };
-  } catch (error: any) {
-    // Handle timeout specifically
-    if (error.message === 'SES request timeout') {
-      return {
-        success: false,
-        error: {
-          code: 'TimeoutError',
-          message: 'SES request timed out after 25 seconds',
-        },
-      };
-    }
-
-    // Return structured error instead of throwing
-    return {
-      success: false,
-      error: {
-        code: error.code || error.name || 'UnknownError',
-        message: error.message || 'Unknown SES error',
-      },
-    };
-  }
-}
-
-export interface BulkEmailDestination {
-  email: string;
-  replacementData: Record<string, string>;
-}
-
-export interface SendBulkEmailParams {
-  destinations: BulkEmailDestination[];
-  template: string;
-  defaultReplacementData?: Record<string, string>;
-  from?: string;
-  replyTo?: string;
-  configurationSetName?: string;
-  campaignId?: string;
-}
-
-export async function sendBulkEmail({
-  destinations,
-  template,
-  defaultReplacementData = {},
-  from = process.env.FROM_EMAIL!,
-  replyTo,
-  configurationSetName = process.env.AWS_SES_CONFIGURATION_SET,
-  campaignId,
-}: SendBulkEmailParams) {
-  const command = new SendBulkTemplatedEmailCommand({
-    Source: from,
-    Template: template,
-    DefaultTemplateData: JSON.stringify({
-      ...defaultReplacementData,
-      campaignId: campaignId || '',
-      trackingDomain: process.env.NEXT_PUBLIC_APP_URL || '',
-    }),
-    Destinations: destinations.map((dest) => ({
-      Destination: {
-        ToAddresses: [dest.email],
-      },
-      ReplacementTemplateData: JSON.stringify({
-        ...dest.replacementData,
-        email: dest.email, // Ensure email is available for tracking
-      }),
-    })),
-    ReplyToAddresses: replyTo ? [replyTo] : undefined,
-    ConfigurationSetName: configurationSetName,
-    DefaultTags: buildSesTags({ campaignId }),
-  });
-
-  return await sesClient.send(command);
 }
