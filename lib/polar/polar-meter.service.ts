@@ -76,14 +76,28 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: string) {
     throw new Error('Failed to fetch customer meters from Polar API');
   }
 
-  const remainingCredits = totalCredits - usedCredits;
+  // Consumption against zero credited units is a bad read, not a real balance:
+  // a grant that has not landed yet, a partial paginated fetch, or a stray meter.
+  // Flagged rather than trusted, because callers persist these values and the
+  // send path never re-syncs — a negative written here sticks indefinitely.
+  const unreliable = totalCredits === 0 && usedCredits > 0;
+
   const result = {
     totalCredits,
     usedCredits,
-    remainingCredits,
+    // Never negative. A shortfall is "no credits left", not a debt.
+    remainingCredits: Math.max(0, totalCredits - usedCredits),
     meterId,
-    balance: remainingCredits,
+    balance: Math.max(0, totalCredits - usedCredits),
+    unreliable,
   };
+
+  if (unreliable) {
+    console.warn(
+      `⚠️ Polar reported ${usedCredits} consumed against 0 credited units — treating as an unreliable read and not caching.`
+    );
+    return result;
+  }
 
   try {
     await redis.set(
@@ -174,8 +188,15 @@ export async function getUserCreditBalanceWithSync(
           }
         }
 
-        // Update local subscription with fresh data
-        if (
+        // Never persist an unreliable read. Doing so poisons both the
+        // Subscription row and the CreditBalance cache, and the send path reads
+        // those without re-syncing — so a bad value blocks sending until some
+        // later sync happens to overwrite it. Fall through to local data instead.
+        if (creditInfo.unreliable) {
+          console.warn(
+            `⚠️ Skipping credit sync for user ${userId}: unreliable Polar read. Using last known local values.`
+          );
+        } else if (
           creditInfo.totalCredits > 0 ||
           creditInfo.usedCredits > 0 ||
           updateSubscriptionStatus
@@ -206,17 +227,19 @@ export async function getUserCreditBalanceWithSync(
           );
         }
 
-        return {
-          totalCredits: creditInfo.totalCredits,
-          usedCredits: creditInfo.usedCredits,
-          remainingCredits: creditInfo.remainingCredits,
-          hasActiveSubscription: true,
-          subscriptionId: subscription.id,
-          polarSubscriptionId: subscription.polarSubscriptionId,
-          meterId: creditInfo.meterId,
-          meterName: subscription.meterName,
-          balance: creditInfo.balance,
-        };
+        if (!creditInfo.unreliable) {
+          return {
+            totalCredits: creditInfo.totalCredits,
+            usedCredits: creditInfo.usedCredits,
+            remainingCredits: creditInfo.remainingCredits,
+            hasActiveSubscription: true,
+            subscriptionId: subscription.id,
+            polarSubscriptionId: subscription.polarSubscriptionId,
+            meterId: creditInfo.meterId,
+            meterName: subscription.meterName,
+            balance: creditInfo.balance,
+          };
+        }
       } catch (error) {
         console.warn(
           '⚠️ Failed to fetch customer state, using local data:',
@@ -226,11 +249,13 @@ export async function getUserCreditBalanceWithSync(
       }
     }
 
-    // Return local subscription data as fallback
+    // Return local subscription data as fallback. Clamped: rows written before
+    // the guard above existed can hold a negative remainder, which would
+    // permanently fail every credit check that reads this path.
     return {
       totalCredits: subscription.totalCredits,
       usedCredits: subscription.usedCredits,
-      remainingCredits: subscription.remainingCredits,
+      remainingCredits: Math.max(0, subscription.remainingCredits),
       hasActiveSubscription: true,
       subscriptionId: subscription.id,
       polarSubscriptionId: subscription.polarSubscriptionId,
