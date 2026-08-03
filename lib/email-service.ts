@@ -116,54 +116,6 @@ export class EmailService {
     }
   }
 
-  // Refund credits for failed sends
-  static async refundCreditsForFailedSends(
-    userId: string,
-    failedCount: number,
-    campaignId?: string
-  ): Promise<void> {
-    if (failedCount <= 0) return;
-
-    try {
-      // Get user's active subscription
-      const subscription = await prisma.subscription.findFirst({
-        where: {
-          userId,
-          status: 'ACTIVE',
-        },
-        orderBy: {
-          createdAt: 'desc',
-        },
-      });
-
-      if (!subscription) {
-        console.warn(`No active subscription found for refund to user ${userId}`);
-        return;
-      }
-
-      // Refund credits
-      const newUsedCredits = Math.max(0, subscription.usedCredits - failedCount);
-      const newRemainingCredits = subscription.totalCredits - newUsedCredits;
-
-      await prisma.subscription.update({
-        where: { id: subscription.id },
-        data: {
-          usedCredits: newUsedCredits,
-          remainingCredits: newRemainingCredits,
-        },
-      });
-
-      console.log(
-        `Refunded ${failedCount} credits for user ${userId}. ` +
-        `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
-      );
-
-    } catch (error) {
-      console.error('Error refunding credits:', error);
-      throw error;
-    }
-  }
-
   // Get detailed usage analytics
   static async getUserUsageStats(userId: string) {
     const subscription = await prisma.subscription.findFirst({
