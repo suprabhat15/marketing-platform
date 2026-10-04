@@ -12,6 +12,10 @@
 
 #documentation
 /docs
+security_audit.md
+security_check.md
+SECURITY_AUDIT.md
+Security_Check.md
 
 # testing
 /coverage
