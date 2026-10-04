@@ -152,7 +152,7 @@ export async function POST(request: NextRequest) {
       const result = {
         success: true,
         creditBalance,
-        message: 'Credit balance refreshed from Polar',
+        message: 'Purchase balance retained; Polar usage checked',
       };
 
       // Cache the result in Redis (fail silently if Redis is down)

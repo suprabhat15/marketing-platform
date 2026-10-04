@@ -1,19 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import {
-  type PolarWebhookEvent,
-  getOrCreateMeterForProduct,
-  fetchCreditsFromActiveMeters,
-  getCreditsPricing,
-} from '@/lib/polar';
+import type { PolarWebhookEvent } from '@/lib/polar/polar-client';
+import { billingWebhookService } from '@/lib/polar/polar-webhook.service';
 import { prisma } from '@/lib/prisma';
+import { reconcileMeterUsage } from '@/lib/credit-balance.service';
 import {
   validateEvent,
   WebhookVerificationError,
 } from '@polar-sh/sdk/webhooks';
-// Credit ledger operations are now done directly in transactions
-
-// Import centralized credit pricing from polar.ts
-// All credit and pricing mappings are now centralized in @/lib/polar
 
 export async function POST(request: NextRequest) {
   try {
@@ -26,7 +19,7 @@ export async function POST(request: NextRequest) {
     };
 
     const webhookSecret = process.env.POLAR_WEBHOOK_SECRET;
-    
+
     if (!webhookSecret) {
       console.error('POLAR_WEBHOOK_SECRET environment variable not set');
       return NextResponse.json(
@@ -44,6 +37,11 @@ export async function POST(request: NextRequest) {
     console.log('✅ Webhook signature verified successfully:', event.type);
 
     await handleWebhookEvent(event);
+    console.log(
+      '✅ Polar webhook processed:',
+      event.type,
+      headers['webhook-id']
+    );
 
     return NextResponse.json({ success: true });
   } catch (err) {
@@ -160,6 +158,7 @@ async function handleCustomerCreated(data: any) {
   try {
   } catch (error) {
     console.error('❌ [POLAR WEBHOOK] Error handling customer.created:', error);
+    throw error;
   }
 }
 
@@ -180,6 +179,7 @@ async function handleCustomerUpdated(data: any) {
     }
   } catch (error) {
     console.error('Error handling customer.updated:', error);
+    throw error;
   }
 }
 
@@ -201,121 +201,42 @@ async function handleCustomerDeleted(data: any) {
     }
   } catch (error) {
     console.error('Error handling customer.deleted:', error);
+    throw error;
   }
 }
 
 async function handleCustomerStateChanged(data: any) {
-  console.log('Processing customer.state_changed:', data);
-
-  try {
-    const externalId = data.externalId;
-
-    if (externalId) {
-      console.log(`Customer state changed for user ${externalId}:`, data.state);
-    }
-  } catch (error) {
-    console.error('Error handling customer.state_changed:', error);
+  // Meter notifications are comparison-only. The send transaction accounts for
+  // usage; replayed/reset meter snapshots cannot charge or restore credits.
+  if (data.externalId && Array.isArray(data.activeMeters)) {
+    const consumed = data.activeMeters.reduce(
+      (sum: number, meter: { consumedUnits: number }) =>
+        sum + meter.consumedUnits,
+      0
+    );
+    const result = await reconcileMeterUsage(data.externalId, consumed);
+    console.info('Polar usage reconciliation', {
+      userId: data.externalId,
+      outcome: result.outcome,
+    });
+    await invalidateBillingCache(data.externalId);
   }
 }
 
 // Order event handlers
 async function handleOrderCreated(data: any) {
-  console.log('Processing order.created:', data);
-
-  try {
-    // Extract user information from metadata
-    const userId = data.metadata?.userId;
-
-    if (!userId) {
-      console.error('No userId found in order metadata');
-      return;
-    }
-
-    // Wait 100ms for subscription to be created, then check if it exists
-    let subscriptionId = null;
-    if (data.subscriptionId) {
-      const existingSubscription = await prisma.subscription.findFirst({
-        where: { polarSubscriptionId: data.subscriptionId, status: 'ACTIVE' },
-      });
-
-      if (existingSubscription) {
-        subscriptionId = existingSubscription.id;
-      } else {
-        console.log(
-          `Subscription ${data.subscriptionId} not yet created, will be linked later`
-        );
-      }
-    }
-
-    // Get credits and price from pricing table
-    const { credits: totalCredits, price: calculatedAmount } =
-      getCreditsPricing(data);
-    await prisma.order.create({
-      data: {
-        polarOrderId: data.id,
-        customerId: data.customer?.id || data.customerId,
-        status: data.status?.toUpperCase() || 'PENDING',
-        productId: data.product?.id,
-        amount: calculatedAmount,
-        currency: data.subscription?.currency?.toUpperCase() || 'USD',
-        credits: totalCredits,
-        userId: userId,
-      },
-    });
-
-    console.log(`Order processed successfully for user ${userId}`);
-  } catch (error) {
-    console.error('Error handling order.created:', error);
-  }
+  const userId = await billingWebhookService.syncOrder(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleOrderUpdated(data: any) {
-  // console.log('Processing order.updated:', data);
-
-  try {
-    await prisma.order.update({
-      where: { polarOrderId: data.id },
-      data: {
-        status: data.status?.toUpperCase() || 'PENDING',
-        amount: data.subscription.amount,
-        currency: data.subscription.currency?.toUpperCase() || 'USD',
-      },
-    });
-    console.log(`Order ${data.id} updated`);
-  } catch (error) {
-    console.error('Error handling order.updated:', error);
-  }
+  const userId = await billingWebhookService.syncOrder(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleOrderPaid(data: any) {
-  console.log('Processing order.paid:', data);
-
-  try {
-    const userId = data.metadata?.userId;
-
-    // Update order status to paid
-    await prisma.order.update({
-      where: { polarOrderId: data.id },
-      data: {
-        status: 'PAID',
-      },
-    });
-
-    if (userId) {
-      // Activate user's purchased features
-      await updateUserAfterPurchase(userId, {
-        orderId: data.id,
-        productId: data.product?.id,
-        amount: data.subscription.amount,
-        currency: data.subscription.currency?.toUpperCase(),
-        status: 'paid',
-      });
-    }
-
-    console.log(`Order ${data.id} marked as paid`);
-  } catch (error) {
-    console.error('Error handling order.paid:', error);
-  }
+  const userId = await billingWebhookService.fulfillPaidOrder(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleOrderRefunded(data: any) {
@@ -338,302 +259,19 @@ async function handleOrderRefunded(data: any) {
     console.log(`Order ${data.id} refunded`);
   } catch (error) {
     console.error('Error handling order.refunded:', error);
+    throw error;
   }
 }
 
 // Subscription event handlers
 async function handleSubscriptionCreated(data: any) {
-  // console.log('Processing subscription.created:', data);
-
-  try {
-    // Try multiple ways to get the user ID
-    const userId = data.customer?.externalId || data.metadata?.userId;
-
-    if (!userId) {
-      console.error(
-        '❌ No externalId, or userId found in subscription data:',
-        data
-      );
-      return;
-    }
-
-    // Get real-time credit information from customer state
-    let totalCredits = 0;
-    let usedCredits = 0;
-    let meterId = null;
-    // let meterName = null;
-    let remainingCredits = 0;
-
-    try {
-      const creditInfo = await fetchCreditsFromActiveMeters(userId);
-      // console.log(
-      //   '---------fetchCreditsFromActiveMeters---------- ',
-      //   creditInfo
-      // );
-
-      totalCredits = creditInfo.totalCredits;
-      usedCredits = creditInfo.usedCredits;
-      remainingCredits = creditInfo.remainingCredits;
-      meterId = creditInfo.meterId;
-
-      // console.log(
-      //   `✅ Credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
-      // );
-    } catch (customerStateError) {
-      console.warn(
-        '⚠️ Failed to fetch customer state, falling back to pricing table:',
-        customerStateError
-      );
-
-      // Fallback to pricing table if customer state fetch fails
-      const { credits } = getCreditsPricing(data);
-      totalCredits = credits;
-      usedCredits = 0; // Start with 0 used credits
-      remainingCredits = totalCredits - usedCredits;
-    }
-
-    // Ensure meter exists for the subscription product
-    let createdMeter = null;
-    if (!meterId && data.product?.id) {
-      try {
-        // Use the new getOrCreateMeterForProduct function for better integration
-        createdMeter = await getOrCreateMeterForProduct(data.product.id);
-        meterId = createdMeter.id;
-        // meterName = createdMeter.name;
-        console.log(`✅ Using meter ${meterId} for subscription ${data.id}`);
-      } catch (meterError) {
-        console.error('⚠️ Failed to get/create meter:', meterError);
-        // Continue without meter for now
-      }
-    }
-
-    // Use transaction for atomicity
-    // For allocation: Subscription first (to get ID), then Ledger, then Balance
-    const newSubscription = await prisma.$transaction(async (tx) => {
-      // 1. Create subscription record
-      const subscription = await tx.subscription.create({
-        data: {
-          polarSubscriptionId: data.id,
-          customerId: data.customer?.id || data.customerId,
-          status: data.status?.toUpperCase() || 'ACTIVE',
-          productId: data.product?.id || data.productId,
-          totalCredits,
-          usedCredits,
-          remainingCredits,
-          meterId,
-          currentPeriodStart: data.currentPeriodStart
-            ? new Date(data.currentPeriodStart)
-            : new Date(),
-          currentPeriodEnd: data.currentPeriodEnd
-            ? new Date(data.currentPeriodEnd)
-            : new Date(),
-          canceledAt: data.canceledAt ? new Date(data.canceledAt) : null,
-          userId,
-        },
-      });
-
-      // 2. Create ledger entry for credit allocation
-      if (totalCredits > 0) {
-        await tx.creditLedger.create({
-          data: {
-            userId,
-            subscriptionId: subscription.id,
-            type: 'CREDIT_ALLOCATION',
-            amount: totalCredits,
-            referenceType: 'SUBSCRIPTION',
-            referenceId: data.id,
-          },
-        });
-
-        // 3. Initialize CreditBalance
-        await tx.creditBalance.upsert({
-          where: { userId },
-          create: {
-            userId,
-            totalCredits,
-            usedCredits: 0,
-            remainingCredits: totalCredits,
-          },
-          update: {
-            totalCredits: { increment: totalCredits },
-            remainingCredits: { increment: totalCredits },
-          },
-        });
-      }
-
-      return subscription;
-    });
-
-    // Update user's Polar customer ID if not set
-    const customerId = data.customer?.id || data.customerId;
-    if (customerId) {
-      await prisma.user.update({
-        where: { id: userId },
-        data: {
-          polarCustomerId: customerId,
-        },
-      });
-      console.log(
-        `✅ Updated user ${userId} with Polar customer ID: ${customerId}`
-      );
-    }
-
-    console.log(
-      `Subscription created for user ${userId} with ${remainingCredits} remaining credits`
-    );
-  } catch (error) {
-    console.error('Error handling subscription.created:', error);
-  }
+  const userId = await billingWebhookService.syncSubscription(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleSubscriptionUpdated(data: any) {
-  // console.log('Processing subscription.updated:', data);
-
-  try {
-    // Try multiple ways to get the user ID
-    const userId = data.customer?.externalId || data.metadata?.userId;
-
-    if (!userId) {
-      console.error(
-        '❌ No externalId, or userId found in subscription update:',
-        data
-      );
-      return;
-    }
-
-    // Get existing subscription to compare credits for renewal detection
-    const existingSubscription = await prisma.subscription.findUnique({
-      where: { polarSubscriptionId: data.id },
-    });
-
-    const previousTotalCredits = existingSubscription?.totalCredits || 0;
-
-    // Get updated credit information from customer state
-    let totalCredits = 0;
-    let usedCredits = 0;
-    let meterId = null;
-    // let meterName = null;
-    let remainingCredits = 0;
-
-    try {
-      const creditInfo = await fetchCreditsFromActiveMeters(userId);
-
-      totalCredits = creditInfo.totalCredits;
-      usedCredits = creditInfo.usedCredits;
-      remainingCredits = creditInfo.remainingCredits;
-      meterId = creditInfo.meterId;
-
-      console.log(
-        `✅ Updated credit tracking from customer state: ${usedCredits}/${totalCredits} credits used, ${remainingCredits} remaining`
-      );
-    } catch (customerStateError) {
-      console.warn(
-        '⚠️ Failed to fetch customer state for subscription update:',
-        customerStateError
-      );
-
-      // Keep existing values or use fallback
-      if (existingSubscription) {
-        totalCredits = existingSubscription.totalCredits;
-        usedCredits = existingSubscription.usedCredits;
-        remainingCredits = existingSubscription.remainingCredits;
-        meterId = existingSubscription.meterId;
-        // meterName = existingSubscription.meterName;
-      }
-    }
-
-    // Check if this is a renewal (credits increased)
-    const creditDelta = totalCredits - previousTotalCredits;
-
-    // Deterministic per-renewal key so duplicate webhook deliveries collide on
-    // the (referenceType, referenceId) unique index instead of minting credits
-    // twice. currentPeriodStart is unique per billing cycle on Polar; if it's
-    // missing, fall back to the new totalCredits snapshot which still ties to
-    // a single renewal event.
-    const renewalKey = data.currentPeriodStart
-      ? new Date(data.currentPeriodStart).toISOString()
-      : `total-${totalCredits}`;
-    const renewalReferenceId = `${data.id}-${renewalKey}`;
-
-    // Use transaction for atomicity
-    try {
-      await prisma.$transaction(async (tx) => {
-        // For renewal: LEDGER FIRST, then Balance, then Subscription
-        if (creditDelta > 0) {
-          // 1. Create ledger entry FIRST (source of truth). Unique constraint
-          // on (referenceType, referenceId) makes this the idempotency gate —
-          // a duplicate webhook delivery throws P2002 and the whole
-          // transaction (including the balance increment) rolls back.
-          await tx.creditLedger.create({
-            data: {
-              userId,
-              subscriptionId: existingSubscription?.id,
-              type: 'SUBSCRIPTION_RENEWAL',
-              amount: creditDelta,
-              referenceType: 'SUBSCRIPTION_RENEWAL',
-              referenceId: renewalReferenceId,
-            },
-          });
-
-          // 2. Update CreditBalance
-          await tx.creditBalance.upsert({
-            where: { userId },
-            create: {
-              userId,
-              totalCredits: creditDelta,
-              usedCredits: 0,
-              remainingCredits: creditDelta,
-            },
-            update: {
-              totalCredits: { increment: creditDelta },
-              remainingCredits: { increment: creditDelta },
-            },
-          });
-
-          console.log(
-            `✅ Subscription renewed: +${creditDelta} credits added for user ${userId}`
-          );
-        }
-
-        // 3. Update Subscription
-        await tx.subscription.update({
-          where: { polarSubscriptionId: data.id },
-          data: {
-            status: data.status?.toUpperCase(),
-            productId: data.product?.id || data.productId,
-            totalCredits,
-            usedCredits,
-            remainingCredits,
-            meterId,
-            currentPeriodStart: data.currentPeriodStart
-              ? new Date(data.currentPeriodStart)
-              : undefined,
-            currentPeriodEnd: data.currentPeriodEnd
-              ? new Date(data.currentPeriodEnd)
-              : undefined,
-            canceledAt: data.canceledAt ? new Date(data.canceledAt) : undefined,
-          },
-        });
-      });
-    } catch (err: any) {
-      // P2002 here means the ledger entry already exists — duplicate webhook
-      // delivery for the same renewal period. Safe to swallow; the original
-      // delivery already applied the credits.
-      if (err?.code === 'P2002') {
-        console.log(
-          `⚠️ Duplicate renewal ignored for ${renewalReferenceId} (user ${userId})`
-        );
-      } else {
-        throw err;
-      }
-    }
-
-    console.log(
-      `Subscription updated for user ${userId} with ${remainingCredits} remaining credits`
-    );
-  } catch (error) {
-    console.error('Error handling subscription.updated:', error);
-  }
+  const userId = await billingWebhookService.syncSubscription(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleSubscriptionCanceled(data: any) {
@@ -643,8 +281,7 @@ async function handleSubscriptionCanceled(data: any) {
     const userId = data.customer?.externalId || data.metadata?.userId;
 
     if (!userId) {
-      console.error('No userId found in subscription metadata');
-      return;
+      throw new Error('No local user ID found in subscription metadata');
     }
 
     // Get current subscription to preserve credit information
@@ -653,8 +290,7 @@ async function handleSubscriptionCanceled(data: any) {
     });
 
     if (!currentSubscription) {
-      console.error(`Subscription ${data.id} not found in database`);
-      return;
+      throw new Error(`Subscription ${data.id} not found in database`);
     }
 
     // Update subscription status to canceled BUT preserve remaining credits
@@ -672,88 +308,33 @@ async function handleSubscriptionCanceled(data: any) {
     );
   } catch (error) {
     console.error('Error handling subscription.canceled:', error);
+    throw error;
   }
 }
 
 async function handleSubscriptionActive(data: any) {
-  console.log('Processing subscription.active:', data);
-  
-  try {
-    await prisma.subscription.update({
-      where: { polarSubscriptionId: data.id },
-      data: {
-        status: 'ACTIVE',
-      },
-    });
-    
-    const userId = data.metadata?.userId;
-    if (userId) {
-      console.log(`Subscription activated for user ${userId}`);
-    }
-  } catch (error) {
-    console.error('Error handling subscription.active:', error);
-  }
+  const userId = await billingWebhookService.syncSubscription(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleSubscriptionUncanceled(data: any) {
-  console.log('Processing subscription.uncanceled:', data);
-  
-  try {
-    await prisma.subscription.update({
-      where: { polarSubscriptionId: data.id },
-      data: {
-        status: 'ACTIVE',
-        canceledAt: null,
-      },
-    });
-    
-    const userId = data.metadata?.userId;
-    if (userId) {
-      console.log(`Subscription uncanceled for user ${userId}`);
-    }
-  } catch (error) {
-    console.error('Error handling subscription.uncanceled:', error);
-  }
+  const userId = await billingWebhookService.syncSubscription(data);
+  await invalidateBillingCache(userId);
 }
 
 async function handleSubscriptionRevoked(data: any) {
-  console.log('Processing subscription.revoked:', data);
-  
-  try {
-    const userId = data.customer?.externalId || data.metadata?.userId;
-    // Get current subscription to log revocation details
-    const currentSubscription = await prisma.subscription.findUnique({
-      where: { polarSubscriptionId: data.id },
-    });
-
-    // Revoke subscription - this completely removes access
-    // Set remaining credits to 0 to immediately stop service
-    await prisma.subscription.update({
-      where: { polarSubscriptionId: data.id },
-      data: {
-        status: 'CANCELED',
-        canceledAt: new Date(),
-        // Revocation removes all remaining credits immediately
-        remainingCredits: 0,
-      },
-    });
-    
-    if (userId) {
-      console.log(`Subscription revoked for user ${userId}. All remaining credits removed. Previous remaining: ${currentSubscription?.remainingCredits || 0}`);
-    }
-  } catch (error) {
-    console.error('Error handling subscription.revoked:', error);
-  }
+  const userId = await billingWebhookService.revokeSubscription(data);
+  await invalidateBillingCache(userId);
 }
 
 // Refund event handlers
 async function handleRefundCreated(data: any) {
   console.log('Processing refund.created:', data);
-  
+
   try {
     // You might want to create a refund table to track refunds
     const orderId = data.order?.id;
-    
+
     if (orderId) {
       // Update related order status
       await prisma.order.update({
@@ -762,46 +343,50 @@ async function handleRefundCreated(data: any) {
           status: 'REFUNDED',
         },
       });
-      
+
       console.log(`Refund created for order ${orderId}`);
     }
   } catch (error) {
     console.error('Error handling refund.created:', error);
+    throw error;
   }
 }
 
 async function handleRefundUpdated(data: any) {
   console.log('Processing refund.updated:', data);
-  
+
   try {
     // Handle refund status updates
     console.log(`Refund ${data.id} updated:`, data.status);
   } catch (error) {
     console.error('Error handling refund.updated:', error);
+    throw error;
   }
 }
 
-async function updateUserAfterPurchase(userId: string, orderData: any) {
+async function invalidateBillingCache(userId: string) {
+  if (!process.env.REDIS_HOST) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    // Update user's account with purchase information
-    // You might want to:
-    // 1. Upgrade their plan
-    // 2. Increase their limits
-    // 3. Enable premium features
-    
-    console.log(`Updating user ${userId} after purchase:`, orderData);
-    
-    // Example: Update user with purchase info
-    // await prisma.user.update({
-    //   where: { id: userId },
-    //   data: {
-    //     plan: 'pro', // or determine from productId
-    //     lastPurchaseAt: new Date(),
-    //   },
-    // });
-    
+    // Cache availability must not determine whether a payment is acknowledged.
+    await Promise.race([
+      import('@/lib/redis').then(({ redis }) =>
+        redis.del(
+          `billing-status:${userId}`,
+          `events-credit-balance:${userId}`,
+          `polar:meters:${userId}`
+        )
+      ),
+      new Promise((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error('Billing cache invalidation timed out')),
+          1000
+        );
+      }),
+    ]);
   } catch (error) {
-    console.error('Error updating user after purchase:', error);
-    throw error;
+    console.warn('Billing cache invalidation failed:', error);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }

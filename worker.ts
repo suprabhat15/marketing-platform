@@ -9,6 +9,9 @@
 
 import './lib/email-queues';
 import { RedisConnectionManager } from './lib/redis';
+import { startPolarUsageSync } from './lib/polar/polar-usage-sync';
+
+const stopPolarUsageSync = startPolarUsageSync();
 
 console.log('🚀 Worker process started');
 
@@ -24,6 +27,7 @@ const shutdown = async (signal: string) => {
   try {
     const { shutdownEmailQueues } = await import('./lib/email-queues');
     await shutdownEmailQueues();
+    await stopPolarUsageSync();
     await RedisConnectionManager.disconnectAll();
     console.log('✅ Clean shutdown complete');
     process.exit(0);

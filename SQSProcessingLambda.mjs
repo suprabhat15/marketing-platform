@@ -1,6 +1,7 @@
 import Redis from "ioredis";
 import { PrismaClient } from "@prisma/client";
 import { withAccelerate } from "@prisma/extension-accelerate";
+import { recoverAcceptedEmail } from './lib/settle-email-credit.mjs';
 
 const FAILURE_TYPES = new Set([
   'BOUNCED', 'COMPLAINED', 'FAILED', 'SUPPRESSED',
@@ -666,6 +667,25 @@ async function processRecord(record, metrics) {
   // Determine event suffix and recipient count
   const rawEventType = (sesEvent.eventType || sesEvent.event || "") .toString();
   const suffix = mapEventToSuffix(rawEventType, sesEvent);
+  // Recover accepted sends whose app process timed out or crashed before
+  // confirmation. Do this BEFORE Redis dedupe: database failures must retry.
+  if (!sesEvent._synthetic && ['SENT', 'DELIVERED', 'BOUNCED', 'COMPLAINED'].includes(suffix)) {
+    const tags = sesEvent.mail?.tags ?? {};
+    const campaign = extractCampaignId(sesEvent);
+    const subscriber = extractSubscriberId(sesEvent);
+    const attemptId = tags.messageId?.[0];
+    if (campaign && subscriber && attemptId) {
+      try {
+        await recoverAcceptedEmail(prisma, {
+          campaignId: campaign, subscriberId: subscriber, attemptId,
+          sesMessageId: sesEvent.mail?.messageId, timestamp: sesEvent.mail?.timestamp,
+        });
+      } catch (error) {
+        logJson('ERROR', 'credit.settlement_failed', { campaignId: campaign, subscriberId: subscriber, error: error.message });
+        return { ok: false };
+      }
+    }
+  }
   const recipients = sesEvent._synthetic
     ? sesEvent._recipients || 1
     : getRecipientCount(sesEvent);

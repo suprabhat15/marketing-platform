@@ -49,9 +49,9 @@ export async function POST(request: NextRequest) {
       cancelUrl: validatedData.cancelUrl,
       customerId: customer.id,
       metadata: {
+        ...(validatedData.metadata || {}),
         userId: session.user.id,
         userEmail: session.user.email,
-        ...(validatedData.metadata || {}),
       },
     });
 

@@ -43,6 +43,9 @@ const clientConfig = {
 // All sending goes through the v2 API. Auto Validation, and every other feature
 // configured via PutAccountSuppressionAttributes, is only surfaced on SESv2.
 export const sesv2Client = new SESv2Client(clientConfig);
+// Campaign retries are owned by the durable credit-delivery flow. SES send
+// has no idempotency token; an SDK retry after a lost response can send twice.
+export const campaignSesClient = new SESv2Client({ ...clientConfig, maxAttempts: 1 });
 
 // Retained for the identity/domain operations that only exist on the classic API
 // (VerifyDomainIdentity, VerifyDomainDkim, DeleteIdentity, ...), used by
@@ -143,7 +146,7 @@ export async function sendEmail({
 
   try {
     // Send email via SES
-    const result = await sesv2Client.send(command);
+    const result = await (campaignId ? campaignSesClient : sesv2Client).send(command);
 
     return { success: true, sesMessageId: result.MessageId };
   } catch (error: any) {

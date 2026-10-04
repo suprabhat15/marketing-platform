@@ -1,5 +1,9 @@
 import { redis } from './redis';
 import { sendEmail } from './ses';
+import {
+  emailCreditService,
+  EmailCreditPendingError,
+} from './email-credit.service';
 import { prisma } from './prisma';
 import { signUnsubscribeToken } from './unsubscribe-token';
 import { enhancedRateLimiter } from './global-rate-limiter';
@@ -29,8 +33,8 @@ export interface BatchEmailData {
   userId?: string; // Add userId to track credit usage
 }
 
-// Note: Credit ingestion and SENT event processing is handled by SES webhooks
-// via CreditService.processEmailEvent() to maintain single point of processing
+// Credit reservations settle on SES acceptance. SES notifications recover
+// unsettled reservations; the delivery record tracks pending Polar usage.
 
 // Template variable replacement function
 export function replaceVariables(content: string, subscriber: any, campaignId: string): string {
@@ -383,6 +387,7 @@ export class BatchEmailProcessor {
 
         return; // Success
       } catch (error) {
+        if (error instanceof EmailCreditPendingError) throw error;
         lastError = error instanceof Error ? error : new Error(String(error));
 
         // Handle timeout specifically
@@ -489,23 +494,26 @@ export class BatchEmailProcessor {
     const personalizedHtml = replaceVariables(templateHtml, subscriber, campaignId);
     const personalizedSubject = replaceVariables(subject, subscriber, campaignId);
 
-    // Send the email with timeout
-    const sendEmailTimeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error('Send email timeout')), 20000); // 20 second timeout for SES
-    });
-
-    const sendEmailPromise = sendEmail({
-      to: [subscriber.email],
-      subject: personalizedSubject,
-      html: personalizedHtml,
-      from: `${fromName} <${fromEmail}>`,
-      replyTo: replyTo || '',
-      campaignId,
-      subscriberId: subscriber.id,
-      messageId,
-    });
-
-    const sesResult = await Promise.race([sendEmailPromise, sendEmailTimeout]);
+    const billingUserId = userId || (await prisma.campaign.findUnique({
+      where: { id: campaignId },
+      select: { userId: true },
+    }))?.userId;
+    if (!billingUserId) throw new Error('Cannot send without a billing user');
+    // Persist the debit before contacting SES. Redis/SQS failures after SES
+    // acceptance cannot lose the charge or authorize another send.
+    const sesResult = await emailCreditService.send(
+      billingUserId, campaignId, subscriber.id, messageId, () => sendEmail({
+        to: [subscriber.email],
+        subject: personalizedSubject,
+        html: personalizedHtml,
+        from: `${fromName} <${fromEmail}>`,
+        replyTo: replyTo || '',
+        campaignId,
+        subscriberId: subscriber.id,
+        messageId,
+      })
+    );
+    if (sesResult.alreadySent) return;
 
     if (!sesResult.success) {
       const error = sesResult.error || new Error('Unknown SES send failure');
@@ -567,53 +575,9 @@ export class BatchEmailProcessor {
       `📧 Email sent successfully for ${subscriber.email}, messageId: ${messageId}`
     );
 
-    // Queue per-email SENT event for Polar ingestion. The Lambda consumer
-    // aggregates SQS records per invocation into a single polar.events.ingest
-    // call, so 1 successful send = 1 credit. Failures never reach this point,
-    // so partial-batch failures can't overbill.
-    try {
-      let resolvedUserId = userId;
-      if (!resolvedUserId) {
-        const campaign = await prisma.campaign.findUnique({
-          where: { id: campaignId },
-          select: { userId: true },
-        });
-        resolvedUserId = campaign?.userId;
-      }
-
-      if (resolvedUserId) {
-        try {
-          const { sendPolarEventToSQS } = await import('./sqs-service');
-          await sendPolarEventToSQS({
-            userId: resolvedUserId,
-            eventType: 'SENT',
-            metadata: {
-              eventId: messageId,
-              campaignId,
-              subscriberId: subscriber.id,
-              recipientEmail: subscriber.email,
-              timestamp: new Date().toISOString(),
-            },
-          });
-        } catch (sqsError) {
-          // Don't fail the send if SQS is unavailable; billing reconciles later
-          // but the email already went out successfully.
-          console.warn(
-            '⚠️ Failed to send Polar event to SQS; email was sent:',
-            sqsError
-          );
-        }
-      } else {
-        console.warn(
-          `⚠️ Missing userId for campaign ${campaignId}; skipping Polar SENT ingestion`
-        );
-      }
-    } catch (queueError) {
-      console.error(
-        '❌ Error queuing SENT event for Polar ingestion:',
-        queueError
-      );
-    }
+    // The credit transaction marks the delivery for Polar sync. worker.ts delivers
+    // it with retries and a stable external ID; do not also emit the old SQS
+    // Polar event, which would count this same send a second time.
 
     // Apply pacing hint from rate limiter
     if (

@@ -1,14 +1,14 @@
 import type { EventType } from '@prisma/client';
+import { readCreditBalance } from './credit-balance.service';
 
 // Credit deduction service for email events
-// NOTE: Credit deduction for SENT events is now handled at BATCH level
-// in batch-email-processor.ts using EMAIL_BATCH ledger entries.
+// Campaign sends reserve local credits before SES and confirm them on acceptance.
+// The delivery record tracks confirmation and idempotent Polar usage retries.
 // This service is kept for:
 // 1. Balance checks (hasEnoughCredits, getUserCreditBalance)
 // 2. Future non-batch credit deductions if needed
 export class CreditService {
-  // Process email event - SENT events NO LONGER deduct credits here
-  // Credit deduction moved to batch-email-processor.ts (batch-level)
+  // This legacy queue consumer does not allocate or consume credits.
   static async processEmailEvent(
     userId: string,
     eventType: EventType,
@@ -18,11 +18,9 @@ export class CreditService {
       metadata?: Record<string, any>;
     }
   ): Promise<void> {
-    // SENT events: Credit deduction handled at batch level (EMAIL_BATCH)
-    // This function now only logs for tracking purposes
     if (eventType === 'SENT') {
       console.log(
-        `📧 SENT event received for user ${userId} - credits handled at batch level`
+        `📧 SENT event received for user ${userId} - credit settlement handled by the send transaction`
       );
       return;
     }
@@ -36,8 +34,9 @@ export class CreditService {
     userId: string,
     syncFromPolar: boolean = false
   ) {
-    // Always use the unified function from polar.ts to avoid duplication
-    const { getUserCreditBalanceWithSync } = await import('./polar');
+    if (!syncFromPolar) return readCreditBalance(userId);
+    const { getUserCreditBalanceWithSync } =
+      await import('./polar/polar-meter.service');
     return await getUserCreditBalanceWithSync(userId, {
       syncFromPolar,
       updateSubscriptionStatus: false,

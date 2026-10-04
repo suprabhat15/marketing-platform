@@ -33,21 +33,43 @@ if (!PRODUCT_ID_3000 || !PRODUCT_ID_10000 || !PRODUCT_ID_20000) {
 }
 
 // Product ID to credit mapping (matching auth.ts products)
-export const PRODUCT_CREDIT_MAPPING: Record<string, number> = {
-  ...(PRODUCT_ID_3000 && { [PRODUCT_ID_3000]: 3000 }), // 3k-Credits
-  ...(PRODUCT_ID_10000 && { [PRODUCT_ID_10000]: 10000 }), // 10k-Credits
-  ...(PRODUCT_ID_20000 && { [PRODUCT_ID_20000]: 20000 }), // 20k-Credits
-};
+export function buildProductCreditMapping(
+  packages: Array<[string | undefined, number]>
+) {
+  const mapping: Record<string, number> = {};
+  for (const [id, credits] of packages) {
+    if (!id) continue;
+    if (mapping[id] !== undefined)
+      throw new Error(
+        `Duplicate Polar product ID configured for credit packages: ${id}`
+      );
+    mapping[id] = credits;
+  }
+  return mapping;
+}
+export const PRODUCT_CREDIT_MAPPING = buildProductCreditMapping([
+  [PRODUCT_ID_3000, 3000],
+  [PRODUCT_ID_10000, 10000],
+  [PRODUCT_ID_20000, 20000],
+]);
 
 // Helper function to get credits and price from product ID
-export function getCreditsPricing(data: { product?: { id?: string } }): {
+export function getCreditsPricing(data: {
+  product?: { id?: string } | null;
+  productId?: string | null;
+}): {
   credits: number;
   price: number;
 } {
-  const productId = data.product?.id;
-  const credits = productId
-    ? PRODUCT_CREDIT_MAPPING[productId]
-    : undefined;
+  if (
+    data.product?.id &&
+    data.productId &&
+    data.product.id !== data.productId
+  ) {
+    throw new Error('Polar product ID does not match the embedded product');
+  }
+  const productId = data.productId || data.product?.id;
+  const credits = productId ? PRODUCT_CREDIT_MAPPING[productId] : undefined;
 
   if (!credits) {
     console.error(`Unknown product ID: ${productId}`);

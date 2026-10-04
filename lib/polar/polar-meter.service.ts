@@ -1,7 +1,10 @@
 import { polar, PRODUCT_CREDIT_MAPPING } from './polar-client';
 import { prisma } from '@/lib/prisma';
 import { getRedisInstance } from '@/lib/redis';
-import { getCreditBalance } from '@/lib/credit-ledger.service';
+import {
+  readCreditBalance,
+  reconcileMeterUsage,
+} from '@/lib/credit-balance.service';
 
 const POLAR_METER_CACHE_TTL_SECONDS = 10;
 const polarMeterCacheKey = (externalCustomerId: string) =>
@@ -99,7 +102,8 @@ export async function fetchCreditsFromActiveMeters(externalCustomerId: string) {
   return result;
 }
 
-// Combined function to get user credit balance and sync with Polar in one flow
+// Local allocations and send debits are authoritative. Refresh Polar for
+// comparison/status only; meter counters cannot charge the same send again.
 export async function getUserCreditBalanceWithSync(
   userId: string,
   options: {
@@ -108,139 +112,57 @@ export async function getUserCreditBalanceWithSync(
     polarSubscriptionId?: string;
   } = {}
 ) {
-  try {
-    const {
-      syncFromPolar = true,
-      updateSubscriptionStatus = false,
-      polarSubscriptionId,
-    } = options;
-
-    // Get user's active subscription with credit tracking
-    const subscription = await prisma.subscription.findFirst({
-      where: {
-        userId: userId,
-        status: 'ACTIVE',
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
-    });
-
-    if (!subscription) {
-      return {
-        totalCredits: 0,
-        usedCredits: 0,
-        remainingCredits: 0,
-        hasActiveSubscription: false,
-      };
-    }
-
-    // Get real-time credit data from Polar customer state API
-    if (syncFromPolar) {
-      try {
-        const creditInfo = await fetchCreditsFromActiveMeters(userId);
-
-        // Prepare update data
-        const updateData: Record<string, unknown> = {
-          totalCredits: creditInfo.totalCredits,
-          usedCredits: creditInfo.usedCredits,
-          remainingCredits: creditInfo.remainingCredits,
-          meterId: creditInfo.meterId,
-        };
-
-        // If we need to update subscription status and have polarSubscriptionId
-        if (updateSubscriptionStatus && polarSubscriptionId) {
-          try {
-            const polarSubscription = await polar.subscriptions.get({
-              id: polarSubscriptionId,
-            });
-
-            updateData.status = polarSubscription.status?.toUpperCase();
-            updateData.currentPeriodStart = polarSubscription.currentPeriodStart
-              ? new Date(polarSubscription.currentPeriodStart)
-              : null;
-            updateData.currentPeriodEnd = polarSubscription.currentPeriodEnd
-              ? new Date(polarSubscription.currentPeriodEnd)
-              : null;
-            updateData.canceledAt = polarSubscription.canceledAt
-              ? new Date(polarSubscription.canceledAt)
-              : null;
-          } catch (polarError) {
-            console.warn(
-              '⚠️ Failed to fetch Polar subscription details:',
-              polarError
-            );
-            // Continue with credit sync even if subscription status update fails
-          }
-        }
-
-        // Update local subscription with fresh data
-        if (
-          creditInfo.totalCredits > 0 ||
-          creditInfo.usedCredits > 0 ||
-          updateSubscriptionStatus
-        ) {
-          await prisma.subscription.update({
-            where: { id: subscription.id },
-            data: updateData,
-          });
-
-          // Mirror Polar's authoritative credit values into the local CreditBalance cache.
-          await prisma.creditBalance.upsert({
-            where: { userId },
-            create: {
-              userId,
-              totalCredits: creditInfo.totalCredits,
-              usedCredits: creditInfo.usedCredits,
-              remainingCredits: creditInfo.remainingCredits,
-            },
-            update: {
-              totalCredits: creditInfo.totalCredits,
-              usedCredits: creditInfo.usedCredits,
-              remainingCredits: creditInfo.remainingCredits,
-            },
-          });
-
-          console.log(
-            `✅ Updated local subscription with customer state data: ${creditInfo.usedCredits}/${creditInfo.totalCredits} credits`
-          );
-        }
-
-        return {
-          totalCredits: creditInfo.totalCredits,
-          usedCredits: creditInfo.usedCredits,
-          remainingCredits: creditInfo.remainingCredits,
-          hasActiveSubscription: true,
-          subscriptionId: subscription.id,
-          polarSubscriptionId: subscription.polarSubscriptionId,
-          meterId: creditInfo.meterId,
-          meterName: subscription.meterName,
-          balance: creditInfo.balance,
-        };
-      } catch (error) {
-        console.warn(
-          '⚠️ Failed to fetch customer state, using local data:',
-          error
-        );
-        // Fall back to local data if customer state fetch fails
-      }
-    }
-
-    // Return local subscription data as fallback
-    return {
-      totalCredits: subscription.totalCredits,
-      usedCredits: subscription.usedCredits,
-      remainingCredits: subscription.remainingCredits,
-      hasActiveSubscription: true,
-      subscriptionId: subscription.id,
-      polarSubscriptionId: subscription.polarSubscriptionId,
-      meterId: subscription.meterId,
-      meterName: subscription.meterName,
-    };
-  } catch (error) {
-    console.error('Error fetching user credit balance:', error);
-    throw new Error('Failed to fetch credit balance');
+  const {
+    syncFromPolar = true,
+    updateSubscriptionStatus = false,
+    polarSubscriptionId,
+  } = options;
+  const subscription = await prisma.subscription.findFirst({
+    where: {
+      userId,
+      ...(polarSubscriptionId
+        ? { polarSubscriptionId }
+        : { status: 'ACTIVE' as const }),
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+  let hasActiveSubscription = subscription?.status === 'ACTIVE';
+  if (updateSubscriptionStatus && polarSubscriptionId) {
+    if (!subscription) throw new Error('Subscription not found for this user');
+    const remote = await polar.subscriptions.get({ id: polarSubscriptionId });
+    const { billingWebhookService } = await import('./polar-webhook.service');
+    await billingWebhookService.syncSubscription(remote);
+    hasActiveSubscription = remote.status === 'active';
   }
+  let polarComparison: {
+    totalCredits: number;
+    usedCredits: number;
+    remainingCredits: number;
+  } | null = null;
+  let usageSync: string = 'not_requested';
+  if (syncFromPolar) {
+    // Fetch failures propagate: a requested synchronization must not claim
+    // success when it only returned a stale local value.
+    const meter = await fetchCreditsFromActiveMeters(userId);
+    polarComparison = {
+      totalCredits: meter.totalCredits,
+      usedCredits: meter.usedCredits,
+      remainingCredits: meter.remainingCredits,
+    };
+    usageSync = (await reconcileMeterUsage(userId, meter.usedCredits)).outcome;
+  }
+  const balance = await readCreditBalance(userId);
+  return {
+    ...balance,
+    hasActiveSubscription,
+    subscriptionId: subscription?.id,
+    polarSubscriptionId: subscription?.polarSubscriptionId,
+    meterId: subscription?.meterId,
+    meterName: subscription?.meterName,
+    balance: balance.remainingCredits,
+    polarComparison,
+    usageSync,
+  };
 }
 
 // Updated syncSubscriptionFromPolar to use the combined function
@@ -286,59 +208,24 @@ export async function getUserCreditBalance(
   return getUserCreditBalanceWithSync(userId, { syncFromPolar });
 }
 
-// Check if user has enough credits before sending emails
-// Uses CreditBalance for fast reads
+// Campaigns and batches use the same user-level balance, including one-time
+// purchases and retained credits after subscription cancellation.
 export async function checkCreditAvailability(
   userId: string,
   emailsToSend: number
 ) {
-  try {
-    // Fast read from CreditBalance table
-    const balance = await getCreditBalance(userId);
-
-    if (!balance) {
-      // Fallback to subscription-based check if no CreditBalance exists
-      const creditBalance = await getUserCreditBalanceWithSync(userId, {
-        syncFromPolar: false,
-        updateSubscriptionStatus: false,
-      });
-
-      if (!creditBalance.hasActiveSubscription) {
-        return {
-          hasEnoughCredits: false,
-          availableCredits: 0,
-          requiredCredits: emailsToSend,
-          message: 'No active subscription found',
-        };
-      }
-
-      const hasEnoughCredits = creditBalance.remainingCredits >= emailsToSend;
-
-      return {
-        hasEnoughCredits,
-        availableCredits: creditBalance.remainingCredits,
-        requiredCredits: emailsToSend,
-        message: hasEnoughCredits
-          ? 'Sufficient credits available'
-          : `Insufficient credits. Need ${emailsToSend}, have ${creditBalance.remainingCredits}`,
-      };
-    }
-
-    // Use CreditBalance for fast read
-    const hasEnoughCredits = balance.remainingCredits >= emailsToSend;
-
-    return {
-      hasEnoughCredits,
-      availableCredits: balance.remainingCredits,
-      requiredCredits: emailsToSend,
-      message: hasEnoughCredits
-        ? 'Sufficient credits available'
-        : `Insufficient credits. Need ${emailsToSend}, have ${balance.remainingCredits}`,
-    };
-  } catch (error) {
-    console.error('Error checking credit availability:', error);
-    throw new Error('Failed to check credit availability');
-  }
+  if (!Number.isSafeInteger(emailsToSend) || emailsToSend < 0)
+    throw new Error('Invalid recipient count');
+  const balance = await readCreditBalance(userId);
+  const hasEnoughCredits = balance.remainingCredits >= emailsToSend;
+  return {
+    hasEnoughCredits,
+    availableCredits: balance.remainingCredits,
+    requiredCredits: emailsToSend,
+    message: hasEnoughCredits
+      ? 'Sufficient credits available'
+      : `Insufficient credits. Need ${emailsToSend}, have ${balance.remainingCredits}`,
+  };
 }
 
 // Get or create meter for product

@@ -38,6 +38,7 @@ model User {
   orders        Order[]
   creditBalance CreditBalance?
   creditLedgers CreditLedger[]
+  emailCreditDeliveries EmailCreditDelivery[]
 
   @@map("user")
 }
@@ -373,6 +374,30 @@ model CreditLedger {
   @@index([subscriptionId])
   @@unique([referenceType, referenceId])
   @@map("credit_ledger")
+}
+
+// One durable record per campaign recipient. Credit movements stay in the
+// ledger; send outcome and Polar retry state live here, not in zero-value rows.
+model EmailCreditDelivery {
+  id                 String   @id
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId     String?
+  campaignId         String
+  subscriberId       String
+  attemptId          String
+  state              String
+  sesMessageId       String?
+  sentAt             DateTime?
+  polarSyncedAt      DateTime?
+  polarAttempts      Int      @default(0)
+  polarNextAttemptAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([state, polarSyncedAt, polarNextAttemptAt])
+  @@index([userId])
+  @@map("email_credit_delivery")
 }
 
 model EmailEvent {

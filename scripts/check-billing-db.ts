@@ -27,6 +27,7 @@ try {
       { model: 'subscription', count: () => prisma.subscription.count() },
       { model: 'credit_balance', count: () => prisma.creditBalance.count() },
       { model: 'credit_ledger', count: () => prisma.creditLedger.count() },
+      { model: 'email_credit_delivery', count: () => prisma.emailCreditDelivery.count() },
     ].map(async ({ model, count }) => {
       try {
         return { model, rows: await count() };
@@ -43,6 +44,7 @@ try {
     'order',
     'credit_balance',
     'credit_ledger',
+    'email_credit_delivery',
   ];
   const missing = required.filter(
     (name) =>
