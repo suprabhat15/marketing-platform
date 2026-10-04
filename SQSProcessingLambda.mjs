@@ -34,36 +34,6 @@ const prisma =
     log: ["error"],
   }).$extends(withAccelerate());
 
-console.log("=== SQS PRISMA RUNTIME ===");
-
-try {
-  const location = await prisma.$queryRaw`
-    SELECT
-      current_database() AS database,
-      current_schema() AS schema,
-      current_user AS user
-  `;
-
-  console.log("SQS PRISMA LOCATION:", location);
-
-  console.log(
-    "SQS USER TEST:",
-    !!(await prisma.user.findFirst())
-  );
-
-  console.log(
-    "SQS SUBSCRIPTION TEST:",
-    !!(await prisma.subscription.findFirst())
-  );
-
-  console.log(
-    "SQS CREDIT BALANCE TEST:",
-    !!(await prisma.creditBalance.findFirst())
-  );
-} catch (e) {
-  console.error("SQS PRISMA ERROR:", e);
-}
-
 if (!globalForPrisma.prisma) globalForPrisma.prisma = prisma;
 
 /**
