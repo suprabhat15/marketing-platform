@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { verifyDnsRecords } from "@/lib/domain-verification";
+import { verifyDnsRecords, syncDomainVerificationStatus } from "@/lib/domain-verification";
 import {
   GetIdentityVerificationAttributesCommand,
   GetIdentityDkimAttributesCommand,
@@ -70,7 +70,7 @@ export async function GET(
       dkimTokens: sesDkim?.DkimTokens ?? [],
     };
 
-    // 4. Update DB status if SES confirmed verification
+    // Configure MAIL FROM when SES confirms verification.
     if (sesVerification?.VerificationStatus === "Success" && domainRecord.status !== "VERIFIED") {
       // Configure custom MAIL FROM domain in SES with fallback to default on MX failure
       await sesClient.send(
@@ -80,20 +80,19 @@ export async function GET(
           BehaviorOnMXFailure: "UseDefaultValue",
         })
       );
-
-      await prisma.domain.update({
-        where: { id: domainRecord.id },
-        data: { status: "VERIFIED", verifiedAt: new Date() },
-      });
     }
+
+    const updatedDomain = await syncDomainVerificationStatus(
+      session.user.id, domainRecord, sesVerification?.VerificationStatus
+    );
 
     // 5. Respond with combined results
     return NextResponse.json({
       id: domainRecord.id,
       domain: domainRecord.domain,
-      status: sesVerification?.VerificationStatus === "Success" ? "VERIFIED" : "PENDING",
+      status: updatedDomain.status,
       createdAt: domainRecord.createdAt.toISOString(),
-      verifiedAt: domainRecord.verifiedAt?.toISOString(),
+      verifiedAt: updatedDomain.verifiedAt?.toISOString(),
       dnsCheck: verificationStatus, // granular info (TXT, MX, CNAMEs)
       sesStatus, // authoritative SES info
       records: {

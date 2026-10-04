@@ -1,4 +1,5 @@
 import { redis } from './redis';
+import { randomUUID } from 'node:crypto';
 
 interface CacheOptions {
   ttl?: number; // Time to live in seconds
@@ -7,6 +8,46 @@ interface CacheOptions {
 
 export class RedisCache {
   private static defaultTTL = 60; // 1 minute default
+
+  static async getVersion(key: string): Promise<string | null> {
+    try {
+      return (await redis.get(`cache-version:${key}`)) ?? '0';
+    } catch (error) {
+      console.error('Redis cache version read error:', error);
+      return null;
+    }
+  }
+
+  // Compare and write atomically: a mutation must not be undone by an older read.
+  static async setIfVersion(key: string, version: string | null, data: unknown, ttl: number): Promise<boolean> {
+    if (version === null) return false;
+    try {
+      return await redis.eval(`
+        local current = redis.call('GET', KEYS[1]) or '0'
+        if current ~= ARGV[1] then return 0 end
+        redis.call('SETEX', KEYS[2], ARGV[2], ARGV[3])
+        return 1
+      `, 2, `cache-version:${key}`, key, version, ttl, JSON.stringify(data)) === 1;
+    } catch (error) {
+      console.error('Redis conditional cache write error:', error);
+      return false;
+    }
+  }
+
+  static async invalidateVersioned(key: string): Promise<boolean> {
+    try {
+      // Keep the version beyond the data TTL so a slow reader cannot reuse it.
+      await redis.eval(`
+        redis.call('SET', KEYS[1], ARGV[1])
+        redis.call('DEL', KEYS[2])
+        return 1
+      `, 2, `cache-version:${key}`, key, randomUUID());
+      return true;
+    } catch (error) {
+      console.error('Redis versioned invalidation error:', error);
+      return false;
+    }
+  }
 
   /**
    * Generate a cache key with optional prefix
@@ -131,7 +172,11 @@ export async function invalidateUserCache(userId: string, resource?: string): Pr
     const paramPattern = `${resource}:${userId}:*`;
     
     // Delete base key (without parameters)
-    await RedisCache.del(baseKey);
+    if (resource === 'domains') {
+      await RedisCache.invalidateVersioned(baseKey);
+    } else {
+      await RedisCache.del(baseKey);
+    }
     
     // Delete all keys with parameters
     await RedisCache.delPattern(paramPattern);
@@ -139,8 +184,7 @@ export async function invalidateUserCache(userId: string, resource?: string): Pr
     // Delete all cache keys for this user across all resources
     const patterns = ['campaigns', 'templates', 'lists', 'domains'];
     for (const resourceType of patterns) {
-      await RedisCache.del(`${resourceType}:${userId}`);
-      await RedisCache.delPattern(`${resourceType}:${userId}:*`);
+      await invalidateUserCache(userId, resourceType);
     }
   }
 }

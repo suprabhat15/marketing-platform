@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { invalidateUserCache } from "@/lib/redis-cache";
+import { syncDomainVerificationStatus } from "@/lib/domain-verification";
 
 export async function POST(request: NextRequest) {
   try {
@@ -58,6 +60,8 @@ export async function POST(request: NextRequest) {
         mailFromTxtRecord: dnsRecords.mailFromTxt.value,
       },
     });
+
+    await invalidateUserCache(session.user.id, 'domains');
 
     return NextResponse.json({
       domain: domainNormalized,
@@ -145,7 +149,7 @@ export async function GET(request: NextRequest) {
       dkimTokens: sesDkim?.DkimTokens ?? [],
     };
 
-    // 4. Update DB status if SES confirmed verification
+    // Configure MAIL FROM when SES confirms verification.
     if (
       sesVerification?.VerificationStatus === "Success" &&
       domainRecord.status !== "VERIFIED"
@@ -158,20 +162,16 @@ export async function GET(request: NextRequest) {
           BehaviorOnMXFailure: "UseDefaultValue",
         })
       );
-
-      await prisma.domain.update({
-        where: { id: domainRecord.id },
-        data: { status: "VERIFIED", verifiedAt: new Date() },
-      });
     }
+
+    const updatedDomain = await syncDomainVerificationStatus(
+      session.user.id, domainRecord, sesVerification?.VerificationStatus
+    );
 
     // 5. Respond with combined results
     return NextResponse.json({
       domain,
-      status:
-        sesVerification?.VerificationStatus === "Success"
-          ? "VERIFIED"
-          : "PENDING",
+      status: updatedDomain.status,
       dnsCheck: verificationStatus,
       sesStatus,
       records: {

@@ -2,16 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { sesClient } from "@/lib/ses";
+import { getUserDomains } from '@/lib/domain-verification';
 import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
-
-// Lazy import getUserDomains to reduce initial bundle
-async function getUserDomains(userId: string) {
-  return await prisma.domain.findMany({
-    where: { userId },
-    orderBy: { createdAt: 'desc' },
-    omit: { userId: true },
-  });
-}
 
 // Lazy import SES only when needed for deletion
 async function createSESClient() {
@@ -30,20 +22,22 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    // Check cache first
     const cacheKey = generateUserCacheKey(session.user.id, 'domains');
+    const version = await RedisCache.getVersion(cacheKey);
     const cachedData = await RedisCache.get(cacheKey);
-    
-    if (cachedData) {
-      return NextResponse.json(cachedData);
+    if (cachedData !== null) {
+      return NextResponse.json(cachedData, {
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
     }
 
+    // Refresh from the same loader as the page; domain mutations invalidate Redis.
     const domains = await getUserDomains(session.user.id);
     const responseData = { domains };
-
-    await RedisCache.set(cacheKey, responseData, { ttl: 600 });
-
-    return NextResponse.json(responseData);
+    await RedisCache.setIfVersion(cacheKey, version, responseData, 600);
+    return NextResponse.json(responseData, {
+      headers: { 'Cache-Control': 'private, no-store' },
+    });
 
   } catch (error) {
     console.error('Error fetching user domains:', error);

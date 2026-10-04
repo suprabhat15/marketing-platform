@@ -2,6 +2,7 @@ import { promises as dns } from 'dns';
 import { VerifyDomainIdentityCommand, VerifyDomainDkimCommand } from "@aws-sdk/client-ses";
 // import type { DnsRecords, VerificationResult } from "./domain-verification";
 import { sesClient } from "./ses"
+import { invalidateUserCache } from './redis-cache';
 export interface DnsRecords {
   txt: {
     key: string;
@@ -162,6 +163,28 @@ async function verifyCnameRecord(recordKey: string, expectedValue: string): Prom
   }
 }
 
+/** Persist observed SES transitions before invalidating domain lists. */
+export async function syncDomainVerificationStatus<T extends {
+  id: string;
+  status: 'PENDING' | 'VERIFIED' | 'FAILED';
+  verifiedAt: Date | null;
+}>(userId: string, domain: T, sesStatus: string | undefined): Promise<T> {
+  const status = sesStatus === 'Success' ? 'VERIFIED'
+    : sesStatus === 'Failed' ? 'FAILED'
+    : sesStatus === 'Pending' ? 'PENDING'
+    : domain.status;
+  if (status === domain.status) return domain;
+
+  const { prisma } = await import('./prisma');
+  const verifiedAt = status === 'VERIFIED' ? new Date() : null;
+  await prisma.domain.update({
+    where: { id: domain.id },
+    data: { status, verifiedAt },
+  });
+  await invalidateUserCache(userId, 'domains');
+  return { ...domain, status, verifiedAt };
+}
+
 /**
  * Get all domains for a user (for use in other parts of the app)
  */
@@ -194,27 +217,7 @@ export async function getUserDomains(userId: string) {
         const sesVerification = sesResponse.VerificationAttributes?.[domain.domain];
         const sesStatus = sesVerification?.VerificationStatus;
         
-        // If SES shows verified but DB shows pending, update DB
-        if (sesStatus === 'Success' && domain.status === 'PENDING') {
-          await prisma.domain.update({
-            where: { id: domain.id },
-            data: { status: 'VERIFIED', verifiedAt: new Date() },
-          });
-          
-          return {
-            ...domain,
-            status: 'VERIFIED' as const,
-            verifiedAt: new Date(),
-          };
-        }
-        
-        // Return status based on SES if available, otherwise use DB
-        return {
-          ...domain,
-          status: (sesStatus === 'Success' ? 'VERIFIED' : 
-                  sesStatus === 'Failed' ? 'FAILED' : 
-                  domain.status) as 'PENDING' | 'VERIFIED' | 'FAILED',
-        };
+        return syncDomainVerificationStatus(userId, domain, sesStatus);
       }));
       
       return updatedDomains;
