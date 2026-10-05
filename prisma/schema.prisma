@@ -94,10 +94,10 @@ model Campaign {
   user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   
   listId     String
-  list       List   @relation(fields: [listId], references: [id], onDelete: Restrict)
+  list       List   @relation(fields: [listId], references: [id], onDelete: Cascade)
   
   templateId String?
-  template   Template? @relation(fields: [templateId], references: [id])
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   
   fromEmail String
   fromName String?
@@ -158,7 +158,7 @@ model Event {
   createdAt DateTime @default(now())
 
   subscriberId String?
-  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id])
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
   
   campaignId   String?
   campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade) 
