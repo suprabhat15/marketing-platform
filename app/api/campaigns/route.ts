@@ -1,17 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const createCampaignSchema = z.object({
-  name: z.string().min(1).max(100),
-  subject: z.string().min(1).max(200),
-  content: z.string().min(1),
-  listId: z.string(),
-  templateId: z.string().optional(),
-  scheduledAt: z.string().datetime().optional(),
-  subscriberIds: z.array(z.string()).min(1, 'At least one subscriber must be selected'),
-});
+import { createCampaignSchema } from '@/lib/validators';
+import { ZodError } from 'zod';
+import { RedisCache, generateUserCacheKey, invalidateUserCache } from '@/lib/redis-cache';
+import { checkSuspension } from '@/lib/check-suspension';
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,18 +12,48 @@ export async function GET(request: NextRequest) {
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    // Try to get from cache first
+    const cacheKey = generateUserCacheKey(session.user.id, 'campaigns');
+    const cachedData = await RedisCache.get(cacheKey);
+    
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
 
     const campaigns = await prisma.campaign.findMany({
-      where: { userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz' },
-      include: {
-        list: true,
-        template: true,
+      where: { userId: session?.user.id },
+      select: {
+        id: true,
+        name: true,
+        subject: true,
+        content: true,
+        status: true,
+        scheduledAt: true,
+        sentAt: true,
+        createdAt: true,
+        list: {
+          select: {
+            id: true,
+            name: true,
+            description: true,
+          },
+        },
+        template: {
+          select: {
+            id: true,
+            name: true,
+            html: true,
+            content: true,
+          },
+        },
         events: {
-          include: {
-            subscriber: true,
+          select: {
+            type: true,
+            createdAt: true,
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -44,8 +67,8 @@ export async function GET(request: NextRequest) {
     });
 
     // Group campaigns by name (keeping campaign name unique)
-    const groupedCampaigns = campaigns.reduce((acc, campaign) => {
-      const existingGroup = acc.find(group => group.name === campaign.name);
+    const groupedCampaigns = campaigns.reduce((acc: any[], campaign: any) => {
+      const existingGroup = acc.find((group: any) => group.name === campaign.name);
       
       if (existingGroup) {
         // Merge events from campaigns with same name
@@ -76,7 +99,7 @@ export async function GET(request: NextRequest) {
           totalEvents: campaign._count.events,
           campaignIds: [campaign.id],
           // Group event counts by type for easy access
-          eventsByType: campaign.events.reduce((eventAcc, event) => {
+          eventsByType: campaign.events.reduce((eventAcc: Record<string, number>, event: any) => {
             eventAcc[event.type] = (eventAcc[event.type] || 0) + 1;
             return eventAcc;
           }, {} as Record<string, number>),
@@ -104,7 +127,7 @@ export async function GET(request: NextRequest) {
     }>);
 
     // Recalculate eventsByType for merged campaigns
-    groupedCampaigns.forEach(group => {
+    groupedCampaigns.forEach((group: any) => {
       group.eventsByType = group.events.reduce((eventAcc: Record<string, number>, event: any) => {
         eventAcc[event.type] = (eventAcc[event.type] || 0) + 1;
         return eventAcc;
@@ -112,27 +135,32 @@ export async function GET(request: NextRequest) {
     });
 
     // Sort by latest activity
-    groupedCampaigns.sort((a, b) => 
+    groupedCampaigns.sort((a: any, b: any) => 
       new Date(b.latestCreatedAt).getTime() - new Date(a.latestCreatedAt).getTime()
     );
 
     // Calculate overall stats
     const stats = {
       total: groupedCampaigns.length,
-      sent: groupedCampaigns.filter(c => c.latestStatus === 'SENT').length,
-      scheduled: groupedCampaigns.filter(c => c.latestStatus === 'SCHEDULED').length,
-      draft: groupedCampaigns.filter(c => c.latestStatus === 'DRAFT').length,
-      totalEvents: groupedCampaigns.reduce((sum, c) => sum + c.totalEvents, 0),
+      sent: groupedCampaigns.filter((c: any) => c.latestStatus === 'SENT').length,
+      scheduled: groupedCampaigns.filter((c: any) => c.latestStatus === 'SCHEDULED').length,
+      draft: groupedCampaigns.filter((c: any) => c.latestStatus === 'DRAFT').length,
+      totalEvents: groupedCampaigns.reduce((sum: number, c: any) => sum + c.totalEvents, 0),
     };
 
     // Available event types for frontend filtering
-    const availableEventTypes = ['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'UNSUBSCRIBED'];
+    const availableEventTypes = ['SENT', 'DELIVERED', 'OPENED', 'CLICKED', 'BOUNCED', 'COMPLAINED', 'FAILED', 'SUPPRESSED', 'UNSUBSCRIBED'];
 
-    return NextResponse.json({ 
+    const responseData = { 
       campaigns: groupedCampaigns, 
       stats,
       availableEventTypes
-    });
+    };
+
+    // Cache the response for 1 minute
+    await RedisCache.set(cacheKey, responseData, { ttl: 60 });
+
+    return NextResponse.json(responseData);
   } catch (error) {
     console.error('API Error:', error);
     return NextResponse.json(
@@ -148,19 +176,31 @@ export async function POST(request: NextRequest) { // Created first campaign via
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const suspensionResponse = await checkSuspension(session.user.id);
+    if (suspensionResponse) return suspensionResponse;
 
     const body = await request.json();
-    const { name, subject, content, listId, templateId, scheduledAt, subscriberIds } =
-      createCampaignSchema.parse(body);
-
+    const {
+      name,
+      subject,
+      content,
+      listId,
+      templateId,
+      scheduledAt,
+      fromEmail,
+      fromName,
+      replyTo,
+    } = createCampaignSchema.parse(body);
+      
     // Verify list ownership
     const list = await prisma.list.findFirst({
       where: {
         id: listId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session?.user.id,
       },
     });
 
@@ -176,18 +216,24 @@ export async function POST(request: NextRequest) { // Created first campaign via
         listId,
         templateId,
         scheduledAt: scheduledAt ? new Date(scheduledAt) : undefined,
-        subscriberIds: subscriberIds,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        // subscriberIds: subscriberIds,
+        userId: session?.user.id,
+        fromEmail,
+        fromName,
+        replyTo: replyTo || '',
       },
     });
 
+    // Invalidate campaigns cache for this user
+    await invalidateUserCache(session.user.id, 'campaigns');
+
     return NextResponse.json({ campaign }, { status: 201 });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json({ error: error.errors }, { status: 400 });
     }
     return NextResponse.json(
-      { error: 'Internal server error: ' + (error instanceof Error ? error.message : 'Unknown error') },
+      { error: 'Internal server error' },
       { status: 500 }
     );
   }

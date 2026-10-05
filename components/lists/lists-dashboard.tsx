@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -40,6 +40,7 @@ interface List {
   };
   subscribers?: {
     status: 'ACTIVE' | 'UNSUBSCRIBED' | 'BOUNCED' | 'COMPLAINED';
+    count: number;
   }[];
 }
 
@@ -79,33 +80,38 @@ export function ListsDashboard() {
       const response = await fetch(`/api/lists/${listId}`, {
         method: 'DELETE',
       });
-      
       if (response.ok) {
-        setLists(lists.filter(list => list.id !== listId));
+        setLists((prevLists) => prevLists.filter((list) => list.id !== listId));
+      } else {
+        const data = await response.json().catch(() => ({}));
+        alert(data.error || 'Failed to delete list');
       }
     } catch (error) {
       console.error('Error deleting list:', error);
+      alert('Failed to delete list');
     }
   };
 
-  const calculateListStats = (list: List): ListStats => {
+  // Memoized function to calculate stats from optimized data structure
+  const calculateListStats = useCallback((list: List): ListStats => {
     if (!list.subscribers) {
       return { subscribed: 0, unsubscribed: 0, bounced: 0, total: 0 };
     }
 
     const stats = list.subscribers.reduce(
-      (acc, subscriber) => {
-        acc.total++;
-        switch (subscriber.status) {
+      (acc, statusData) => {
+        const count = statusData.count;
+        acc.total += count;
+        switch (statusData.status) {
           case 'ACTIVE':
-            acc.subscribed++;
+            acc.subscribed += count;
             break;
           case 'UNSUBSCRIBED':
-            acc.unsubscribed++;
+            acc.unsubscribed += count;
             break;
           case 'BOUNCED':
           case 'COMPLAINED':
-            acc.bounced++;
+            acc.bounced += count;
             break;
         }
         return acc;
@@ -114,16 +120,30 @@ export function ListsDashboard() {
     );
 
     return stats;
-  };
+  }, []);
 
   const handleListCreated = () => {
     fetchLists();
     setCreateDialogOpen(false);
   };
 
-  const handleViewList = (listId: string) => {
+  const handleViewList = useCallback((listId: string) => {
     router.push(`/lists/${listId}`);
-  };
+  }, [router]);
+
+  // Memoized calculations for dashboard stats
+  const globalStats = useMemo(() => {
+    return lists.reduce(
+      (acc, list) => {
+        const stats = calculateListStats(list);
+        acc.totalSubscribers += list._count?.subscribers || 0;
+        acc.activeSubscribers += stats.subscribed;
+        acc.bouncedSubscribers += stats.bounced;
+        return acc;
+      },
+      { totalSubscribers: 0, activeSubscribers: 0, bouncedSubscribers: 0 }
+    );
+  }, [lists, calculateListStats]);
 
   if (loading) {
     return (
@@ -134,7 +154,7 @@ export function ListsDashboard() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="page-container space-y-6 text-content">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -168,7 +188,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-600">
-              {lists.reduce((acc, list) => acc + (list._count?.subscribers || 0), 0)}
+              {globalStats.totalSubscribers}
             </div>
           </CardContent>
         </Card>
@@ -180,10 +200,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-blue-600">
-              {lists.reduce((acc, list) => {
-                if (!list.subscribers) return acc;
-                return acc + list.subscribers.filter(s => s.status === 'ACTIVE').length;
-              }, 0)}
+              {globalStats.activeSubscribers}
             </div>
           </CardContent>
         </Card>
@@ -195,10 +212,7 @@ export function ListsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-red-600">
-              {lists.reduce((acc, list) => {
-                if (!list.subscribers) return acc;
-                return acc + list.subscribers.filter(s => s.status === 'BOUNCED' || s.status === 'COMPLAINED').length;
-              }, 0)}
+              {globalStats.bouncedSubscribers}
             </div>
           </CardContent>
         </Card>
@@ -234,49 +248,68 @@ export function ListsDashboard() {
                 return (
                   <div
                     key={list.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent transition-colors cursor-pointer"
+                    className="hover:bg-accent flex cursor-pointer items-center justify-between rounded-lg border p-4 transition-colors"
                     onClick={() => handleViewList(list.id)}
                   >
                     <div className="flex-1">
                       <div className="flex items-start justify-between">
                         <div>
-                          <h3 className="text-base font-semibold text-foreground">{list.name}</h3>
+                          <h3 className="text-foreground text-base font-semibold">
+                            {list.name}
+                          </h3>
                           {list.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{list.description}</p>
+                            <p className="text-muted-foreground mt-1 text-sm">
+                              {list.description}
+                            </p>
                           )}
-                          <div className="flex items-center gap-4 mt-2">
+                          <div className="mt-2 flex items-center gap-4">
                             <div className="flex items-center gap-2">
-                              <Badge variant="secondary" className="bg-green-100 text-green-800 text-xs">
+                              <Badge
+                                variant="secondary"
+                                className="bg-green-100 text-xs text-green-800"
+                              >
                                 {list._count?.subscribers || 0} Total
                               </Badge>
-                              <Badge variant="secondary" className="bg-blue-100 text-blue-800 text-xs">
+                              <Badge
+                                variant="secondary"
+                                className="bg-blue-100 text-xs text-blue-800"
+                              >
                                 {stats.subscribed} Active
                               </Badge>
                             </div>
                           </div>
                         </div>
-                        <div className="text-right text-sm text-muted-foreground">
+                        <div className="text-muted-foreground text-right text-sm">
                           <div className="flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            Created {formatDistanceToNow(new Date(list.createdAt), { addSuffix: true })}
+                            Created{' '}
+                            {formatDistanceToNow(new Date(list.createdAt), {
+                              addSuffix: true,
+                            })}
                           </div>
-                          <div className="flex items-center gap-1 mt-1">
+                          <div className="mt-1 flex items-center gap-1">
                             <Calendar className="h-3 w-3" />
-                            Updated {formatDistanceToNow(new Date(list.updatedAt), { addSuffix: true })}
+                            Updated{' '}
+                            {formatDistanceToNow(new Date(list.updatedAt), {
+                              addSuffix: true,
+                            })}
                           </div>
                         </div>
                       </div>
                     </div>
-                    
-                    <div className="flex items-center gap-2 ml-4">
+
+                    <div className="ml-4 flex items-center gap-2">
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
+                          <Button
+                            variant="ghost"
+                            size="sm"
                             className="text-red-600 hover:text-red-700"
                             title="Delete List"
-                            onClick={(e) => e.stopPropagation()}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // e.preventDefault();
+                            }}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -285,13 +318,18 @@ export function ListsDashboard() {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
                             <AlertDialogDescription>
-                              This action cannot be undone. This will permanently delete the list &quot;{list.name}&quot; and all its subscribers.
+                              This action cannot be undone. This will
+                              permanently delete the list &quot;{list.name}
+                              &quot; and all its subscribers.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogCancel onClick={(e) => e.stopPropagation()}>Cancel</AlertDialogCancel>
                             <AlertDialogAction
-                              onClick={() => handleDeleteList(list.id)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteList(list.id);
+                              }}
                               className="bg-red-600 hover:bg-red-700"
                             >
                               Delete List
@@ -299,7 +337,7 @@ export function ListsDashboard() {
                           </AlertDialogFooter>
                         </AlertDialogContent>
                       </AlertDialog>
-                      <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                      <ChevronRight className="text-muted-foreground h-4 w-4" />
                     </div>
                   </div>
                 );

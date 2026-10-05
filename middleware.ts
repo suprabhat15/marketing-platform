@@ -1,25 +1,57 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export function middleware(request: NextRequest) {
-  // Allow auth routes (both pages and API)
+const SUSPENSION_EXEMPT_PATHS = [
+  '/api/auth',
+  '/api/user/status',
+  '/api/payments/webhooks',
+  '/api/unsubscribe',
+];
+
+export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
   if (
-    request.nextUrl.pathname.startsWith('/api/auth') ||
-    request.nextUrl.pathname === '/auth'
+    pathname.startsWith('/_next') ||
+    pathname.includes('.') ||
+    pathname.startsWith('/logo')
   ) {
     return NextResponse.next();
   }
 
-  // Allow all other API routes (auth is handled in individual routes)
-  if (request.nextUrl.pathname.startsWith('/api/')) {
-    return NextResponse.next();
+  if (
+    pathname.startsWith('/api/') &&
+    !SUSPENSION_EXEMPT_PATHS.some((p) => pathname.startsWith(p))
+  ) {
+    const sessionCookie =
+      request.cookies.get('better-auth.session_token') ||
+      request.cookies.get('__Secure-better-auth.session_token');
+    if (sessionCookie) {
+      try {
+        const statusRes = await fetch(
+          new URL('/api/user/status', request.url),
+          { headers: { cookie: request.headers.get('cookie') || '' } }
+        );
+
+        if (statusRes.ok) {
+          const data = await statusRes.json();
+          if (data.suspended) {
+            return NextResponse.json(
+              {
+                error: 'Account suspended',
+                reason: data.suspendedReason,
+              },
+              { status: 403 }
+            );
+          }
+        }
+      } catch {
+        // If status check fails, let the request through — routes still have auth
+      }
+    }
   }
 
-  // Allow static files
-  if (
-    request.nextUrl.pathname.startsWith('/_next') ||
-    request.nextUrl.pathname.includes('.')
-  ) {
-    return NextResponse.next();
+  if (pathname === '/') {
+    return NextResponse.redirect(new URL('/campaigns', request.url));
   }
 
   return NextResponse.next();
@@ -27,12 +59,6 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    '/((?!_next/static|_next/image|favicon.ico).*)',
+    '/((?!_next/static|_next/image|logo.svg).*)',
   ],
 };

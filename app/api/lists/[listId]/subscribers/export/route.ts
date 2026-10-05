@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { auth } from '@/lib/auth';
 
 // GET /api/lists/[listId]/subscribers/export - Export subscribers as CSV
 export async function GET(
@@ -7,11 +8,23 @@ export async function GET(
   { params }: { params: Promise<{ listId: string }> }
 ) {
   try {
+    // Authentication check
+    const session = await auth.api.getSession({
+      headers: request.headers,
+    });
+
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const { listId } = await params;
 
-    // Check if list exists
-    const list = await prisma.list.findUnique({
-      where: { id: listId },
+    // Verify user owns the list
+    const list = await prisma.list.findFirst({
+      where: {
+        id: listId,
+        userId: session.user.id,
+      },
     });
 
     if (!list) {
@@ -27,21 +40,34 @@ export async function GET(
       orderBy: { createdAt: 'desc' },
     });
 
-    // Generate CSV content
+    const sanitizeCsvCell = (value: string) => {
+      let sanitized = value.replace(/"/g, '""');
+      sanitized = sanitized.replace(/[\r\n]+/g, ' ');
+      if (/^[=+\-@\t]/.test(sanitized)) {
+        sanitized = "'" + sanitized;
+      }
+      return sanitized;
+    };
+
     const csvHeader = 'Email,First Name,Last Name,Status,Joined Date\n';
     const csvRows = subscribers.map(subscriber => {
       const joinedDate = new Date(subscriber.createdAt).toLocaleDateString();
-      return `"${subscriber.email}","${subscriber.firstName || ''}","${subscriber.lastName || ''}","${subscriber.status}","${joinedDate}"`;
+      const email = sanitizeCsvCell(subscriber.email);
+      const firstName = sanitizeCsvCell(subscriber.firstName || '');
+      const lastName = sanitizeCsvCell(subscriber.lastName || '');
+      const status = sanitizeCsvCell(subscriber.status);
+      return `"${email}","${firstName}","${lastName}","${status}","${joinedDate}"`;
     }).join('\n');
 
     const csvContent = csvHeader + csvRows;
 
-    // Return CSV file
+    const safeFilename = list.name.replace(/[^a-zA-Z0-9_\-. ]/g, '_');
+
     return new NextResponse(csvContent, {
       status: 200,
       headers: {
         'Content-Type': 'text/csv',
-        'Content-Disposition': `attachment; filename="${list.name}-subscribers.csv"`,
+        'Content-Disposition': `attachment; filename="${safeFilename}-subscribers.csv"`,
       },
     });
   } catch (error) {

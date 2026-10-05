@@ -12,6 +12,10 @@
 
 #documentation
 /docs
+security_audit.md
+security_check.md
+SECURITY_AUDIT.md
+Security_Check.md
 
 # testing
 /coverage
@@ -36,6 +40,8 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+package-lock.json
+server.log
 # vercel
 .vercel
 
@@ -44,3 +50,4 @@ yarn-error.log*
 next-env.d.ts
 
 /lib/generated/prisma
+.vscode/

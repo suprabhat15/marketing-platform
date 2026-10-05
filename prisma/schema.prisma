@@ -4,30 +4,42 @@
 // Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
 // Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
 
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id            String   @id @default(cuid())
-  name          String
-  email         String   @unique
-  emailVerified Boolean  @default(false)
-  image         String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  emailVerified   Boolean  @default(false)
+  image           String?
+  polarCustomerId String?  @unique // Polar customer ID
+  suspended       Boolean  @default(false)
+  suspendedAt     DateTime?
+  suspendedReason String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
-  lists      List[]
-  campaigns  Campaign[]
-  templates  Template[]
-  sessions   Session[]
-  accounts   Account[]
-  
+  lists         List[]
+  campaigns     Campaign[]
+  templates     Template[]
+  domains       Domain[]
+  sessions      Session[]
+  accounts      Account[]
+  subscriptions Subscription[]
+  orders        Order[]
+  creditBalance CreditBalance?
+  creditLedgers CreditLedger[]
+  emailCreditDeliveries EmailCreditDelivery[]
+
   @@map("user")
 }
 
@@ -72,6 +84,7 @@ model Campaign {
   content       String
   status        CampaignStatus @default(DRAFT)
   scheduledAt   DateTime?
+  queuedAt      DateTime?
   sentAt        DateTime?
   subscriberIds Json     @default("[]")
   createdAt     DateTime @default(now())
@@ -84,11 +97,40 @@ model Campaign {
   list       List   @relation(fields: [listId], references: [id], onDelete: Cascade)
   
   templateId String?
-  template   Template? @relation(fields: [templateId], references: [id])
+  template   Template? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   
+  fromEmail String
+  fromName String?
+  replyTo String
+
   events     Event[]
+  stats      CampaignStats?
   
   @@map("campaign")
+}
+
+model CampaignStats {
+  id          String   @id @default(cuid())
+  campaignId  String   @unique
+  campaign    Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  
+  sent        Int      @default(0)
+  delivered   Int      @default(0)
+  opened      Int      @default(0)
+  clicked     Int      @default(0)
+  bounced     Int      @default(0)
+  complained  Int      @default(0)
+  failed      Int      @default(0)
+  suppressed  Int      @default(0)
+  unsubscribed Int     @default(0)
+  rejected    Int      @default(0)
+  renderFailed Int     @default(0)
+  
+  totalEvents Int      @default(0)
+  lastSyncAt  DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("campaign_stats")
 }
 
 model Template {
@@ -96,6 +138,7 @@ model Template {
   name        String
   subject     String
   content     String
+  html        String?
   attachments Json?    @default("[]")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -115,12 +158,50 @@ model Event {
   createdAt DateTime @default(now())
 
   subscriberId String?
-  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id])
+  subscriber   Subscriber? @relation(fields: [subscriberId], references: [id], onDelete: Cascade)
   
   campaignId   String?
-  campaign     Campaign? @relation(fields: [campaignId], references: [id])
+  campaign     Campaign? @relation(fields: [campaignId], references: [id], onDelete: Cascade) 
+  // Cascade:deletion of campaign will delete all 
+  // the events associated with deleted campaign
   
+  // Prevent duplicate events for same subscriber/campaign/type/messageId
+  @@unique([subscriberId, campaignId, type, data])
   @@map("event")
+}
+
+model Domain {
+  id         String   @id @default(cuid())
+  domain     String
+  status     DomainStatus @default(PENDING)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  verifiedAt DateTime?
+
+  // DNS Records for verification
+  txtRecord    String?
+  mxRecord     String?
+  cnameKey1    String?
+  cnameValue1  String?
+  cnameKey2    String?
+  cnameValue2  String?
+  cnameKey3    String?
+  cnameValue3  String?
+
+  mailFromMxRecord  String?
+  mailFromTxtRecord String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@unique([domain, userId])
+  @@map("domain")
+}
+
+enum DomainStatus {
+  PENDING
+  VERIFIED
+  FAILED
 }
 
 enum SubscriberStatus {
@@ -133,9 +214,12 @@ enum SubscriberStatus {
 enum CampaignStatus {
   DRAFT
   SCHEDULED
+  QUEUED
   SENDING
   SENT
+  COMPLETED
   CANCELLED
+  FAILED
 }
 
 enum EventType {
@@ -145,6 +229,8 @@ enum EventType {
   CLICKED
   BOUNCED
   COMPLAINED
+  FAILED
+  SUPPRESSED
   UNSUBSCRIBED
 }
 
@@ -202,4 +288,151 @@ model Verification {
   updatedAt  DateTime  @updatedAt
 
   @@map("verification")
+}
+
+model Subscription {
+  id                String   @id @default(cuid())
+  polarSubscriptionId String @unique // Polar's subscription ID
+  customerId        String   // Polar customer ID
+  productId         String   // Polar product ID
+  priceId           String?  // Polar price ID
+  status            SubscriptionStatus @default(ACTIVE)
+  credits           Int      @default(0) // Credits for this specific subscription
+  totalCredits      Int      @default(0) // Keep for backward compatibility
+  usedCredits       Int      @default(0)
+  remainingCredits  Int      @default(0)
+  amount            Float    @default(0) // Price amount in cents
+  meterId           String?  // Polar meter ID for usage tracking
+  meterName         String?  @default("credits")
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt        DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  creditLedgers CreditLedger[]
+
+  @@map("subscription")
+}
+
+model Order {
+  id            String   @id @default(cuid())
+  polarOrderId  String   @unique // Polar's order ID
+  customerId    String   // Polar customer ID
+  productId     String   // Polar product ID
+  amount        Float      // Amount in cents
+  currency      String   @default("USD")
+  status        OrderStatus @default(PENDING)
+  credits       Int      @default(0) // Credits purchased
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("order")
+}
+
+model CreditBalance {
+  id        String   @id @default(cuid())
+
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  totalCredits     Int @default(0)
+  usedCredits      Int @default(0)
+  remainingCredits Int @default(0)
+
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@map("credit_balance")
+}
+
+model CreditLedger {
+  id              String   @id @default(cuid())
+  
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  subscriptionId  String?
+  subscription    Subscription? @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+
+  type            CreditTransactionType
+  amount          Int
+
+  referenceType   String?
+  referenceId     String?
+
+  metadata        Json?
+
+  createdAt       DateTime @default(now())
+
+  @@index([userId])
+  @@index([subscriptionId])
+  @@unique([referenceType, referenceId])
+  @@map("credit_ledger")
+}
+
+// One durable record per campaign recipient. Credit movements stay in the
+// ledger; send outcome and Polar retry state live here, not in zero-value rows.
+model EmailCreditDelivery {
+  id                 String   @id
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptionId     String?
+  campaignId         String
+  subscriberId       String
+  attemptId          String
+  state              String
+  sesMessageId       String?
+  sentAt             DateTime?
+  polarSyncedAt      DateTime?
+  polarAttempts      Int      @default(0)
+  polarNextAttemptAt DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([state, polarSyncedAt, polarNextAttemptAt])
+  @@index([userId])
+  @@map("email_credit_delivery")
+}
+
+model EmailEvent {
+  id         BigInt   @id @default(autoincrement())
+  uniqueId   String   @unique
+  campaignId String
+  type       String
+  recipients Int
+  payload    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([campaignId, createdAt])
+  @@map("email_event")
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  CANCELED
+  PAST_DUE
+  UNPAID
+  INCOMPLETE
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FAILED
+  REFUNDED
+}
+
+enum CreditTransactionType {
+  CREDIT_ALLOCATION
+  EMAIL_SENT
+  EMAIL_BATCH
+  REFUND
+  MANUAL_ADJUSTMENT
+  SUBSCRIPTION_RENEWAL
 }

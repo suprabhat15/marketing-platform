@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { z } from 'zod';
-
-const templateUpdateSchema = z.object({
-  name: z.string().min(1, 'Template name is required'),
-  subject: z.string().min(1, 'Subject is required'),
-  content: z.string().min(1, 'Content is required'),
-  attachments: z.array(z.object({
-    name: z.string(),
-    size: z.number(),
-    type: z.string(),
-    url: z.string(),
-  })).optional(),
-});
+import { templateUpdateSchema } from "@/lib/validators";
+import { ZodError } from 'zod';
 
 export async function DELETE(
   request: NextRequest,
@@ -26,22 +15,26 @@ export async function DELETE(
       headers: request.headers,
     });
 
-    // if (!session) {
-    //   return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    // }
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
-    await prisma.template.delete({
-      where: {
-        id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
-      },
+    const { count } = await prisma.template.deleteMany({
+      where: { id: templateId, userId: session.user.id },
     });
+
+    if (count === 0) {
+      return NextResponse.json(
+        { error: 'Template not found' },
+        { status: 404 }
+      );
+    }
 
     return NextResponse.json({ message: 'Template deleted successfully' });
   } catch (error) {
-    console.error('API Error:', error);
+    console.error('Error deleting template:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to delete template' },
       { status: 500 }
     );
   }
@@ -58,11 +51,16 @@ export async function GET(
       headers: request.headers,
     });
 
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     const template = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session.user.id,
       },
+      omit: { userId: true },
     });
 
     if (!template) {
@@ -91,6 +89,10 @@ export async function PUT(
       headers: request.headers,
     });
 
+    if (!session || !session.user || !session.user.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
     // Validate the request body
     const validatedData = templateUpdateSchema.parse(body);
 
@@ -98,7 +100,7 @@ export async function PUT(
     const existingTemplate = await prisma.template.findFirst({
       where: {
         id: templateId,
-        userId: session?.user.id || 'cmdowqcn000003v0xla2ytqwz',
+        userId: session.user.id,
       },
     });
 
@@ -117,6 +119,7 @@ export async function PUT(
         attachments: validatedData.attachments || [],
         updatedAt: new Date(),
       },
+      omit: { userId: true },
     });
 
     return NextResponse.json({ 
@@ -124,7 +127,7 @@ export async function PUT(
       template: updatedTemplate 
     });
   } catch (error) {
-    if (error instanceof z.ZodError) {
+    if (error instanceof ZodError) {
       return NextResponse.json(
         { error: 'Validation failed', details: error.errors },
         { status: 400 }

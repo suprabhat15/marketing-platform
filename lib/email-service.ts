@@ -1,149 +1,179 @@
-import { sendEmail } from './ses';
+import { CreditService } from './credit-service';
 import { prisma } from './prisma';
-import { createEmailTracker } from './tracking';
+import type { EventType } from '@prisma/client';
+import { checkCreditAvailability } from './polar/polar-meter.service';
 
-export async function sendCampaign(campaignId: string) {
-  const campaign = await prisma.campaign.findUnique({
-    where: { id: campaignId },
-    include: {
-      list: {
-        include: {
-          subscribers: {
-            where: {
-              status: 'ACTIVE',
-            },
-          },
+export class EmailService {
+  static async checkCreditsBeforeSending(
+    userId: string,
+    recipientCount: number
+  ): Promise<{
+    canSend: boolean;
+    creditsRequired: number;
+    creditsAvailable: number;
+  }> {
+    const check = await checkCreditAvailability(userId, recipientCount);
+    return {
+      canSend: check.hasEnoughCredits,
+      creditsRequired: recipientCount,
+      creditsAvailable: check.availableCredits,
+    };
+  }
+
+  // Compatibility name: this is an availability recheck, not a reservation.
+  // Atomic campaign reservations are a separate sending-flow change.
+  static async reserveCreditsForCampaign(
+    userId: string,
+    campaignId: string,
+    recipientCount: number
+  ): Promise<boolean> {
+    const check = await checkCreditAvailability(userId, recipientCount);
+    if (!check.hasEnoughCredits) {
+      console.log(
+        `Insufficient credits for campaign ${campaignId}: need ${recipientCount}, have ${check.availableCredits}`
+      );
+    }
+    return check.hasEnoughCredits;
+  }
+
+  // Record individual email events (for tracking, no additional credit deduction)
+  static async recordEmailEvent(
+    eventType: EventType,
+    campaignId?: string,
+    subscriberId?: string,
+    metadata?: Record<string, any>
+  ): Promise<void> {
+    try {
+      await prisma.event.create({
+        data: {
+          type: eventType,
+          data: metadata || {},
+          ...(campaignId && { campaignId }),
+          ...(subscriberId && { subscriberId }),
         },
-      },
-    },
-  });
+      });
 
-  if (!campaign) {
-    throw new Error('Campaign not found');
+      // Credit deduction is handled automatically by batch-email-processor for SENT events
+      // BOUNCED events no longer deduct credits since they weren't successfully delivered
+    } catch (error) {
+      console.error('Error recording email event:', error);
+      throw error;
+    }
   }
 
-  if (campaign.status !== 'DRAFT' && campaign.status !== 'SCHEDULED') { // DOUBT: why checking for two  status 
-  // simultaneously as it will always be false ?
-    throw new Error('Campaign cannot be sent'); 
-  }
+  // Refund credits for failed sends
+  static async refundCreditsForFailedSends(
+    userId: string,
+    failedCount: number,
+    campaignId?: string
+  ): Promise<void> {
+    if (failedCount <= 0) return;
 
-  // Update campaign status
-  await prisma.campaign.update({
-    where: { id: campaignId },
-    data: {
-      status: 'SENDING',
-    },
-  });
-  console.log("Campaign status updated to SENDING");
-  try {
-    // Filter subscribers based on selected subscriber IDs from campaign
-    const selectedIds = Array.isArray(campaign.subscriberIds) ? campaign.subscriberIds : [];
-    
-    // Validate that subscribers are selected
-    if (selectedIds.length === 0) {
-      throw new Error('No subscribers selected for this campaign. Please select at least one subscriber.');
-    }
-    
-    const allSubscribers = campaign.list.subscribers;
-    const subscribers = allSubscribers.filter(subscriber => selectedIds.includes(subscriber.id));
-    
-    // Validate that selected subscribers actually exist and are active
-    if (subscribers.length === 0) {
-      throw new Error('None of the selected subscribers are active or found in the list.');
-    }
-    
-    console.log(`Sending campaign to ${subscribers.length} selected subscribers out of ${allSubscribers.length} total subscribers`);
-    
-    const batchSize = 50; // SES limit
-    const tracker = createEmailTracker();
+    try {
+      // Get user's active subscription
+      const subscription = await prisma.subscription.findFirst({
+        where: {
+          userId,
+          status: 'ACTIVE',
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
 
-    for (let i = 0; i < subscribers.length; i += batchSize) {
-      const batch = subscribers.slice(i, i + batchSize);
-
-      for (const subscriber of batch) {
-        console.log("Sending email to " + subscriber.email);
-        try {
-          // Generate tracking data
-          const trackingParams = {
-            campaignId: campaignId,
-            subscriberId: subscriber.id,
-            listId: campaign.list.id,
-          };
-
-          // Add tracking to email content
-          const htmlContentWithTracking = tracker.injectTrackingIntoHtml(
-            campaign.content,
-            trackingParams
-          );
-
-          // Generate unique message ID for this email
-          const messageId = `${campaignId}-${subscriber.id}-${Date.now()}`;
-
-          await sendEmail({
-            to: [subscriber.email],
-            subject: campaign.subject,
-            html: htmlContentWithTracking,
-            configurationSetName: process.env.AWS_SES_CONFIGURATION_SET,
-            campaignId: campaignId,
-            messageId: messageId,
-          });
-
-          // Log sent event
-          await prisma.event.create({
-            data: {
-              type: 'SENT',
-              subscriberId: subscriber.id,
-              campaignId: campaignId,
-              data: {
-                email: subscriber.email,
-                subject: campaign.subject,
-                messageId: messageId,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          });
-        } catch (error) {
-          console.error(`Failed to send email to ${subscriber.email}:`, error);
-          
-          // Log failed event
-          await prisma.event.create({
-            data: {
-              type: 'BOUNCED',
-              subscriberId: subscriber.id,
-              campaignId: campaignId,
-              data: {
-                error: error instanceof Error ? error.message : 'Unknown error',
-                email: subscriber.email,
-                timestamp: new Date().toISOString(),
-              },
-            },
-          });
-        }
+      if (!subscription) {
+        console.warn(
+          `No active subscription found for refund to user ${userId}`
+        );
+        return;
       }
 
-      // Add delay between batches to respect rate limits
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Refund credits
+      const newUsedCredits = Math.max(
+        0,
+        subscription.usedCredits - failedCount
+      );
+      const newRemainingCredits = subscription.totalCredits - newUsedCredits;
+
+      await prisma.subscription.update({
+        where: { id: subscription.id },
+        data: {
+          usedCredits: newUsedCredits,
+          remainingCredits: newRemainingCredits,
+        },
+      });
+
+      console.log(
+        `Refunded ${failedCount} credits for user ${userId}. ` +
+          `Credits: ${newUsedCredits}/${subscription.totalCredits} (${newRemainingCredits} remaining)`
+      );
+    } catch (error) {
+      console.error('Error refunding credits:', error);
+      throw error;
+    }
+  }
+
+  // Get detailed usage analytics
+  static async getUserUsageStats(userId: string) {
+    const subscription = await prisma.subscription.findFirst({
+      where: {
+        userId,
+        status: 'ACTIVE',
+      },
+      orderBy: {
+        createdAt: 'desc',
+      },
+    });
+
+    if (!subscription) {
+      return null;
     }
 
-    // Update campaign status
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: {
-        status: 'SENT',
-        sentAt: new Date(),
+    // Get event counts for this billing period
+    const events = await prisma.event.findMany({
+      where: {
+        campaign: {
+          userId,
+        },
+        createdAt: {
+          gte: subscription.currentPeriodStart || new Date(),
+          lte: subscription.currentPeriodEnd || new Date(),
+        },
+      },
+      select: {
+        type: true,
       },
     });
 
-  } catch (error) {
-    // Update campaign status to failed
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: {
-        status: 'DRAFT', // Allow retry
+    const eventCounts = events.reduce(
+      (acc, event) => {
+        acc[event.type] = (acc[event.type] || 0) + 1;
+        return acc;
       },
-    });
-    throw error;
+      {} as Record<string, number>
+    );
+
+    return {
+      subscription: {
+        totalCredits: subscription.totalCredits,
+        usedCredits: subscription.usedCredits,
+        remainingCredits: subscription.remainingCredits,
+        currentPeriodStart: subscription.currentPeriodStart,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+      },
+      usage: {
+        sent: eventCounts.SENT || 0,
+        bounced: eventCounts.BOUNCED || 0,
+        delivered: eventCounts.DELIVERED || 0,
+        opened: eventCounts.OPENED || 0,
+        clicked: eventCounts.CLICKED || 0,
+        unsubscribed: eventCounts.UNSUBSCRIBED || 0,
+        complained: eventCounts.COMPLAINED || 0,
+      },
+      creditUtilization:
+        subscription.totalCredits > 0
+          ? (subscription.usedCredits / subscription.totalCredits) * 100
+          : 0,
+    };
   }
 }
-
-// Tracking is now handled by the EmailTracker class in the tracking library

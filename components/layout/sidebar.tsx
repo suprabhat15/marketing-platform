@@ -3,19 +3,25 @@
 import { useRouter, usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { LoginButton } from "@/components/auth/login-button";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const menuItems = [
-    { id: "dashboard", label: "Dashboard", icon: "📊", path: "/" },
-    { id: "campaigns", label: "Campaigns", icon: "📧", path: "/campaigns" },
-    { id: "subscribers", label: "Subscribers", icon: "👥", path: "/subscribers" },
-    { id: "templates", label: "Templates", icon: "📝", path: "/templates" },
-    { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
-    { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
-    { id: "lists", label: "Lists", icon: "📋", path: "/lists" },
+    // { id: "dashboard", label: "Dashboard", icon: "📊", path: "/" },
+    { id: 'campaigns', label: 'Campaigns', icon: '📧', path: '/campaigns' },
+    // {
+    //   id: 'subscribers',
+    //   label: 'Subscribers',
+    //   icon: '👥',
+    //   path: '/subscribers',
+    // },
+    { id: 'templates', label: 'Templates', icon: '📝', path: '/templates' },
+    { id: 'lists', label: 'Lists', icon: '📋', path: '/lists' },
+    { id: 'domains', label: 'Domains', icon: '🌐', path: '/domains' },
+    // { id: "analytics", label: "Analytics", icon: "📈", path: "/analytics" },
+    // { id: "automation", label: "Automation", icon: "⚙️", path: "/automation" },
+    { id: 'billing', label: 'Billing', icon: '💳', path: '/billing' },
   ];
 
   const handleNavigation = (path: string) => {
@@ -24,9 +30,8 @@ export function Sidebar() {
 
   return (
     <div className="w-64 h-screen bg-sidebar border-r border-sidebar-border p-4 flex flex-col">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-8">
         <h1 className="text-2xl font-bold text-sidebar-foreground">MailPackr</h1>
-        <ThemeToggle />
       </div>
       
       <nav className="space-y-2 flex-1">
