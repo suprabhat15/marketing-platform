@@ -3,6 +3,7 @@ import { prismaAdapter } from 'better-auth/adapters/prisma';
 import { prisma } from './prisma';
 import { sendVerificationEmail } from './email-templates/verification';
 import { sendDeleteAccountVerificationEmail } from './email-templates/delete-account';
+import { deletePolarCustomer } from './polar/polar-customer.service';
 
 import { polar, checkout, portal, usage } from '@polar-sh/better-auth';
 import { Polar } from '@polar-sh/sdk';
@@ -90,17 +91,20 @@ export const auth = betterAuth({
           );
         }
       },
-      afterDelete: async (user) => {
-        try {
-          await polarClient.customers.deleteExternal({
-            externalId: user.id,
-          });
-        } catch (error) {
-          console.error('Failed to delete Polar customer after account deletion', {
-            userId: user.id,
-            error,
-          });
-        }
+      beforeDelete: async (user) => {
+        // 1. Wipe Polar customer profile and subscriptions before local deletion (aborts if Polar fails)
+        await deletePolarCustomer(user.id, (user as any).polarCustomerId);
+
+        // 2. Remove indirect subscriber events where foreign key is ON DELETE SET NULL
+        await prisma.event.deleteMany({
+          where: {
+            subscriber: {
+              list: {
+                userId: user.id,
+              },
+            },
+          },
+        });
       },
     },
   },

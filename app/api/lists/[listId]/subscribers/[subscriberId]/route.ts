@@ -165,6 +165,11 @@ export async function DELETE(
       );
     }
 
+    // Delete events associated with this subscriber to avoid orphaned records
+    await prisma.event.deleteMany({
+      where: { subscriberId },
+    });
+
     // Delete the subscriber
     await prisma.subscriber.delete({
       where: { id: subscriberId },
