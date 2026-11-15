@@ -92,14 +92,21 @@ export const auth = betterAuth({
       },
       afterDelete: async (user) => {
         try {
-          await polarClient.customers.deleteExternal({
-            externalId: user.id,
-          });
+          const { deleteCustomerByUserId } = await import(
+            './polar/polar-customer.service'
+          );
+          await deleteCustomerByUserId(
+            user.id,
+            (user as { polarCustomerId?: string | null }).polarCustomerId
+          );
         } catch (error) {
-          console.error('Failed to delete Polar customer after account deletion', {
-            userId: user.id,
-            error,
-          });
+          console.error(
+            'Failed to delete Polar customer after account deletion',
+            {
+              userId: user.id,
+              error,
+            }
+          );
         }
       },
     },

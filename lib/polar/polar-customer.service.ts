@@ -171,3 +171,45 @@ export async function getCustomerPortalData(
 
   return { customer: null, subscriptions, orders, meters, customerPortalUrl: session.customerPortalUrl ?? null };
 }
+
+/**
+ * Purges a customer profile from Polar.sh.
+ * Resolves by polarCustomerId if provided, or fetches from Polar by externalId, then calls polar.customers.delete.
+ */
+export async function deleteCustomerByUserId(
+  userId: string,
+  polarCustomerId?: string | null,
+): Promise<void> {
+  let customerId = polarCustomerId;
+
+  if (!customerId) {
+    try {
+      const customer = await polar.customers.getStateExternal({
+        externalId: userId,
+      });
+      if (customer && customer.id) {
+        customerId = customer.id;
+      }
+    } catch (err: any) {
+      const statusCode = err?.statusCode ?? err?.status;
+      if (statusCode === 404 || err?.error === 'ResourceNotFound') {
+        return; // Non-existent on Polar, nothing to purge
+      }
+      console.warn(`[Polar] Could not find customer for externalId ${userId}:`, err);
+    }
+  }
+
+  if (customerId) {
+    try {
+      await polar.customers.delete({ id: customerId });
+      console.info(`[Polar] Purged customer ${customerId} for user ${userId}.`);
+    } catch (err: any) {
+      const statusCode = err?.statusCode ?? err?.status;
+      if (statusCode === 404 || err?.error === 'ResourceNotFound') {
+        return; // Already deleted
+      }
+      console.error(`[Polar] Error deleting customer ${customerId}:`, err);
+      throw err;
+    }
+  }
+}
